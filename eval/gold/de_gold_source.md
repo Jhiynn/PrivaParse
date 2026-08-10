@@ -10,9 +10,14 @@ Entitäten werden inline markiert: `{{PERSON:Max Mustermann}}`, `{{EMAIL:...}}`,
 Syntax auch für `{{IBAN:...}}`, `{{CARD:...}}`, `{{TAX_ID:...}}`, `{{IP:...}}`,
 `{{POSTAL_CODE:...}}`, `{{ADDRESS:...}}`, `{{DATE_OF_BIRTH:...}}`,
 `{{NATIONAL_ID:...}}`, `{{PASSPORT:...}}`, `{{ACCOUNT_ID:...}}` und
-`{{USERNAME:...}}` zum Einsatz — die Typnamen müssen exakt so geschrieben sein
-wie im Katalog (`privaparse catalog show`);
-`test_every_gold_type_exists_in_the_catalogue` prüft das.
+`{{USERNAME:...}}` zum Einsatz. Task 13 fügt `{{ROUTING_NUMBER:...}}`,
+`{{CARD_EXPIRY:...}}`, `{{CARD_CVV:...}}`, `{{ACCOUNT_NUMBER:...}}`,
+`{{CITY:...}}`, `{{REGION:...}}`, `{{COUNTRY:...}}`,
+`{{DRIVERS_LICENSE:...}}`, `{{LICENSE_NUMBER:...}}`, `{{SECRET:...}}` und
+`{{DATE:...}}` hinzu — die elf Typen, die bis dahin ohne jede Gold-Abdeckung
+waren. Die Typnamen müssen exakt so geschrieben sein wie im Katalog
+(`privaparse catalog show`); `test_every_gold_type_exists_in_the_catalogue`
+prüft das.
 
 - **Titel und Anreden gehören nicht zur Entität.** `Herr`, `Frau`, `Dr.`,
   `Prof.`, `Dipl.-Ing.` bleiben außerhalb der Markierung. Sie sind für sich
@@ -23,6 +28,18 @@ wie im Katalog (`privaparse catalog show`);
   Set, um False Positives zu messen. Ein bloßer Orts- oder Postleitzahlname
   ohne Straße und Hausnummer ist keine `ADDRESS` — der Katalog verlangt dafür
   eine vollständige Anschrift oder zumindest Straße plus Hausnummer.
+- **CITY, REGION und COUNTRY sind die eine Ausnahme von der vorigen Regel —
+  markiert wird, wenn der Ort eine namentlich genannte Person identifizieren
+  hilft:** Wohnort, Geburtsort oder Sitz einer Einzelperson (auch eines
+  Einzelunternehmens, das denselben Namen trägt wie sein Inhaber). Ein Ort,
+  der nur ein Unternehmen, eine Behörde oder — wie in de-006 — ein
+  Vertriebsgebiet beschreibt, bleibt weiterhin unmarkiert; das ist dieselbe
+  Unterscheidung wie bei ACCOUNT_ID zwei Punkte weiter unten, nur auf
+  Ortsnamen angewendet. CITY und REGION sind im Katalog standardmäßig
+  deaktiviert (`enabled: false`), COUNTRY ebenso — das ändert nichts daran,
+  dass ihre Entitäten hier annotiert werden: Gold-Daten halten fest, was ein
+  Typ richtig erkennen müsste, nicht, ob der Katalog seine Labels aktuell an
+  das Modell sendet.
 - **Aktenzeichen, Bestell-, Artikel- und Rechnungsnummern sowie Beträge werden
   nicht markiert.** Sie sehen Telefonnummern, Kartennummern oder Kontokennungen
   ähnlich genug, um die Precision zu testen.
@@ -31,6 +48,18 @@ wie im Katalog (`privaparse catalog show`);
   Unterscheidung zur vorigen Regel: eine Rechnungsnummer identifiziert einen
   Vorgang, eine Kundennummer identifiziert einen Menschen.
 - Telefonnummern werden vollständig markiert, so wie sie geschrieben stehen.
+- **SECRET ist `reversible: false`.** Die markierten Werte werden nie
+  wiederhergestellt, nur erkannt und durch einen Platzhalter ersetzt. Die
+  Annotation hält trotzdem fest, wo im Text ein Secret steht — sonst wäre
+  Recall für diesen Typ nicht messbar.
+- **DATE markiert nur Daten, die eine Person betreffen.** de-122 bis de-124
+  enthalten je ein Behandlungs-, Kündigungs- bzw. Haftantrittsdatum
+  (markiert) und daneben, im selben Dokument, ein Dokumenten-,
+  Besprechungs- bzw. Fristdatum (bewusst unmarkiert, obwohl es demselben
+  Format folgt) — genau diese Unterscheidung soll die Messung treffen,
+  nicht das Datumsformat. Der Task-Auftrag nennt zusätzlich Einstellungs-
+  und Sterbedatum als Beispiele für die erste Gruppe; drei Dokumente
+  decken drei der fünf genannten Beispiele ab, nicht alle fünf.
 - **Batch A (IBAN, CARD, TAX_ID, IP, POSTAL_CODE) besteht aus Werten, die
   `generate_decidable()` erzeugt hat** — von Konstruktion aus gültig gegen
   ihren jeweiligen Validator, damit das Gold-Set den Checksum-Mechanismus
@@ -45,6 +74,15 @@ wie im Katalog (`privaparse catalog show`);
   zuverlässig als `tax_id` (gemessene Recall 0.000), und ein Gold-Set, das
   nur die Schreibweise enthält, die das Modell schon beherrscht, würde
   genau die Lücke verstecken, die zu messen der Zweck dieses Typs ist.
+- **Batch D (ROUTING_NUMBER, CARD_EXPIRY, CARD_CVV, ACCOUNT_NUMBER, Task 13)
+  folgt demselben Prinzip wie Batch A** — Werte aus `generate_decidable()`,
+  von Konstruktion aus gültig gegen ihren Validator. Eine Ausnahme:
+  ACCOUNT_NUMBER hat keinen Validator, weder hier noch im Katalog — ein
+  deutsches Kontonummernformat (8 bis 10 Stellen) hatte, anders als IBAN
+  oder die Steuer-ID, nie eine einheitliche, bundesweite Prüfziffernmethode;
+  das ist der Grund, warum IBAN es ersetzt hat. "Von Konstruktion aus"
+  bedeutet für diesen einen Typ nur die Stellenzahl, nicht eine Prüfsumme,
+  die es nicht gibt.
 
 ## Aufbau des Korpus
 
@@ -60,6 +98,13 @@ Batch-Grenzen stehen nur in dieser Präambel:
   NATIONAL_ID, PASSPORT, ACCOUNT_ID, USERNAME — von Hand annotiert.
 - **de-069 – de-091** (Batch C, 23 Dokumente): Negative. Kein einziger Marker
   in diesem Block ist ein Versehen — das Fehlen ist die Messung.
+- **de-092 – de-103** (Batch D, 12 Dokumente, Task 13): ROUTING_NUMBER,
+  CARD_EXPIRY, CARD_CVV, ACCOUNT_NUMBER — generiert, drei Dokumente je Typ.
+- **de-104 – de-124** (Batch E, 21 Dokumente, Task 13): CITY, REGION,
+  COUNTRY, DRIVERS_LICENSE, LICENSE_NUMBER, SECRET, DATE — von Hand
+  annotiert, drei Dokumente je Typ. Vier dieser Typen (CITY, REGION,
+  COUNTRY, DATE) sind im Katalog deaktiviert; annotiert sind sie trotzdem —
+  siehe die Annotationsregel oben.
 
 ### id: de-001 | kind: brief
 Sehr geehrter Herr {{PERSON:Max Mustermann}},
@@ -897,3 +942,313 @@ Material: eloxiertes Aluminium
 Betriebstemperatur: -10 °C bis 50 °C
 
 Die technischen Daten können sich ohne Ankündigung ändern.
+
+### id: de-092 | kind: ueberweisungsauftrag
+Überweisungsauftrag
+
+Bitte überweisen Sie folgenden Betrag von unserem Geschäftskonto:
+
+Empfänger: Elektro Baumann GmbH
+Bankleitzahl: {{ROUTING_NUMBER:42604684}}
+Betrag: 640,00 EUR
+Verwendungszweck: Rechnung 2026-0788
+
+Ausführung bitte bis zum Monatsende.
+
+### id: de-093 | kind: auslandsueberweisung
+Auslandsüberweisung
+
+Für die Überweisung nach Übersee benötigen wir zusätzlich zur IBAN den
+SWIFT/BIC-Code Ihrer Bank.
+
+BIC: {{ROUTING_NUMBER:AAAUDE8A}}
+Betrag: 2.150,00 USD
+Verwendungszweck: Warenlieferung Auftrag 4471
+
+Bitte bestätigen Sie den Code vor Ausführung.
+
+### id: de-094 | kind: bankverbindung
+Bankverbindung für künftige Zahlungen
+
+Sehr geehrte Damen und Herren,
+
+für alle künftigen Überweisungen nutzen Sie bitte folgende Bankverbindung:
+
+BIC: {{ROUTING_NUMBER:MVGNDEB7O25}}
+
+Eine Bestätigung des Zahlungseingangs erhalten Sie jeweils per E-Mail.
+
+### id: de-095 | kind: kartenbestaetigung
+Bestätigung der hinterlegten Zahlungskarte
+
+Ihre im Kundenkonto hinterlegte Kreditkarte ist nur noch bis
+{{CARD_EXPIRY:09/30}} gültig. Bitte aktualisieren Sie Ihre Zahlungsdaten
+rechtzeitig, damit es nicht zu Unterbrechungen bei der
+Abonnementverlängerung kommt.
+
+### id: de-096 | kind: kartenaktualisierung
+Zahlungsdaten aktualisiert
+
+Vielen Dank. Wir haben Ihre neue Karte mit Gültigkeit bis
+{{CARD_EXPIRY:06/2030}} erfolgreich hinterlegt. Die nächste Abbuchung
+erfolgt wie gewohnt zum Monatsersten.
+
+### id: de-097 | kind: ablaufhinweis
+Hinweis: Karte läuft bald ab
+
+Die für Ihr Abonnement hinterlegte Karte ist gültig bis
+{{CARD_EXPIRY:11/30}}. Nach Ablauf können wir den Betrag nicht mehr
+automatisch einziehen — bitte hinterlegen Sie rechtzeitig eine neue Karte.
+
+### id: de-098 | kind: sicherheitsvorfall
+Sicherheitsvorfall — interner Bericht
+
+Bei einer Prüfung wurde festgestellt, dass ein Mitarbeiter die
+Kartenprüfnummer eines Kunden versehentlich im Support-Chat
+mitprotokolliert hat: {{CARD_CVV:779}}. Der Chatverlauf wurde umgehend aus
+dem System entfernt und der Kunde informiert.
+
+### id: de-099 | kind: supportticket
+Support-Ticket #55219-B
+
+Kunde: {{PERSON:Robert Nickel}}
+
+Der Kunde hat im Chat zur Verifizierung seiner Zahlung versehentlich auch
+die Kartenprüfnummer genannt: {{CARD_CVV:7530}}.
+
+Der Vorgang wurde an die Datenschutzbeauftragte gemeldet, damit der
+Chatverlauf bereinigt wird.
+
+### id: de-100 | kind: datenpanne
+Meldung einer Datenpanne
+
+Im Rahmen der Untersuchung wurde festgestellt, dass eine fehlerhaft
+exportierte Protokolldatei auch die Kartenprüfnummer {{CARD_CVV:975}} eines
+einzelnen Kunden enthielt. Die Datei wurde gelöscht, betroffene Systeme
+wurden bereinigt.
+
+### id: de-101 | kind: kontoauszug
+Kontoauszug Nr. 3/2026
+
+Kontonummer: {{ACCOUNT_NUMBER:38893829}}
+Zeitraum: 01.03.2026 – 31.03.2026
+
+Anfangssaldo: 1.842,17 EUR
+Endsaldo: 2.015,63 EUR
+
+Bei Fragen zu einzelnen Buchungen wenden Sie sich an Ihre Filiale.
+
+### id: de-102 | kind: kontoauszug
+Kontoauszug Nr. 4/2026
+
+Kontonummer: {{ACCOUNT_NUMBER:994828918}}
+Zeitraum: 01.04.2026 – 30.04.2026
+
+Es sind keine Rücklastschriften zu verzeichnen. Der Auszug wird wie
+gewohnt postalisch zugestellt.
+
+### id: de-103 | kind: kontoeroeffnung
+Bestätigung der Kontoeröffnung
+
+Ihr neues Konto wurde erfolgreich eingerichtet.
+
+Kontonummer: {{ACCOUNT_NUMBER:4387264885}}
+
+Die dazugehörige Bankkarte erhalten Sie innerhalb der nächsten fünf
+Werktage per Post.
+
+### id: de-104 | kind: geburtsbescheinigung
+Geburtsbescheinigung — Auszug
+
+Hiermit wird bestätigt, dass {{PERSON:Fabian Kessler}} am 14.03.1990 in
+{{CITY:Freiburg im Breisgau}} geboren wurde.
+
+Die Bescheinigung dient der Vorlage beim Standesamt.
+
+### id: de-105 | kind: wohnsitzbestaetigung
+Wohnsitzbestätigung
+
+Hiermit bestätigen wir, dass {{PERSON:Nora Vogt}} seit dem 03.02.2019 mit
+Hauptwohnsitz in {{CITY:Bonn}} gemeldet ist.
+
+Diese Bestätigung wird auf Antrag der Antragstellerin ausgestellt.
+
+### id: de-106 | kind: gewerbeanmeldung
+Gewerbeanmeldung — Bestätigung
+
+Die Anmeldung des Einzelunternehmens von {{PERSON:Julius Ahrens}} wurde
+bearbeitet.
+
+Sitz des Unternehmens: {{CITY:Trier}}
+Tätigkeit: IT-Beratung
+
+Die Gewerbekarte wird in den nächsten Tagen zugestellt.
+
+### id: de-107 | kind: personalfragebogen
+Personalfragebogen
+
+Name: {{PERSON:Annegret Lindqvist}}
+Geburtsort: {{CITY:Rostock}}, {{REGION:Mecklenburg-Vorpommern}}
+Aktuelle Tätigkeit: Sachbearbeiterin
+
+Der Fragebogen wird in der Personalakte abgelegt.
+
+### id: de-108 | kind: versicherungsantrag
+Versicherungsantrag — interne Notiz
+
+Der Wohnsitz von {{PERSON:Matthias Ebeling}} liegt im Bundesland
+{{REGION:Baden-Württemberg}}, was für die Tarifberechnung der
+Kfz-Versicherung maßgeblich ist.
+
+Der Antrag wird zur Prüfung weitergeleitet.
+
+### id: de-109 | kind: praxisanmeldung
+Praxisanmeldung
+
+Die private Praxis von Dr. {{PERSON:Rebecca Zysset}} hat ihren Sitz im
+Kanton {{REGION:Zürich}}.
+
+Die Anmeldung wurde durch die zuständige kantonale Stelle bestätigt.
+
+### id: de-110 | kind: meldebestaetigung
+Meldebestätigung
+
+{{PERSON:Elif Kurtuluş}}, geboren in {{CITY:Izmir}}, {{COUNTRY:Türkei}}, ist
+seit dem 01.09.2025 in der Gemeinde gemeldet.
+
+Diese Bestätigung wird auf Antrag ausgestellt.
+
+### id: de-111 | kind: nachlassvermerk
+Nachlassangelegenheit — interner Vermerk
+
+Der Erbe, {{PERSON:Jonathan Reyes}}, ist wohnhaft in {{COUNTRY:Kanada}}.
+Die Korrespondenz erfolgt daher ausschließlich postalisch mit
+internationalen Laufzeiten.
+
+Der Fall bleibt bis zur Rückmeldung ruhend.
+
+### id: de-112 | kind: auftragsbestaetigung
+Auftragsbestätigung
+
+Die Beratungsleistung wird von {{PERSON:Helena Marques}} erbracht, deren
+Einzelunternehmen seinen Sitz in {{COUNTRY:Portugal}} hat.
+
+Die Rechnungsstellung erfolgt in Euro.
+
+### id: de-113 | kind: uebergabeprotokoll
+Mietwagen-Übergabeprotokoll
+
+Fahrer: {{PERSON:Tobias Rehmer}}
+Führerscheinnummer: {{DRIVERS_LICENSE:B072RRE2I95}}
+Fahrzeug: VW Golf, Kennzeichen wird separat erfasst
+
+Der Führerschein wurde bei Übergabe im Original vorgelegt und geprüft.
+
+### id: de-114 | kind: fahrerfreigabe
+Fahrerfreigabe — interne Prüfung
+
+Für {{PERSON:Kerstin Ohlendorf}} wurde die Fahrerlaubnis geprüft.
+Führerscheinnummer: {{DRIVERS_LICENSE:AEP84200LH3}}, Klasse B, gültig bis
+2031.
+
+Die Freigabe für den Fuhrpark wurde erteilt.
+
+### id: de-115 | kind: unfallanzeige
+Unfallanzeige
+
+Unfallverursacher: {{PERSON:Milan Sedlák}}
+Führerscheinnummer: {{DRIVERS_LICENSE:C511009XN27}}
+
+Der Schaden wird durch die Kfz-Haftpflichtversicherung des Verursachers
+reguliert.
+
+### id: de-116 | kind: approbationsbestaetigung
+Bestätigung der Approbation
+
+Hiermit wird bestätigt, dass Dr. {{PERSON:Yasmin Roth}} unter der
+Approbationsnummer {{LICENSE_NUMBER:AP-2014-08823}} als Ärztin zugelassen
+ist.
+
+Die Bestätigung dient der Vorlage bei der Krankenversicherung.
+
+### id: de-117 | kind: zulassungsbescheinigung
+Zulassungsbescheinigung
+
+{{PERSON:Sebastian Vogler}} ist bei der Rechtsanwaltskammer unter der
+Zulassungsnummer {{LICENSE_NUMBER:RAK-33871-M}} als Rechtsanwalt
+registriert.
+
+Die Bescheinigung gilt für das laufende Kalenderjahr.
+
+### id: de-118 | kind: personenbefoerderungsschein
+Bestätigung Personenbeförderungsschein
+
+Der Personenbeförderungsschein wurde {{PERSON:Klaus-Dieter Ahrend}} unter
+der Nummer {{LICENSE_NUMBER:PBEF-4471-NRW}} erteilt.
+
+Der Schein ist an die Person gebunden und nicht übertragbar.
+
+### id: de-119 | kind: email
+Betreff: Zugangsdaten für die Staging-Umgebung
+
+Hallo,
+
+hier die Konfigurationszeile, die du für die lokale .env brauchst:
+
+API_KEY={{SECRET:svc_9f2ac4e7d8b14f0aa2c6e5d1b7f30948_prod}}
+
+Bitte nicht im Repository committen.
+
+Viele Grüße
+{{PERSON:Dennis Kowalski}}
+
+### id: de-120 | kind: supportticket
+Support-Ticket #77102
+
+Kunde: {{PERSON:Priya Nair}}
+
+Beschreibung: Die Anwendung meldet einen Authentifizierungsfehler. Zur
+Fehlersuche habe ich testweise den aktuellen Zugriffstoken angehängt:
+
+Bearer {{SECRET:eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyXzQ0NzEifQ.k3F9pQ}}
+
+Bitte prüfen, ob der Token abgelaufen ist.
+
+### id: de-121 | kind: uebergabenotiz
+Übergabenotiz
+
+Für die Dauer meines Urlaubs übernimmt {{PERSON:Sascha Lindner}} die
+Betreuung des Servers.
+
+Zugangsdaten Admin-Panel: Benutzer admin, Passwort
+{{SECRET:Gr3en!Fjord42_Xk}}
+
+Bitte nach Rückkehr ändern.
+
+### id: de-122 | kind: patientenakte
+Patientenakte — Ergänzung
+
+{{PERSON:Holger Brandes}} wurde am {{DATE:22.01.2026}} notfallmäßig
+operiert. Der Eingriff verlief ohne Komplikationen, die Nachsorge erfolgt
+ambulant.
+
+Dieser Vermerk wurde am 24.01.2026 in die Akte aufgenommen.
+
+### id: de-123 | kind: personalvorgang
+Personalvorgang — Vermerk zur Kündigung
+
+Das Arbeitsverhältnis mit {{PERSON:Yvonne Talbot}} endet auf Veranlassung
+des Arbeitgebers zum {{DATE:31.03.2026}}.
+
+Die Entscheidung wurde in der Besprechung der Geschäftsleitung am
+15.02.2026 getroffen und Frau {{PERSON:Talbot}} im Anschluss persönlich
+mitgeteilt.
+
+### id: de-124 | kind: vollzugsvermerk
+Vollzugsvermerk
+
+{{PERSON:Radovan Němec}} trat die Freiheitsstrafe am {{DATE:03.02.2026}} in
+der Justizvollzugsanstalt an.
+
+Der nächste Überprüfungstermin zur Vollzugsplanung ist bis spätestens
+03.08.2026 anzusetzen.

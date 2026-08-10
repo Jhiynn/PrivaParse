@@ -402,4 +402,13 @@ def test_generated_decidable_values_pass_their_validators():
     from privaparse.parser import registry
 
     for entity_type, value, validator in generate_decidable(seed=7):
+        if validator is None:
+            # ACCOUNT_NUMBER carries no validator — entities.default.yaml
+            # declares none, because an 8-10 digit Kontonummer has no
+            # nationwide check-digit scheme to construct against. "By
+            # construction" for this one type can only mean the digit-length
+            # range the brief specifies, so that is what gets checked here.
+            assert entity_type == "ACCOUNT_NUMBER"
+            assert value.isdigit() and 8 <= len(value) <= 10, f"{entity_type}: {value}"
+            continue
         assert registry.get_validator(validator)(value), f"{entity_type}: {value}"
