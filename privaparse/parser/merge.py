@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Iterable, Sequence
 from privaparse.app.logging import get_logger
 from privaparse.parser import registry
 from privaparse.parser.markdown import ProtectedText
-from privaparse.parser.types import SOURCE_COREF, SOURCE_GLINER, SOURCE_REGEX, EntityType, Span
+from privaparse.parser.types import SOURCE_COREF, SOURCE_GLINER, SOURCE_REGEX, Span
 
 if TYPE_CHECKING:  # pragma: no cover
     from privaparse.app.catalogue import Catalogue
@@ -39,18 +39,22 @@ _TRAILING_TRIM = " \t\r\n.,;:!?)>]}\"'“«‘›*_"
 #: substring matching produces noise ("Li" inside "Lieferung").
 _MIN_SWEEP_LENGTH = 3
 
-_TYPE_RANK = {"EMAIL": 3, "PHONE": 3, "PERSON": 1}
-_SOURCE_RANK = {SOURCE_REGEX: 3, SOURCE_GLINER: 2, SOURCE_COREF: 1}
+#: Higher wins an overlap. The model decides: rules assist it, they do not
+#: outrank it. Regex keeps both of its jobs — recall backstop here, and the
+#: checksum veto in `_passes_rule_check` — and neither is "win a span the model
+#: also found".
+#:
+#: This is a reversal. The old ranking put regex above the model, with a type
+#: rank on top so an EMAIL span beat a PERSON span that had swallowed the local
+#: part. That case is now handled by the `email_syntax` validator plus the
+#: longest-span tie-break, which is where it belonged: a syntax rule, not a
+#: standing claim that rules know better.
+_SOURCE_RANK = {SOURCE_GLINER: 3, SOURCE_REGEX: 2, SOURCE_COREF: 1}
 
 
 def span_priority(span: Span) -> int:
-    """Higher wins an overlap.
-
-    Type dominates source: a PERSON span overlapping an email is nearly always
-    the model grabbing the local part, and the email is the better answer even
-    though it came from a "dumber" detector.
-    """
-    return _TYPE_RANK.get(span.type, 1) * 10 + _SOURCE_RANK.get(span.source, 1)
+    """Higher wins an overlap."""
+    return _SOURCE_RANK.get(span.source, 1)
 
 
 def resolve_spans(
@@ -66,7 +70,7 @@ def resolve_spans(
     if not sweep:
         return merged
 
-    extra = coreference_sweep(merged, protected)
+    extra = coreference_sweep(merged, protected, catalogue=catalogue)
     if not extra:
         return merged
     # The sweep can only add spans, so a second merge just settles overlaps
@@ -115,10 +119,17 @@ def merge_spans(
 def coreference_sweep(
     accepted: Sequence[Span],
     protected: ProtectedText,
+    *,
+    catalogue: "Catalogue | None",
 ) -> list[Span]:
     """Find further occurrences of already-accepted surface forms.
 
     Only searches the masked view, so repeats inside code fences stay untouched.
+
+    ``catalogue`` is required, not defaulted, on purpose: a default of ``None``
+    would make every type silently fall back to "word" sweeping, and that
+    fallback is a behaviour change nothing would report. Pass ``None``
+    explicitly where a test genuinely does not need catalogue-driven modes.
     """
     if not accepted:
         return []
@@ -132,7 +143,12 @@ def coreference_sweep(
         if len(surface) < _MIN_SWEEP_LENGTH:
             continue
 
-        pattern = _sweep_pattern(surface, span.type)
+        mode = "word"
+        if catalogue is not None and span.type in catalogue.types:
+            mode = catalogue.types[span.type].sweep
+        pattern = _sweep_pattern(surface, mode)
+        if pattern is None:
+            continue
         for match in pattern.finditer(view):
             key = (match.start(), match.end())
             if key in seen:
@@ -191,15 +207,22 @@ def _unique_by_surface(spans: Sequence[Span]) -> list[Span]:
     return out
 
 
-def _sweep_pattern(surface: str, entity_type: str) -> re.Pattern[str]:
+def _sweep_pattern(surface: str, sweep: str) -> re.Pattern[str] | None:
+    """The rule for re-finding this value elsewhere in the document.
+
+    ``off`` exists for types whose values are ordinary words. Sweeping for
+    "Berlin" across a document produces more noise than protection, and the
+    noise is indistinguishable from a detection failure when you read the
+    output.
+    """
     escaped = re.escape(surface)
-    if entity_type == EntityType.EMAIL:
-        # Addresses are case-insensitive in practice, and boundaries stop
-        # "max@test.de" from matching inside "notmax@test.de".
+    if sweep == "off":
+        return None
+    if sweep == "icase":
         return re.compile(rf"(?<![\w.+-]){escaped}(?![\w-])", re.IGNORECASE)
-    if entity_type == EntityType.PERSON:
-        return re.compile(rf"(?<!\w){escaped}(?!\w)")
-    return re.compile(escaped)
+    if sweep == "exact":
+        return re.compile(escaped)
+    return re.compile(rf"(?<!\w){escaped}(?!\w)")
 
 
 def _trim(span: Span, text: str | None) -> Span | None:

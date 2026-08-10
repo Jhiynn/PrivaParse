@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
 from privaparse.app.catalogue import load_catalogue
@@ -30,8 +32,13 @@ def test_low_confidence_spans_are_dropped() -> None:
     assert merge_spans([weak], threshold=0.1, catalogue=None) == [weak]
 
 
-def test_email_beats_an_overlapping_person_span() -> None:
-    """The model grabbing the local part of an address is the common case.
+def test_person_from_the_model_wins_over_an_overlapping_regex_email() -> None:
+    """A PERSON span from the model swallowing an email's local part used to
+    lose to a type rank that put EMAIL above PERSON regardless of source.
+    That rank is gone: the model's own classification now wins on source
+    alone. The failure mode the old rank was guarding against — a fragment
+    mistagged EMAIL — is now caught by the email_syntax validator instead
+    (see test_model_proposals_that_are_not_valid_syntax_are_dropped).
 
     Priority resolution, not the veto — no catalogue needed. The email span
     is SOURCE_REGEX (never vetoed) and PERSON has no validator either way.
@@ -41,18 +48,21 @@ def test_email_beats_an_overlapping_person_span() -> None:
     person = _span(text, "max", EntityType.PERSON, score=0.95)
 
     merged = merge_spans([person, email], catalogue=None)
-    assert [s.type for s in merged] == [EntityType.EMAIL]
+    assert [s.type for s in merged] == [EntityType.PERSON]
 
 
-def test_regex_wins_over_the_model_for_the_same_type() -> None:
-    """Priority resolution, not the veto: REGEX outranks GLINER for the same
-    type regardless of whether the model's span would itself pass a check."""
+def test_the_model_wins_over_regex_for_the_same_type() -> None:
+    """Priority resolution, not the veto: GLINER now outranks REGEX, so the
+    model's span wins even though it is shorter. Regex still supplies the
+    recall backstop and the checksum veto, but neither is "win a span the
+    model also found" — no catalogue needed, since PHONE's veto never runs
+    without one."""
     text = "Ruf +49 170 1234567 an."
     from_regex = _span(text, "+49 170 1234567", EntityType.PHONE, source=SOURCE_REGEX, score=1.0)
     from_model = _span(text, "170 1234567", EntityType.PHONE, score=0.99)
 
     merged = merge_spans([from_model, from_regex], catalogue=None)
-    assert merged == [from_regex]
+    assert merged == [from_model]
 
 
 def test_longer_span_wins_at_equal_priority() -> None:
@@ -211,11 +221,14 @@ def test_hyphenated_names_survive_trimming() -> None:
 
 
 def test_sweep_finds_a_repeat_the_model_missed() -> None:
+    """Repeat-finding, not sweep-mode selection. PERSON's no-catalogue
+    fallback is "word", the same mode the catalogue itself gives PERSON, so
+    no catalogue is needed to see the repeat found."""
     text = "Max Mustermann kam. Später ging Max Mustermann wieder."
     protected = protect(text)
     first_only = [_span(text, "Max Mustermann", EntityType.PERSON)]
 
-    extra = coreference_sweep(first_only, protected)
+    extra = coreference_sweep(first_only, protected, catalogue=None)
     assert len(extra) == 1
     assert extra[0].source == SOURCE_COREF
     assert extra[0].verify_against(text)
@@ -223,42 +236,55 @@ def test_sweep_finds_a_repeat_the_model_missed() -> None:
 
 
 def test_sweep_does_not_reach_into_protected_regions() -> None:
+    """Protected-region masking, not sweep-mode selection — every non-off
+    mode is masked the same way, so no catalogue is needed here."""
     text = 'Max Mustermann schrieb.\n\n```\nautor = "Max Mustermann"\n```\n'
     protected = protect(text)
     accepted = [_span(text, "Max Mustermann", EntityType.PERSON)]
 
-    assert coreference_sweep(accepted, protected) == []
+    assert coreference_sweep(accepted, protected, catalogue=None) == []
 
 
 def test_sweep_respects_word_boundaries_for_names() -> None:
+    """Boundary enforcement is what the catalogue's "word" mode means for
+    PERSON, so this exercises the catalogue rather than leaning on the
+    no-catalogue fallback that happens to default to the same mode."""
     text = "Ernst kam. Der Ernstfall trat ein."
     protected = protect(text)
     accepted = [_span(text, "Ernst", EntityType.PERSON)]
 
-    assert coreference_sweep(accepted, protected) == []
+    assert coreference_sweep(accepted, protected, catalogue=load_catalogue()) == []
 
 
 def test_sweep_matches_emails_case_insensitively() -> None:
+    """EMAIL's "icase" mode is catalogue-configured; the no-catalogue
+    fallback is "word", which is case sensitive and would fail this for the
+    wrong reason. The real catalogue is required for the assertion to mean
+    anything."""
     text = "max@test.de und MAX@TEST.DE"
     protected = protect(text)
     accepted = [_span(text, "max@test.de", EntityType.EMAIL, source=SOURCE_REGEX, score=1.0)]
 
-    extra = coreference_sweep(accepted, protected)
+    extra = coreference_sweep(accepted, protected, catalogue=load_catalogue())
     assert [s.text for s in extra] == ["MAX@TEST.DE"]
 
 
 def test_sweep_ignores_very_short_surface_forms() -> None:
+    """The length filter runs before a sweep pattern is even chosen, so no
+    catalogue is needed to see a two-character surface rejected."""
     text = "Bo kam. Bo ging."
     protected = protect(text)
     accepted = [_span(text, "Bo", EntityType.PERSON)]
-    assert coreference_sweep(accepted, protected) == []
+    assert coreference_sweep(accepted, protected, catalogue=None) == []
 
 
 def test_sweep_keeps_original_casing_of_the_new_occurrence() -> None:
+    """Same reasoning as the case-insensitivity test above: EMAIL's "icase"
+    mode only applies with the real catalogue."""
     text = "max@test.de und MAX@TEST.DE"
     protected = protect(text)
     accepted = [_span(text, "max@test.de", EntityType.EMAIL, source=SOURCE_REGEX, score=1.0)]
-    extra = coreference_sweep(accepted, protected)
+    extra = coreference_sweep(accepted, protected, catalogue=load_catalogue())
     assert extra[0].verify_against(text)
 
 
@@ -293,3 +319,44 @@ def test_resolve_spans_can_skip_the_sweep() -> None:
 
     assert len(resolve_spans(protected, raw, sweep=False, catalogue=None)) == 1
     assert len(resolve_spans(protected, raw, sweep=True, catalogue=None)) == 2
+
+
+# --- the model decides ------------------------------------------------------
+
+
+def test_model_span_wins_an_overlap_against_a_backstop() -> None:
+    text = "Kontakt: max.mustermann@test.de"
+    protected = protect(text)
+    model = Span(9, 31, "max.mustermann@test.de", "EMAIL", 0.9, SOURCE_GLINER)
+    backstop = Span(9, 31, "max.mustermann@test.de", "EMAIL", 1.0, SOURCE_REGEX)
+
+    kept = merge_spans([backstop, model], protected=protected, catalogue=load_catalogue())
+    assert len(kept) == 1
+    assert kept[0].source == SOURCE_GLINER
+
+
+def test_backstop_survives_where_the_model_found_nothing() -> None:
+    text = "Anna schreibt an max@test.de"
+    protected = protect(text)
+    model = Span(0, 4, "Anna", "PERSON", 0.9, SOURCE_GLINER)
+    backstop = Span(17, 28, "max@test.de", "EMAIL", 1.0, SOURCE_REGEX)
+
+    kept = merge_spans([model, backstop], protected=protected, catalogue=load_catalogue())
+    assert {s.source for s in kept} == {SOURCE_GLINER, SOURCE_REGEX}
+
+
+def test_sweep_mode_off_finds_no_repeats() -> None:
+    """``PlaceholderType`` is frozen and ``slots=True``, so it has no
+    ``__dict__`` — narrow it with ``dataclasses.replace`` rather than reaching
+    for instance state that does not exist."""
+    catalogue = load_catalogue()
+    text = "Berlin ist gross. Berlin ist teuer."
+    protected = protect(text)
+    accepted = [Span(0, 6, "Berlin", "PERSON", 0.9, SOURCE_GLINER)]
+
+    with_word = coreference_sweep(accepted, protected, catalogue=catalogue)
+    assert len(with_word) == 1
+
+    off = dataclasses.replace(catalogue.types["PERSON"], sweep="off")
+    narrowed = dataclasses.replace(catalogue, types={**catalogue.types, "PERSON": off})
+    assert coreference_sweep(accepted, protected, catalogue=narrowed) == []
