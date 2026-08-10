@@ -99,4 +99,4 @@ def load_builtins() -> None:
     # Set first: the import below reaches back into this module to register, and
     # a re-entrant call must not recurse.
     _loaded = True
-    from privaparse.parser import normalizer  # noqa: F401
+    from privaparse.parser import normalizer, validators  # noqa: F401

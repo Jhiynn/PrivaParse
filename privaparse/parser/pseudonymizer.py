@@ -84,6 +84,7 @@ def pseudonymize_text(
         raw_spans,
         threshold=settings.threshold,
         sweep=settings.coreference_sweep,
+        catalogue=settings.catalogue,
     )
     _verify_spans(text, spans)
 

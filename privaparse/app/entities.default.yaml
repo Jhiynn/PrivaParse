@@ -21,6 +21,7 @@ placeholder_types:
     prompts:
       email: "E-Mail-Adressen"
     normalizer: email
+    validator: builtin:email_syntax
     sweep: icase
     reversible: true
     enabled: true
@@ -31,6 +32,7 @@ placeholder_types:
     prompts:
       phone_number: "Telefon- und Mobilnummern, auch mit Landesvorwahl"
     normalizer: phone
+    validator: builtin:phone_shape
     sweep: exact
     reversible: true
     enabled: true

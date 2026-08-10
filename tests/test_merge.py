@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from privaparse.app.catalogue import load_catalogue
 from privaparse.parser.markdown import protect
 from privaparse.parser.merge import coreference_sweep, merge_spans, resolve_spans
 from privaparse.parser.types import SOURCE_COREF, SOURCE_GLINER, SOURCE_REGEX, EntityType, Span
@@ -101,10 +102,14 @@ def test_model_proposals_that_are_not_valid_syntax_are_dropped(
     surface: str, entity_type: EntityType
 ) -> None:
     """Found by the gold-set eval: the model tagged "Systemmail" as an email
-    address. Email and phone have decidable syntax, so this is checkable."""
+    address. Email and phone have decidable syntax, so this is checkable.
+
+    The veto is catalogue-driven (Task 4), so it only fires when a catalogue
+    is supplied — this passes the real one to exercise it.
+    """
     text = f"Wird per {surface} versendet."
     span = _span(text, surface, entity_type)
-    assert merge_spans([span], protected=protect(text)) == []
+    assert merge_spans([span], protected=protect(text), catalogue=load_catalogue()) == []
 
 
 @pytest.mark.parametrize(
@@ -132,10 +137,14 @@ def test_phone_shaped_numbers_survive_even_when_the_numbering_plan_rejects_them(
 
 @pytest.mark.parametrize("surface", ["Durchwahl 12", "Raum 4", "Version 2"])
 def test_too_few_digits_is_still_not_a_phone_number(surface: str) -> None:
-    """Relaxing plan validity must not open the door to anything with a digit."""
+    """Relaxing plan validity must not open the door to anything with a digit.
+
+    The veto is catalogue-driven (Task 4), so it only fires when a catalogue
+    is supplied — this passes the real one to exercise it.
+    """
     text = f"Siehe {surface} bitte."
     span = _span(text, surface, EntityType.PHONE)
-    assert merge_spans([span], protected=protect(text)) == []
+    assert merge_spans([span], protected=protect(text), catalogue=load_catalogue()) == []
 
 
 @pytest.mark.parametrize(

@@ -16,12 +16,15 @@ missed entity leaves the machine, a spurious one only costs readability.
 from __future__ import annotations
 
 import re
-from typing import Iterable, Sequence
+from typing import TYPE_CHECKING, Iterable, Sequence
 
 from privaparse.app.logging import get_logger
-from privaparse.parser.detector import is_plausible_phone, is_valid_email
+from privaparse.parser import registry
 from privaparse.parser.markdown import ProtectedText
 from privaparse.parser.types import SOURCE_COREF, SOURCE_GLINER, SOURCE_REGEX, EntityType, Span
+
+if TYPE_CHECKING:  # pragma: no cover
+    from privaparse.app.catalogue import Catalogue
 
 log = get_logger("merge")
 
@@ -56,9 +59,10 @@ def resolve_spans(
     *,
     threshold: float = 0.5,
     sweep: bool = True,
+    catalogue: "Catalogue | None" = None,
 ) -> list[Span]:
     """Full cleanup: merge, then optionally sweep, then merge again."""
-    merged = merge_spans(spans, protected=protected, threshold=threshold)
+    merged = merge_spans(spans, protected=protected, threshold=threshold, catalogue=catalogue)
     if not sweep:
         return merged
 
@@ -67,7 +71,9 @@ def resolve_spans(
         return merged
     # The sweep can only add spans, so a second merge just settles overlaps
     # between new and existing ones.
-    return merge_spans([*merged, *extra], protected=protected, threshold=threshold)
+    return merge_spans(
+        [*merged, *extra], protected=protected, threshold=threshold, catalogue=catalogue
+    )
 
 
 def merge_spans(
@@ -75,6 +81,7 @@ def merge_spans(
     *,
     protected: ProtectedText | None = None,
     threshold: float = 0.5,
+    catalogue: "Catalogue | None" = None,
 ) -> list[Span]:
     """Drop weak spans, trim edges, and resolve overlaps greedily by priority."""
     candidates: list[Span] = []
@@ -84,7 +91,7 @@ def merge_spans(
         trimmed = _trim(span, protected.original if protected else None)
         if trimmed is None:
             continue
-        if not _passes_rule_check(trimmed):
+        if not _passes_rule_check(trimmed, catalogue):
             log.debug("dropping %s span that fails its own syntax rule", trimmed.type)
             continue
         if protected is not None and protected.is_protected(trimmed.start, trimmed.end):
@@ -152,31 +159,23 @@ def coreference_sweep(
 # --- helpers ---------------------------------------------------------------
 
 
-def _passes_rule_check(span: Span) -> bool:
+def _passes_rule_check(span: Span, catalogue: "Catalogue | None") -> bool:
     """Reject model proposals that are provably not what they claim to be.
 
-    The two types get different treatment, and the difference matters:
+    Only the model is second-guessed. A backstop span came from the rule
+    itself, so re-checking it would be checking a rule against itself.
 
-    ``EMAIL`` — syntax is fully decidable. A span that is not an address is not
-    an address, whatever the model's confidence. This is what stops
-    ``Systemmail`` from being pseudonymised as an email.
-
-    ``PHONE`` — only the *shape* is checked, not the numbering plan. Requiring
-    plan validity here was a real defect: ``+49 (0) 151 4433221`` came back from
-    the model with confidence 1.00 and was discarded because 0151 wants eight
-    subscriber digits rather than seven. Typos, foreign formats and freshly
-    issued ranges all fail the plan and all still need pseudonymising. A missed
-    number goes to the LLM; a spurious one costs readability.
-
-    ``PERSON`` has no decidable rule at all, so it is left to the threshold.
+    Types without a validator — PERSON, ADDRESS, SECRET, USERNAME — have no
+    decidable rule and are left to their threshold. The asymmetry that runs
+    through the whole tool applies: a missed entity leaves the machine, a
+    spurious one only costs readability.
     """
-    if span.source == SOURCE_REGEX:
+    if span.source != SOURCE_GLINER or catalogue is None:
         return True
-    if span.type == EntityType.EMAIL:
-        return is_valid_email(span.text)
-    if span.type == EntityType.PHONE:
-        return is_plausible_phone(span.text)
-    return True
+    placeholder = catalogue.types.get(span.type)
+    if placeholder is None or placeholder.validator is None:
+        return True
+    return bool(registry.get_validator(placeholder.validator)(span.text))
 
 
 def _unique_by_surface(spans: Sequence[Span]) -> list[Span]:

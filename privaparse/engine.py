@@ -109,6 +109,7 @@ class PrivaParseEngine:
             raw,
             threshold=self.settings.threshold,
             sweep=self.settings.coreference_sweep,
+            catalogue=self.settings.catalogue,
         )
 
     def pseudonymize(
