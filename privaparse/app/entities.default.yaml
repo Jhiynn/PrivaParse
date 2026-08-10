@@ -17,12 +17,12 @@
 # Thresholds below are conservative starting points, not measurements. A later
 # sweep over the extended gold set replaces them with read-off values.
 #
-# Type names carry no underscore: PLACEHOLDER_RE is `[A-Z][A-Z0-9]*` for the
-# type followed by a literal "_" before the suffix, so an underscore inside
-# the name itself (e.g. a hypothetical NATIONAL_ID) would truncate the parsed
-# type at the first one and the rendered placeholder would never match its
-# own regex again. Multi-word names are closed up instead: NATIONALID, not
-# NATIONAL_ID.
+# Multi-word type names keep their underscore (NATIONAL_ID, not NATIONALID) so
+# they still read as words in a model prompt. PLACEHOLDER_RE's type group
+# allows underscores for exactly this reason; the split from the suffix stays
+# unambiguous because the suffix grammar never contains one, so the *last*
+# underscore in a rendered placeholder is always the real separator. See
+# PLACEHOLDER_RE's own comment in database/placeholder.py for the worked case.
 version: 1
 
 placeholder_types:
@@ -64,7 +64,7 @@ placeholder_types:
     enabled: true
     bar: { precision: 0.95, recall: 0.95 }
 
-  DATEOFBIRTH:
+  DATE_OF_BIRTH:
     labels: [date_of_birth]
     prompts: {date_of_birth: "Geburtsdatum einer Person"}
     normalizer: date_iso
@@ -94,7 +94,7 @@ placeholder_types:
     sweep: "off"
     threshold: 0.7
 
-  POSTALCODE:
+  POSTAL_CODE:
     labels: [postal_code]
     prompts: {postal_code: "Postleitzahlen"}
     normalizer: digits
@@ -109,7 +109,7 @@ placeholder_types:
     sweep: "off"
     threshold: 0.8
 
-  NATIONALID:
+  NATIONAL_ID:
     labels: [government_id, national_id_number]
     prompts:
       government_id: "Amtliche Ausweis- und Identifikationsnummern"
@@ -125,21 +125,21 @@ placeholder_types:
     sweep: exact
     threshold: 0.6
 
-  DRIVERSLICENSE:
+  DRIVERS_LICENSE:
     labels: [drivers_license_number]
     prompts: {drivers_license_number: "Fuehrerscheinnummern"}
     normalizer: strip_upper
     sweep: exact
     threshold: 0.6
 
-  LICENSENUMBER:
+  LICENSE_NUMBER:
     labels: [license_number]
     prompts: {license_number: "Lizenz- und Zulassungsnummern"}
     normalizer: strip_upper
     sweep: exact
     threshold: 0.7
 
-  TAXID:
+  TAX_ID:
     labels: [tax_id, tax_number]
     prompts:
       tax_id: "Steuer-Identifikationsnummer"
@@ -150,7 +150,7 @@ placeholder_types:
     sweep: exact
     threshold: 0.5
 
-  ACCOUNTNUMBER:
+  ACCOUNT_NUMBER:
     labels: [bank_account, account_number]
     prompts:
       bank_account: "Bankkontonummern"
@@ -159,7 +159,7 @@ placeholder_types:
     sweep: exact
     threshold: 0.6
 
-  ROUTINGNUMBER:
+  ROUTING_NUMBER:
     labels: [routing_number]
     prompts: {routing_number: "Bankleitzahlen, BIC, Routing-Nummern"}
     normalizer: digits
@@ -190,7 +190,7 @@ placeholder_types:
     reversible: false
     bar: { precision: 0.95, recall: 0.95 }
 
-  CARDEXPIRY:
+  CARD_EXPIRY:
     labels: [card_expiry]
     prompts: {card_expiry: "Gueltigkeitsdatum einer Zahlungskarte"}
     normalizer: date_iso
@@ -198,7 +198,7 @@ placeholder_types:
     sweep: exact
     threshold: 0.6
 
-  CARDCVV:
+  CARD_CVV:
     labels: [card_cvv]
     prompts: {card_cvv: "Kartenpruefnummer, CVV, CVC"}
     normalizer: digits
@@ -223,7 +223,7 @@ placeholder_types:
     sweep: exact
     threshold: 0.5
 
-  ACCOUNTID:
+  ACCOUNT_ID:
     labels: [account_id, sensitive_account_id]
     prompts:
       account_id: "Kunden-, Konto- und Mandantennummern"

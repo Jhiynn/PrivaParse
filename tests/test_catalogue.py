@@ -140,6 +140,20 @@ def test_type_name_must_satisfy_the_placeholder_grammar(tmp_path):
         load_catalogue(override)
 
 
+def test_type_name_may_contain_an_underscore(tmp_path):
+    # Widening PLACEHOLDER_RE's type group to [A-Z][A-Z0-9_]* (rather than
+    # closing up multi-word names like NATIONAL_ID) is the point of this
+    # test: a name with an internal underscore must load, not be rejected by
+    # the same grammar check that rejects a leading digit.
+    override = _write(
+        tmp_path,
+        "version: 1\nplaceholder_types:\n  NATIONAL_ID:\n    labels: [made_up_label_2]\n"
+        "    normalizer: person\n",
+    )
+    catalogue = load_catalogue(override)
+    assert "NATIONAL_ID" in catalogue.types
+
+
 def test_discovery_prefers_env_over_cwd(tmp_path):
     from_env = _write(tmp_path, MINIMAL, "from-env.yaml")
     _write(tmp_path, MINIMAL)

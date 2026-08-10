@@ -13,8 +13,35 @@ import re
 
 _DIGITS_PER_BLOCK = 9
 
-#: Matches a rendered placeholder, e.g. ``[[PERSON_A1]]`` or ``[[EMAIL_AB12]]``.
-PLACEHOLDER_RE = re.compile(r"\[\[([A-Z][A-Z0-9]*)_([A-Z]+[0-9]+)\]\]")
+#: The two grammar fragments shared below, so a type name's rules and a
+#: placeholder's rules cannot drift into disagreement with each other. A type
+#: name may itself contain underscores (``NATIONAL_ID``, so it reads in a
+#: prompt the way a human would write it) because the suffix grammar makes
+#: the split unambiguous regardless: ``_SUFFIX_GROUP`` never contains an
+#: underscore, so the *last* underscore in a rendered placeholder is always
+#: the real separator, and a greedy ``TYPE_NAME_GROUP`` backtracks onto
+#: exactly that one. See ``PLACEHOLDER_RE`` below for the worked case.
+_TYPE_NAME_GROUP = r"[A-Z][A-Z0-9_]*"
+_SUFFIX_GROUP = r"[A-Z]+[0-9]+"
+
+#: A type name alone, anchored — what a catalogue entry's key must satisfy to
+#: ever appear as the left half of a rendered placeholder. Built from the same
+#: fragment as ``PLACEHOLDER_RE`` rather than writing the character class a
+#: second time, so the two cannot silently disagree after an edit.
+TYPE_NAME_RE = re.compile(rf"^{_TYPE_NAME_GROUP}$")
+
+#: Matches a rendered placeholder, e.g. ``[[PERSON_A1]]`` or
+#: ``[[NATIONAL_ID_A1]]``. Unambiguous even though the type group now allows
+#: underscores: ``re`` backtracks a greedy quantifier from the longest match
+#: down, so for ``NATIONAL_ID_A1`` it first tries type="NATIONAL_ID_A1" (no
+#: literal "_" left to match), then shrinks one character at a time until it
+#: reaches the last underscore in the string — type="NATIONAL_ID",
+#: suffix="A1" — which is also the *first* position where the rest of the
+#: pattern succeeds, so backtracking stops there. That is always the real
+#: separator ``format_placeholder`` inserted, because ``_SUFFIX_GROUP`` itself
+#: can never contain an underscore, so nothing appended after it could ever
+#: introduce a later one.
+PLACEHOLDER_RE = re.compile(rf"\[\[({_TYPE_NAME_GROUP})_({_SUFFIX_GROUP})\]\]")
 
 
 def encode_suffix(index: int) -> str:

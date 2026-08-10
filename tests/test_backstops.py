@@ -142,11 +142,11 @@ def test_backstops_only_run_for_enabled_types(tmp_path):
 def test_backstop_spans_carry_the_placeholder_type():
     # Before the full catalogue (Task 9), EMAIL and PHONE were the only types
     # with a backstop wired in, so this used to be the entire set. IBAN, CARD,
-    # IP and TAXID (vat_de) now have one too, and TEXT was always built to
+    # IP and TAX_ID (vat_de) now have one too, and TEXT was always built to
     # exercise all six registered backstop patterns — see the "six registered
     # patterns" comment above. Bestellnummer 4711 and 12.03.2026 are decoys
     # that must keep finding nothing.
     detector = RegexDetector(load_catalogue())
     for span in detector.detect(TEXT):
-        assert span.type in {"EMAIL", "PHONE", "IBAN", "CARD", "IP", "TAXID"}
+        assert span.type in {"EMAIL", "PHONE", "IBAN", "CARD", "IP", "TAX_ID"}
         assert span.verify_against(TEXT)

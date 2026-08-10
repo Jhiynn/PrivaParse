@@ -15,7 +15,6 @@ config, which is the opposite of what a privacy tool should do on upgrade.
 from __future__ import annotations
 
 import os
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
@@ -23,6 +22,7 @@ from typing import Any, Mapping
 import yaml
 
 from privaparse.app.logging import get_logger
+from privaparse.database.placeholder import TYPE_NAME_RE
 from privaparse.parser import registry
 
 log = get_logger("catalogue")
@@ -41,12 +41,6 @@ __all__ = [
 CATALOGUE_VERSION = 1
 DEFAULT_CATALOGUE_PATH = Path(__file__).with_name("entities.default.yaml")
 SWEEP_MODES = frozenset({"word", "icase", "exact", "off"})
-
-#: What a type name must look like to ever render. Mirrors the first capture
-#: group of ``PLACEHOLDER_RE`` exactly — validating against anything looser
-#: (``str.isupper()``, say, which ignores digits and so accepts a leading one)
-#: would let a name pass the catalogue and then never match as a placeholder.
-_TYPE_NAME_RE = re.compile(r"^[A-Z][A-Z0-9]*$")
 
 #: The 42 labels documented by fastino/gliner2-privacy-filter-PII-multi. Used
 #: only to warn about typos — GLiNER is zero-shot, so a label outside this set
@@ -223,9 +217,9 @@ def _build(raw: dict[str, Any], sources: Mapping[str, Path]) -> Catalogue:
 
 
 def _build_type(name: str, body: dict[str, Any]) -> PlaceholderType:
-    if not _TYPE_NAME_RE.fullmatch(name):
+    if not TYPE_NAME_RE.fullmatch(name):
         raise CatalogueError(
-            f"placeholder type {name!r} must match {_TYPE_NAME_RE.pattern!r} — "
+            f"placeholder type {name!r} must match {TYPE_NAME_RE.pattern!r} — "
             f"it is rendered literally into [[{name}_A1]], and PLACEHOLDER_RE "
             f"would not recognise anything else as a type name"
         )
