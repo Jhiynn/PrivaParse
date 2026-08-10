@@ -29,7 +29,7 @@
 
 | File | Responsibility |
 | --- | --- |
-| `privaparse/parser/registry.py` | Leaf module. Three name→callable dicts, registration decorators, `load_builtins()`. Imports nothing from `parser` or `app`. |
+| `privaparse/parser/registry.py` | Leaf module. Three name→callable dicts, registration decorators, `load_builtins()`. Imports nothing from `parser` or `app`. Tasks 4 and 5 each extend its import line as their module appears — no task ships a stub. |
 | `privaparse/app/catalogue.py` | Catalogue dataclasses, YAML loading, discovery order, deep-merge, strict validation. |
 | `privaparse/app/entities.default.yaml` | The shipped catalogue. Package data. |
 | `privaparse/parser/validators.py` | Checksum and syntax vetoes over model spans. |
@@ -319,14 +319,20 @@ _loaded = False
 
 
 def load_builtins() -> None:
-    """Import the modules that populate the registries. Idempotent."""
+    """Import the modules that populate the registries. Idempotent.
+
+    Tasks 4 and 5 add ``validators`` and ``backstops`` to the import list when
+    those modules exist. Importing a module that has not been written yet would
+    mean shipping a stub, and a stub that returns nothing is indistinguishable
+    from a finder that found nothing.
+    """
     global _loaded
     if _loaded:
         return
-    # Set first: the imports below reach back into this module to register, and
+    # Set first: the import below reaches back into this module to register, and
     # a re-entrant call must not recurse.
     _loaded = True
-    from privaparse.parser import backstops, normalizer, validators  # noqa: F401
+    from privaparse.parser import normalizer  # noqa: F401
 ```
 
 - [ ] **Step 5: Write the catalogue module**
@@ -659,8 +665,6 @@ placeholder_types:
     prompts:
       email: "E-Mail-Adressen"
     normalizer: email
-    validator: builtin:email_syntax
-    backstop: builtin:email
     sweep: icase
     reversible: true
     enabled: true
@@ -671,59 +675,53 @@ placeholder_types:
     prompts:
       phone_number: "Telefon- und Mobilnummern, auch mit Landesvorwahl"
     normalizer: phone
-    validator: builtin:phone_shape
-    backstop: builtin:phone
     sweep: exact
     reversible: true
     enabled: true
     bar: { precision: 0.95, recall: 0.95 }
 ```
 
-- [ ] **Step 7: Add temporary registrations so validation passes**
+`validator:` and `backstop:` are absent on purpose. Both fields are optional,
+and their registries are empty until Tasks 4 and 5 write the implementations.
+Declaring them now would force a stub, and a backstop stub that returns an
+empty list is indistinguishable — to a reader and to a test — from a finder
+that legitimately found nothing.
 
-The implementation modules arrive in Tasks 3–5. Until then `load_builtins`
-imports modules that do not register the names above. Add the registrations to
-the *existing* modules now, as thin wrappers, so this task is independently
-green:
+- [ ] **Step 7: Register the normalizers that already exist**
 
-In `privaparse/parser/normalizer.py`, append:
+`normalizer.py` already contains three real normalizers. Give them their
+registry names, and add `casefold` — which the catalogue uses as the default
+when a type declares no normalizer, so it has to exist from the start.
+
+At the top of `privaparse/parser/normalizer.py`:
 
 ```python
 from privaparse.parser.registry import register_normalizer
-
-register_normalizer("person")(normalize_person)
-register_normalizer("email")(normalize_email)
-register_normalizer("phone")(normalize_phone)
-register_normalizer("casefold")(lambda value: _WHITESPACE_RE.sub(" ", value).strip().casefold())
 ```
 
-Create `privaparse/parser/validators.py` and `privaparse/parser/backstops.py`
-as one-line stubs that Tasks 4 and 5 fill in:
+Decorate the three existing functions with `@register_normalizer("person")`,
+`@register_normalizer("email")` and `@register_normalizer("phone")`
+respectively, leaving their bodies untouched. Then add:
 
 ```python
-"""Checksum and syntax vetoes over model spans. Filled in by Task 4."""
+@register_normalizer("casefold")
+def normalize_casefold(value: str) -> str:
+    """NFKC, collapsed whitespace, case-folded.
 
-from __future__ import annotations
-
-from privaparse.parser.detector import is_plausible_phone, is_valid_email
-from privaparse.parser.registry import register_validator
-
-register_validator("email_syntax")(is_valid_email)
-register_validator("phone_shape")(is_plausible_phone)
+    The catalogue's default when a type names no normalizer, so it must be the
+    most conservative useful choice: it collapses spelling noise and nothing
+    else.
+    """
+    text = unicodedata.normalize("NFKC", value)
+    return _WHITESPACE_RE.sub(" ", text).strip().casefold()
 ```
 
-```python
-"""Regex finders run alongside the model. Filled in by Task 5."""
+Add `normalize_casefold` to `__all__`.
 
-from __future__ import annotations
-
-from privaparse.parser.registry import register_backstop
-
-# Task 5 replaces these with real finders; registering the names now keeps the
-# default catalogue loadable.
-register_backstop("email")(lambda text: [])
-register_backstop("phone")(lambda text: [])
-```
+No `validators.py` and no `backstops.py` in this task. Their registries stay
+empty and the default catalogue names neither, which is consistent: a
+catalogue that referenced an unregistered validator would fail to load, and
+that is exactly the fail-closed behaviour Step 2 tests for.
 
 - [ ] **Step 8: Run the tests to verify they pass**
 
@@ -738,7 +736,7 @@ Expected: PASS, no regressions — nothing reads the catalogue yet.
 - [ ] **Step 10: Commit**
 
 ```bash
-git add privaparse/parser/registry.py privaparse/app/catalogue.py privaparse/app/entities.default.yaml privaparse/parser/validators.py privaparse/parser/backstops.py privaparse/parser/normalizer.py pyproject.toml tests/test_catalogue.py
+git add privaparse/parser/registry.py privaparse/app/catalogue.py privaparse/app/entities.default.yaml privaparse/parser/normalizer.py pyproject.toml tests/test_catalogue.py
 git commit -m "feat: load entity types from a YAML catalogue
 
 The three entity types were hardcoded across five modules. This puts them in
@@ -994,8 +992,11 @@ Expected: FAIL — `normalize()` takes an entity type, not a normalizer name.
 
 - [ ] **Step 3: Rewrite the dispatch**
 
-In `privaparse/parser/normalizer.py`, replace `normalize()` (lines 68–74) and
-the temporary registrations added in Task 1 Step 7 with:
+In `privaparse/parser/normalizer.py`, replace `normalize()` (lines 68–74) with
+the registry dispatch, and add the four normalizers the widened catalogue
+needs. `person`, `email`, `phone` and `casefold` are already registered by
+Task 1 — leave them alone. Registering a name twice with a different function
+raises, which is the registry doing its job.
 
 ```python
 _NON_DIGIT_RE = re.compile(r"\D")
@@ -1025,12 +1026,6 @@ def normalize_digits(value: str) -> str:
     return _NON_DIGIT_RE.sub("", value)
 
 
-@register_normalizer("casefold")
-def normalize_casefold(value: str) -> str:
-    text = unicodedata.normalize("NFKC", value)
-    return _WHITESPACE_RE.sub(" ", text).strip().casefold()
-
-
 @register_normalizer("identity")
 def normalize_identity(value: str) -> str:
     """Unchanged. Only for irreversible types, whose key is hashed anyway."""
@@ -1057,13 +1052,9 @@ def normalize_date_iso(value: str) -> str:
     return text.casefold()
 ```
 
-Decorate the three existing functions with `@register_normalizer("person")`,
-`("email")` and `("phone")`. `normalize_phone` takes a `region` argument with a
-default, which the single-argument registry contract accommodates.
-
-Add `from privaparse.parser import registry` and
-`from privaparse.parser.registry import register_normalizer` at the top, and
-drop the now-unused `EntityType` import.
+Add `from privaparse.parser import registry` at the top (the
+`register_normalizer` import is already there from Task 1) and drop the
+now-unused `EntityType` import. Add the four new function names to `__all__`.
 
 - [ ] **Step 4: Update the one caller**
 
@@ -1114,7 +1105,9 @@ merges two dates, which is worse than leaving them separate."
 ### Task 4: Validator registry — the model's veto
 
 **Files:**
-- Modify: `privaparse/parser/validators.py`
+- Create: `privaparse/parser/validators.py`
+- Modify: `privaparse/parser/registry.py` (import line in `load_builtins`)
+- Modify: `privaparse/app/entities.default.yaml` (add `validator:` to EMAIL and PHONE)
 - Modify: `privaparse/parser/merge.py:155-179`
 - Test: `tests/test_validators.py`
 
@@ -1193,7 +1186,20 @@ Expected: FAIL — `KeyError: unknown validator 'iban_mod97'`.
 
 - [ ] **Step 3: Write the validators**
 
-Replace the stub `privaparse/parser/validators.py` with:
+Create `privaparse/parser/validators.py`. Add it to the import line in
+`registry.load_builtins`, which currently imports `normalizer` alone:
+
+```python
+    from privaparse.parser import normalizer, validators  # noqa: F401
+```
+
+Then, in the same file, declare the two vetoes in the default catalogue —
+`EMAIL` gains `validator: builtin:email_syntax` and `PHONE` gains
+`validator: builtin:phone_shape` in
+`privaparse/app/entities.default.yaml`. Task 1 left those lines out because
+the registry was empty; it no longer is.
+
+The module:
 
 ```python
 """Checksum and syntax vetoes over what the model proposes.
@@ -1437,7 +1443,9 @@ cheapest precision available once the label set widens."
 ### Task 5: Backstop registry
 
 **Files:**
-- Modify: `privaparse/parser/backstops.py`
+- Create: `privaparse/parser/backstops.py`
+- Modify: `privaparse/parser/registry.py` (import line in `load_builtins`)
+- Modify: `privaparse/app/entities.default.yaml` (add `backstop:` to EMAIL and PHONE)
 - Modify: `privaparse/parser/detector.py:97-148,179-191`
 - Test: `tests/test_backstops.py`
 
@@ -1511,7 +1519,18 @@ Expected: FAIL — the stub backstops return `[]` and `RegexDetector` takes no c
 
 - [ ] **Step 3: Write the backstops**
 
-Replace `privaparse/parser/backstops.py`:
+Create `privaparse/parser/backstops.py`. Add it to `registry.load_builtins`:
+
+```python
+    from privaparse.parser import backstops, normalizer, validators  # noqa: F401
+```
+
+and declare the two finders in `privaparse/app/entities.default.yaml` —
+`EMAIL` gains `backstop: builtin:email`, `PHONE` gains
+`backstop: builtin:phone`. Tasks 1 and 4 left these out because the registry
+was empty.
+
+The module:
 
 ```python
 """Regex finders that run alongside the model.
