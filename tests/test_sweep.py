@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import dataclasses
+
 from privaparse.app.catalogue import load_catalogue
 from privaparse.evaluation.harness import GoldDocument, format_sweep, sweep_thresholds
 
@@ -48,6 +50,45 @@ def test_raising_the_threshold_drops_low_scoring_spans():
 
     results = sweep_thresholds(engine, [_document(text, gold)], thresholds=(0.5, 0.9),
                                catalogue=load_catalogue())
+    assert results[0.5].partial["PERSON"].recall == 1.0
+    assert results[0.9].partial["PERSON"].recall == 0.0
+
+
+def test_sweep_still_varies_for_a_type_that_declares_its_own_threshold():
+    """The reason ``sweep_thresholds`` sweeps against a stripped catalogue
+    (``_without_per_type_thresholds``), not the caller's own: ``merge_spans``
+    now consults a type's catalogue threshold ahead of whatever it is
+    called with (the fix that gave ``Catalogue.threshold_for`` a caller at
+    all). Left unstripped, a type that already declares a threshold would
+    keep filtering at that one fixed value throughout the sweep — its curve
+    would go flat at exactly the types the sweep most needs to inform,
+    which is the silent failure this test exists to catch.
+
+    PERSON is given an explicit catalogue threshold of 0.6, deliberately
+    sitting strictly between the two swept values (0.5, 0.9) and strictly
+    above the span's own score (0.55). If that 0.6 leaked into the sweep
+    unstripped, it would reject the span at *both* swept points alike —
+    recall 0.0 at 0.5 and 0.0 at 0.9, a flat line. Stripped correctly, the
+    swept value alone decides, exactly as it does for a type with no
+    catalogue threshold at all (see test_raising_the_threshold_drops_low_scoring_spans,
+    same span, same thresholds, no per-type override): recall 1.0 at 0.5,
+    0.0 at 0.9 — a curve that actually moves.
+    """
+    from privaparse.evaluation.harness import GoldEntity
+    from privaparse.parser.types import SOURCE_GLINER, Span
+
+    text = "Max Mustermann schreibt."
+    gold = [GoldEntity(0, 14, "PERSON", "Max Mustermann")]
+    engine = CountingEngine({text: [Span(0, 14, "Max Mustermann", "PERSON", 0.55, SOURCE_GLINER)]})
+
+    base = load_catalogue()
+    strict_person = dataclasses.replace(base.get("PERSON"), threshold=0.6)
+    catalogue = dataclasses.replace(base, types={**base.types, "PERSON": strict_person})
+    assert catalogue.get("PERSON").threshold == 0.6  # the case this test relies on
+
+    results = sweep_thresholds(
+        engine, [_document(text, gold)], thresholds=(0.5, 0.9), catalogue=catalogue
+    )
     assert results[0.5].partial["PERSON"].recall == 1.0
     assert results[0.9].partial["PERSON"].recall == 0.0
 

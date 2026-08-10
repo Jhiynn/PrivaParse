@@ -92,10 +92,16 @@ def merge_spans(
 ) -> list[Span]:
     """Drop weak spans, trim edges, cut model spans back from any exact span
     they overlap, and resolve what overlap is left greedily: longest span
-    first, source breaking ties between equal lengths."""
+    first, source breaking ties between equal lengths.
+
+    ``threshold`` is only the floor for a type that does not declare its own
+    — see ``_threshold_for_span``. A type with a catalogue ``threshold:``
+    is filtered against that value instead, independent of what ``threshold``
+    is set to.
+    """
     candidates: list[Span] = []
     for span in spans:
-        if span.score < threshold:
+        if span.score < _threshold_for_span(span, threshold, catalogue):
             continue
         trimmed = _trim(span, protected.original if protected else None)
         if trimmed is None:
@@ -200,6 +206,24 @@ def coreference_sweep(
 
 
 # --- helpers ---------------------------------------------------------------
+
+
+def _threshold_for_span(span: Span, threshold: float, catalogue: "Catalogue | None") -> float:
+    """The score floor ``span`` must clear: its own type's catalogue
+    ``threshold:`` if it declares one, otherwise the caller's blanket
+    ``threshold`` — the same fallback ``Catalogue.threshold_for`` itself
+    implements, just reached through a span instead of a bare name.
+
+    This is the first caller ``Catalogue.threshold_for`` has ever had. The
+    per-type field has been readable, validated, and swept (Task 11's
+    ``sweep_thresholds``) since the catalogue was introduced, but nothing
+    downstream of the sweep ever looked it up during a real merge — every
+    span was filtered against one process-wide number regardless of type.
+    A type's own catalogued choice now actually gates its own spans.
+    """
+    if catalogue is None:
+        return threshold
+    return catalogue.threshold_for(span.type, threshold)
 
 
 def _passes_rule_check(span: Span, catalogue: "Catalogue | None") -> bool:

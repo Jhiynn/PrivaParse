@@ -18,7 +18,7 @@ not the pipeline.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Protocol, Sequence
 
@@ -487,6 +487,31 @@ class _ReplayDetector:
         )
 
 
+def _without_per_type_thresholds(catalogue: "Catalogue") -> "Catalogue":
+    """The same catalogue, with every type's own ``threshold:`` cleared.
+
+    Looks like it throws away the thing the sweep is supposed to measure;
+    it does the opposite. ``merge_spans`` now consults a type's catalogue
+    threshold ahead of whatever threshold it is called with (the fix that
+    made ``Catalogue.threshold_for`` have a caller at all — see
+    ``_threshold_for_span`` in ``merge.py``). Left unstripped, a type that
+    already declares a threshold would keep filtering at that one fixed
+    value on every point of the sweep, no matter what `thresholds` asks
+    for — its precision/recall would read identically at 0.3 and at 0.9,
+    a flat line where the whole point is a curve. Stripping puts every type
+    back under one shared, genuinely-varying cut for exactly as long as the
+    sweep needs one, which is the only sense in which "sweep the threshold"
+    can produce a curve to read a value off of. Everything else about each
+    type — its validator, its sweep mode, its bar — is untouched; only the
+    field this function exists to make irrelevant for the sweep's duration
+    is cleared.
+    """
+    stripped = {
+        name: replace(placeholder, threshold=None) for name, placeholder in catalogue.types.items()
+    }
+    return replace(catalogue, types=stripped)
+
+
 def sweep_thresholds(
     engine: SupportsDetectRaw,
     documents: Sequence[GoldDocument],
@@ -502,7 +527,13 @@ def sweep_thresholds(
     spans instead would be wrong: the threshold changes which candidates
     compete for an overlap, not only which survive it — a span that loses an
     overlap at 0.5 can win it at 0.7 if its rival fell below the new cut.
+
+    Swept against ``_without_per_type_thresholds(catalogue)``, not
+    ``catalogue`` itself — see that function for why a per-type threshold
+    left in place would silently flatten that type's own curve.
     """
+    swept_catalogue = _without_per_type_thresholds(catalogue)
+
     protected: list["ProtectedText"] = []
     raw: list[list[Span]] = []
     for document in documents:
@@ -514,11 +545,11 @@ def sweep_thresholds(
     return {
         threshold: evaluate(
             _ReplayDetector(
-                protected, raw, threshold=threshold, catalogue=catalogue, sweep=sweep_enabled
+                protected, raw, threshold=threshold, catalogue=swept_catalogue, sweep=sweep_enabled
             ),
             documents,
             label=f"t={threshold:.2f}",
-            catalogue=catalogue,
+            catalogue=swept_catalogue,
         )
         for threshold in thresholds
     }

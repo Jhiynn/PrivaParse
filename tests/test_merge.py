@@ -34,6 +34,38 @@ def test_low_confidence_spans_are_dropped() -> None:
     assert merge_spans([weak], threshold=0.1, catalogue=None) == [weak]
 
 
+def test_a_types_own_catalogue_threshold_overrides_the_blanket_one() -> None:
+    """``Catalogue.threshold_for`` existed since the catalogue was
+    introduced but had no caller until this fix — every span used to be
+    filtered against one blanket number regardless of type, no matter what
+    a type's own ``threshold:`` said. A score between the caller's blanket
+    floor and a type's own catalogue threshold is the one case that tells
+    the two regimes apart.
+
+    Built from a real catalogue with one type's threshold swapped via
+    ``dataclasses.replace``, not by asserting against
+    entities.default.yaml's current shipped value for any type — those
+    values are expected to keep changing as the sweep is re-run, and this
+    test has to keep meaning the same thing regardless of what they become.
+    """
+    text = "Anna Musterfrau kam vorbei."
+    span = _span(text, "Anna Musterfrau", EntityType.PERSON, score=0.7)
+
+    base = load_catalogue()
+    strict_person = dataclasses.replace(base.get("PERSON"), threshold=0.9)
+    strict = dataclasses.replace(base, types={**base.types, "PERSON": strict_person})
+    unset_person = dataclasses.replace(base.get("PERSON"), threshold=None)
+    unset = dataclasses.replace(base, types={**base.types, "PERSON": unset_person})
+
+    # 0.7 clears the blanket 0.5 floor whenever nothing more specific applies.
+    assert merge_spans([span], threshold=0.5, catalogue=None) == [span]
+    assert merge_spans([span], threshold=0.5, catalogue=unset) == [span]
+
+    # The type's own 0.9 applies instead once it declares one — 0.7 does not
+    # clear it, even though the identical span clears the blanket floor above.
+    assert merge_spans([span], threshold=0.5, catalogue=strict) == []
+
+
 def test_a_person_span_fully_inside_an_overlapping_email_is_dropped() -> None:
     """This is the local-part leak, caught live: a PERSON span from the model
     over just "max" used to lose to a type rank that put EMAIL above PERSON,
