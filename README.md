@@ -32,17 +32,23 @@ ever built to answer (see `EvalReport.verdict()` in
 `eval/gold/` — **91 documents, 33 with no PII at all** (a gold set with only
 positives cannot see a false positive, which turns out to be exactly where
 this configuration struggles) — scored against the catalogue PrivaParse
-ships today: **21 enabled types, 35 labels**. An earlier note in this README
-quoted PERSON at P 0.967 / R 0.983 / F1 0.975; that number is real, but it
-was measured under 3 labels on 38 documents with no negatives, which is not
-the configuration below. Both numbers describe something true; only one
-describes what ships.
+ships today: **21 enabled types, 35 labels**.
+
+An earlier note in this README quoted PERSON at P 0.967 / R 0.983 / F1
+0.975, measured under 3 labels on 38 documents, 10 of them negatives. That
+number is real; it describes a narrower configuration, not the one below.
+The real difference between the two runs is not whether negatives existed
+— even at 3 labels, those 10 already caught two false positives
+([docs/eval-report.md](docs/eval-report.md) — `de-009`'s "König von
+Spanien", `de-026`'s "vier Personen") — it is how much surface a false
+positive had to land on. At 35 labels, the same class of corpus catches
+23.
 
 The threshold was fixed *before* this run, same discipline as before:
 fine-tuning is warranted if PERSON partial-match recall drops below 0.90 or
 precision below 0.85.
 
-| Type | Precision | Recall | F1 | Support |
+| Type | Precision (partial) | Recall (partial) | F1 | Support |
 | --- | ---: | ---: | ---: | ---: |
 | PERSON | 0.973 | 0.961 | 0.967 | 76 |
 | EMAIL | 1.000 | 1.000 | 1.000 | 21 |
@@ -58,7 +64,7 @@ EMAIL is clean, PHONE is not — see "One defect, two numbers" below for why.
 **Nine more types, each resting on three gold entities — thin, and stated as
 such rather than presented with PERSON's confidence:**
 
-| Type | Precision | Recall | F1 | Support |
+| Type | Precision (partial) | Recall (partial) | F1 | Support |
 | --- | ---: | ---: | ---: | ---: |
 | CARD | 1.000 | 1.000 | 1.000 | 3 |
 | PASSPORT | 1.000 | 1.000 | 1.000 | 3 |
@@ -77,23 +83,25 @@ or EMAIL's 21 are. Read this block as a first pass, not a verdict.
 **One defect, two numbers.** All four of PHONE's false positives are all
 four of TAX_ID's false negatives — the same defect, counted from both
 ends, not two separate ones. TAX_ID reports P 1.000 / R 0.000 / F1 0.000
-(support 4); recall zero by design, and the gold set keeps it that way on
-purpose (`eval/gold/de_gold_source.md`'s Batch A note). The four missed
-Steuer-IDs reach PHONE by two different routes. `de-047` keeps its
-Steuer-ID in the bare, ungrouped form `generate_decidable()` actually
-produces, and the phone *backstop* — the regex/`phonenumbers` rule, not the
-model — matches an unbroken eleven-digit string as a German mobile number
-directly. `de-048` and `de-049` write theirs the way a Finanzamt letter
-actually prints one, grouped in threes (`XX XXX XXX XXX`); the backstop
-finds nothing there, but the *model* labels all three `phone_number`
-instead — the per-label breakdown shows exactly this, `phone_number` at 0
-true positives and 3 false positives. `phone_shape`, the validator that
-would otherwise veto a model guess that is not actually phone-shaped, does
-not catch these three, because a grouped twelve-digit number genuinely is
-phone-shaped — and TAX_ID has no backstop of its own to produce an exact
-span the model's guess would have to compete with instead. PHONE's 0.818
-precision above and TAX_ID's 0.000 recall are this one defect, read from
-opposite sides of the same four entities.
+(support 4); the gold set is deliberately kept in a form that keeps this
+gap visible rather than one shaped to avoid it (`eval/gold/de_gold_source.md`'s
+Batch A note). The four missed Steuer-IDs reach PHONE by two different
+routes. `de-047` keeps its Steuer-ID in the bare, ungrouped form
+`generate_decidable()` actually produces, and the phone *backstop* — the
+regex/`phonenumbers` rule, not the model — matches an unbroken eleven-digit
+string as a German mobile number directly. `de-048` and `de-049` write
+theirs the way a Finanzamt letter actually prints one, grouped in threes
+(`XX XXX XXX XXX`); the backstop finds nothing there, but the *model*
+labels all three `phone_number` instead — the per-label breakdown shows
+exactly this, `phone_number` at 0 true positives and 3 false positives.
+`phone_shape`, the validator that would otherwise veto a model guess that
+is not actually phone-shaped, does not catch these three, because a
+grouped twelve-digit number genuinely is phone-shaped — and TAX_ID's own
+backstop (`vat_de`, matching a VAT-ID's `DE`-plus-nine-digits shape) does
+not cover a Steuer-ID's shape at all, so nothing produces a competing exact
+span for the model's guess to lose to. PHONE's 0.818 precision above and
+TAX_ID's 0.000 recall are this one defect, read from opposite sides of the
+same four entities.
 
 The fix is known and deliberately deferred, not missed. A checksum-
 validated TAX_ID backstop would turn it into an exact span, and the
@@ -297,6 +305,10 @@ Other commands:
 | --- | --- |
 | `privaparse detect FILE --json` | Show what would be detected; writes nothing |
 | `privaparse doctor` | Resolved device, dtype, model, vault path |
+| `privaparse catalog show` | Resolved entity catalogue — types, thresholds, sources |
+| `privaparse catalog validate [FILE]` | Check a catalogue for errors; changes nothing |
+| `privaparse eval` | Score detection against the gold set (needs GLiNER2) |
+| `privaparse bench` | Throughput and detection quality together (needs GLiNER2) |
 | `privaparse vault stats` | Counts only — never prints stored values |
 | `privaparse vault mappings` | Recorded sessions and their ids, for a lost `--mapping-out` |
 
@@ -331,7 +343,8 @@ CLI flag.
 | `PRIVAPARSE_DETECTOR` | `hybrid` | `hybrid`, `gliner`, `regex` |
 | `PRIVAPARSE_MODEL_ID` | `fastino/gliner2-privacy-filter-PII-multi` | |
 | `PRIVAPARSE_DB_PATH` | `privaparse.db` | The vault |
-| `PRIVAPARSE_THRESHOLD` | `0.5` | Score cutoff |
+| `PRIVAPARSE_ENTITIES` | *(discovered)* | Catalogue overlay path; auto-discovered from `./privaparse.entities.yaml` or `~/.config/privaparse/entities.yaml` otherwise |
+| `PRIVAPARSE_THRESHOLD` | `0.5` | Fallback only — 21 of 25 catalogue types pin their own threshold and ignore this; `privaparse catalog show` lists which |
 | `PRIVAPARSE_BATCH_SIZE` | `8` | Chunks per forward pass |
 | `PRIVAPARSE_SCAN_CODE` | `false` | Also scan code blocks and URLs |
 | `PRIVAPARSE_QUANTIZE` | on CUDA | fp16 weights |
