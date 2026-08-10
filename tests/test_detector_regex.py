@@ -9,17 +9,18 @@ from __future__ import annotations
 
 import pytest
 
+from privaparse.app.catalogue import load_catalogue
 from privaparse.parser.detector import RegexDetector
 from privaparse.parser.types import EntityType
 
 
 @pytest.fixture()
 def detector() -> RegexDetector:
-    return RegexDetector(phone_region="DE")
+    return RegexDetector(load_catalogue(), phone_region="DE")
 
 
 def _texts_of(spans, entity_type):
-    return [s.text for s in spans if s.type is entity_type]
+    return [s.text for s in spans if s.type == entity_type]
 
 
 @pytest.mark.parametrize(
@@ -112,9 +113,3 @@ def test_multiple_entities_in_one_document(detector: RegexDetector) -> None:
 def test_repeated_value_yields_one_span_per_occurrence(detector: RegexDetector) -> None:
     text = "max@test.de und nochmal max@test.de"
     assert len(_texts_of(detector.detect(text), EntityType.EMAIL)) == 2
-
-
-def test_phone_deduplicates_across_regions() -> None:
-    detector = RegexDetector(phone_region="DE", extra_regions=("AT",))
-    spans = detector.detect("Ruf +49 170 1234567 an.")
-    assert len(_texts_of(spans, EntityType.PHONE)) == 1

@@ -13,9 +13,10 @@ from typing import TYPE_CHECKING, Iterable, Protocol, Sequence, runtime_checkabl
 import phonenumbers
 
 from privaparse.app.logging import get_logger
-from privaparse.parser.types import SOURCE_REGEX, EntityType, Span
+from privaparse.parser.types import Span
 
 if TYPE_CHECKING:  # pragma: no cover
+    from privaparse.app.catalogue import Catalogue
     from privaparse.app.config import Settings
     from privaparse.app.device import ResolvedDevice
 
@@ -93,59 +94,47 @@ class Detector(Protocol):
 
     def detect(self, text: str) -> list[Span]: ...
 
+    def detect_many(self, texts: Sequence[str]) -> list[list[Span]]:
+        """Detect over several texts. Overridden where batching actually pays."""
+        return [self.detect(text) for text in texts]
+
 
 class RegexDetector:
-    """Deterministic detection for the types where rules beat a model.
+    """Runs the backstop of every enabled type that has one.
 
-    Email and phone number have well-defined syntax, so a model adds nothing
-    but variance. Keeping them out of the model's hands also makes the eval
-    honest: if EMAIL and PHONE sit near 1.0 and PERSON does not, the model is
-    the problem, not the pipeline.
+    Recall insurance, not authority. Overlap resolution in ``merge`` gives the
+    model the final word; these spans survive where the model found nothing.
     """
 
-    #: STRICT_GROUPING, not VALID. The lenient level reads German dates
-    #: (``04.06.2024``) as phone numbers — measured on the gold set, it cost 3
-    #: false positives and 0.14 precision while finding no extra real numbers.
-    PHONE_LENIENCY = phonenumbers.Leniency.STRICT_GROUPING
-
-    def __init__(self, phone_region: str = "DE", extra_regions: Sequence[str] = ()) -> None:
+    def __init__(self, catalogue: "Catalogue", phone_region: str = "DE") -> None:
+        self.catalogue = catalogue
         self.phone_region = phone_region
-        self.extra_regions = tuple(extra_regions)
 
     def detect(self, text: str) -> list[Span]:
-        return [*self._emails(text), *self._phones(text)]
+        from privaparse.parser import registry
 
-    def _emails(self, text: str) -> list[Span]:
-        return [
-            Span(
-                start=m.start(),
-                end=m.end(),
-                text=m.group(0),
-                type=EntityType.EMAIL,
-                score=1.0,
-                source=SOURCE_REGEX,
-            )
-            for m in _EMAIL_RE.finditer(text)
-        ]
-
-    def _phones(self, text: str) -> list[Span]:
-        found: dict[tuple[int, int], Span] = {}
-        for region in (self.phone_region, *self.extra_regions):
-            for match in phonenumbers.PhoneNumberMatcher(
-                text, region, leniency=self.PHONE_LENIENCY
-            ):
-                key = (match.start, match.end)
-                if key in found:
-                    continue
-                found[key] = Span(
-                    start=match.start,
-                    end=match.end,
-                    text=match.raw_string,
-                    type=EntityType.PHONE,
-                    score=1.0,
-                    source=SOURCE_REGEX,
+        spans: list[Span] = []
+        for placeholder in self.catalogue.enabled:
+            if placeholder.backstop is None:
+                continue
+            finder = registry.get_backstop(placeholder.backstop)
+            for span in finder(text):
+                # The finder does not know which type it is serving; the
+                # catalogue does.
+                spans.append(
+                    Span(
+                        start=span.start,
+                        end=span.end,
+                        text=span.text,
+                        type=placeholder.name,
+                        score=span.score,
+                        source=span.source,
+                    )
                 )
-        return list(found.values())
+        return spans
+
+    def detect_many(self, texts: Sequence[str]) -> list[list[Span]]:
+        return [self.detect(text) for text in texts]
 
 
 class CompositeDetector:
@@ -165,6 +154,13 @@ class CompositeDetector:
             spans.extend(detector.detect(text))
         return spans
 
+    def detect_many(self, texts: Sequence[str]) -> list[list[Span]]:
+        per_text: list[list[Span]] = [[] for _ in texts]
+        for detector in self.detectors:
+            for index, spans in enumerate(detector.detect_many(texts)):
+                per_text[index].extend(spans)
+        return per_text
+
 
 class StaticDetector:
     """Returns a fixed span list. For tests and for benchmark baselines."""
@@ -175,6 +171,9 @@ class StaticDetector:
     def detect(self, text: str) -> list[Span]:
         return [s for s in self.spans if s.end <= len(text)]
 
+    def detect_many(self, texts: Sequence[str]) -> list[list[Span]]:
+        return [self.detect(text) for text in texts]
+
 
 def build_default_detector(
     settings: "Settings", device: "ResolvedDevice", progress=None
@@ -183,12 +182,12 @@ def build_default_detector(
     mode = settings.detector
 
     if mode == "regex":
-        return RegexDetector()
+        return RegexDetector(settings.catalogue)
 
     gliner = _build_gliner_detector(settings, device, progress=progress)
     if mode == "gliner":
         return gliner
-    return CompositeDetector([gliner, RegexDetector()])
+    return CompositeDetector([gliner, RegexDetector(settings.catalogue)])
 
 
 def _build_gliner_detector(

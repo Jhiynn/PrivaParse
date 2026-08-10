@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from privaparse.app.catalogue import load_catalogue
 from privaparse.app.config import Settings
 from privaparse.database.repository import Database, VaultRepository
 from privaparse.engine import PrivaParseEngine
@@ -102,7 +103,7 @@ def settings(tmp_path: Path) -> Settings:
 @pytest.fixture()
 def fake_detector() -> Detector:
     """A hybrid detector with the model half replaced by a known-name matcher."""
-    return CompositeDetector([NameListDetector(), RegexDetector()])
+    return CompositeDetector([NameListDetector(), RegexDetector(load_catalogue())])
 
 
 @pytest.fixture()

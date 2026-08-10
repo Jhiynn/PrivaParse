@@ -18,12 +18,13 @@ runner = CliRunner()
 @pytest.fixture(autouse=True)
 def fake_model(monkeypatch: pytest.MonkeyPatch):
     """Give the CLI the fake person detector instead of loading GLiNER2."""
+    from privaparse.app.catalogue import load_catalogue
     from privaparse.parser.detector import CompositeDetector, RegexDetector
 
     monkeypatch.setattr(
         PrivaParseEngine,
         "_build_detector",
-        lambda self: CompositeDetector([NameListDetector(), RegexDetector()]),
+        lambda self: CompositeDetector([NameListDetector(), RegexDetector(load_catalogue())]),
     )
 
 
