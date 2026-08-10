@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import re
+import threading
+
 from privaparse.app.catalogue import load_catalogue
 from privaparse.parser import registry
+from privaparse.parser.backstops import _matches
 from privaparse.parser.detector import RegexDetector
 
 TEXT = (
@@ -13,6 +17,29 @@ TEXT = (
 
 def _texts(name: str, text: str = TEXT) -> list[str]:
     return [text[a:b] for a, b in registry.get_backstop(name)(text)]
+
+
+def test_matches_terminates_on_a_zero_width_capable_pattern():
+    """``_matches`` must stay safe for a finder this codebase hasn't written
+    yet: none of the six registered patterns are zero-width-capable, so
+    nothing else here exercises this path. ``pattern.search`` clamps a
+    cursor past the end of the text back to ``len(text)`` instead of
+    returning ``None``, so a naive "advance past the match" cursor can get
+    stuck re-finding the same empty match forever. Runs in its own daemon
+    thread with a hard timeout so a regression here fails the suite instead
+    of freezing it.
+    """
+    result: list[list[tuple[int, int]]] = []
+
+    def run() -> None:
+        result.append(_matches("abc123def", re.compile(r"\d*")))
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    thread.join(timeout=5)
+
+    assert not thread.is_alive(), "_matches hung on a zero-width-capable pattern"
+    assert result == [[(3, 6)]]
 
 
 def test_iban_backstop_finds_the_iban_and_nothing_else():

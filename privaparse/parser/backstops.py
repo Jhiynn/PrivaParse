@@ -46,10 +46,17 @@ def _matches(text: str, pattern: re.Pattern[str], check=None) -> list[tuple[int,
     ``finditer`` resumes past its own raw match regardless of how much of it
     we kept, which would consume the second value's prefix and lose it;
     resuming at what was actually accepted lets it be found on its own terms.
+
+    ``pattern`` must match at least one character. ``search`` clamps a ``pos``
+    past the end of ``text`` back to ``len(text)`` instead of returning
+    ``None``, so a zero-width-capable pattern (``\\d*``) would return the same
+    empty match there no matter how far ``pos`` is pushed forward — the
+    ``pos <= len(text)`` bound below is what stops that from being a fixed
+    point, not anything ``search`` itself guarantees.
     """
     out: list[tuple[int, int]] = []
     pos = 0
-    while True:
+    while pos <= len(text):
         match = pattern.search(text, pos)
         if match is None:
             break
