@@ -1,0 +1,205 @@
+"""Entity detectors.
+
+Everything downstream talks to the :class:`Detector` protocol, which is what
+lets the round-trip pipeline, the tests and the eval harness run against a
+regex-only detector, a fake, or the real GLiNER2 model without changing a line.
+"""
+
+from __future__ import annotations
+
+import re
+from typing import TYPE_CHECKING, Iterable, Protocol, Sequence, runtime_checkable
+
+import phonenumbers
+
+from privaparse.app.logging import get_logger
+from privaparse.parser.types import SOURCE_REGEX, EntityType, Span
+
+if TYPE_CHECKING:  # pragma: no cover
+    from privaparse.app.config import Settings
+    from privaparse.app.device import ResolvedDevice
+
+log = get_logger("detector")
+
+__all__ = [
+    "Detector",
+    "RegexDetector",
+    "StaticDetector",
+    "CompositeDetector",
+    "build_default_detector",
+    "is_valid_email",
+    "is_valid_phone",
+    "is_plausible_phone",
+]
+
+# Pragmatic rather than RFC-complete: the exotic corners of the address grammar
+# (quoted local parts, comments) do not appear in the documents this handles,
+# and matching them would cost precision everywhere else.
+_EMAIL_RE = re.compile(
+    r"(?<![\w.+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?"
+    r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*\.[A-Za-z]{2,}(?![\w-])"
+)
+
+
+def is_valid_email(text: str) -> bool:
+    """True if ``text`` is entirely an email address.
+
+    Used to check what a model proposes: a span that is not syntactically an
+    address cannot be one, whatever the model's confidence says.
+    """
+    return _EMAIL_RE.fullmatch(text.strip()) is not None
+
+
+def is_valid_phone(text: str, region: str = "DE") -> bool:
+    """True if ``text`` is a number the national numbering plan recognises."""
+    try:
+        parsed = phonenumbers.parse(text.strip(), region)
+    except phonenumbers.NumberParseException:
+        return False
+    return phonenumbers.is_valid_number(parsed)
+
+
+#: A number needs at least this many digits before it is credible as one.
+_MIN_PHONE_DIGITS = 7
+
+
+def is_plausible_phone(text: str, region: str = "DE") -> bool:
+    """True if ``text`` is *shaped* like a phone number, plan-valid or not.
+
+    Deliberately weaker than :func:`is_valid_phone`. A number can be perfectly
+    phone-shaped and still fail the numbering plan — a typo, a foreign format, a
+    newly issued range the library's data predates, an internal extension. Those
+    still have to be pseudonymised, so this check exists for spans the model has
+    already judged to be phone numbers, where the only question left is whether
+    the model was talking nonsense.
+
+    ``+49 (0) 151 4433221`` is the case that motivated it: the model gave it
+    confidence 1.00, the numbering plan rejects it (0151 wants eight subscriber
+    digits, not seven), and the strict check silently sent it to the LLM.
+    """
+    stripped = text.strip()
+    if sum(character.isdigit() for character in stripped) < _MIN_PHONE_DIGITS:
+        return False
+    try:
+        parsed = phonenumbers.parse(stripped, region)
+    except phonenumbers.NumberParseException:
+        return False
+    return phonenumbers.is_possible_number(parsed)
+
+
+@runtime_checkable
+class Detector(Protocol):
+    """Finds entity spans in text. Offsets refer to the text as given."""
+
+    def detect(self, text: str) -> list[Span]: ...
+
+
+class RegexDetector:
+    """Deterministic detection for the types where rules beat a model.
+
+    Email and phone number have well-defined syntax, so a model adds nothing
+    but variance. Keeping them out of the model's hands also makes the eval
+    honest: if EMAIL and PHONE sit near 1.0 and PERSON does not, the model is
+    the problem, not the pipeline.
+    """
+
+    #: STRICT_GROUPING, not VALID. The lenient level reads German dates
+    #: (``04.06.2024``) as phone numbers — measured on the gold set, it cost 3
+    #: false positives and 0.14 precision while finding no extra real numbers.
+    PHONE_LENIENCY = phonenumbers.Leniency.STRICT_GROUPING
+
+    def __init__(self, phone_region: str = "DE", extra_regions: Sequence[str] = ()) -> None:
+        self.phone_region = phone_region
+        self.extra_regions = tuple(extra_regions)
+
+    def detect(self, text: str) -> list[Span]:
+        return [*self._emails(text), *self._phones(text)]
+
+    def _emails(self, text: str) -> list[Span]:
+        return [
+            Span(
+                start=m.start(),
+                end=m.end(),
+                text=m.group(0),
+                type=EntityType.EMAIL,
+                score=1.0,
+                source=SOURCE_REGEX,
+            )
+            for m in _EMAIL_RE.finditer(text)
+        ]
+
+    def _phones(self, text: str) -> list[Span]:
+        found: dict[tuple[int, int], Span] = {}
+        for region in (self.phone_region, *self.extra_regions):
+            for match in phonenumbers.PhoneNumberMatcher(
+                text, region, leniency=self.PHONE_LENIENCY
+            ):
+                key = (match.start, match.end)
+                if key in found:
+                    continue
+                found[key] = Span(
+                    start=match.start,
+                    end=match.end,
+                    text=match.raw_string,
+                    type=EntityType.PHONE,
+                    score=1.0,
+                    source=SOURCE_REGEX,
+                )
+        return list(found.values())
+
+
+class CompositeDetector:
+    """Runs several detectors and concatenates their spans.
+
+    Overlap resolution is deliberately *not* done here — that is
+    :func:`privaparse.parser.merge.merge_spans`, which needs to see every
+    candidate at once to make a sensible choice.
+    """
+
+    def __init__(self, detectors: Iterable[Detector]) -> None:
+        self.detectors = list(detectors)
+
+    def detect(self, text: str) -> list[Span]:
+        spans: list[Span] = []
+        for detector in self.detectors:
+            spans.extend(detector.detect(text))
+        return spans
+
+
+class StaticDetector:
+    """Returns a fixed span list. For tests and for benchmark baselines."""
+
+    def __init__(self, spans: Sequence[Span] = ()) -> None:
+        self.spans = list(spans)
+
+    def detect(self, text: str) -> list[Span]:
+        return [s for s in self.spans if s.end <= len(text)]
+
+
+def build_default_detector(
+    settings: "Settings", device: "ResolvedDevice", progress=None
+) -> Detector:
+    """Assemble the detector described by ``settings.detector``."""
+    mode = settings.detector
+
+    if mode == "regex":
+        return RegexDetector()
+
+    gliner = _build_gliner_detector(settings, device, progress=progress)
+    if mode == "gliner":
+        return gliner
+    return CompositeDetector([gliner, RegexDetector()])
+
+
+def _build_gliner_detector(
+    settings: "Settings", device: "ResolvedDevice", progress=None
+) -> Detector:
+    try:
+        from privaparse.parser.gliner_detector import GlinerDetector
+    except ImportError as exc:  # pragma: no cover - exercised by install state
+        raise RuntimeError(
+            "The GLiNER2 backend is not installed. Either install it with\n"
+            "    pip install -e '.[model]'\n"
+            "or run with PRIVAPARSE_DETECTOR=regex for email and phone only."
+        ) from exc
+    return GlinerDetector(settings, device, progress=progress)

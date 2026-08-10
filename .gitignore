@@ -1,0 +1,35 @@
+# Local configuration — may name paths or, later, key material
+.env
+
+# PrivaParse local state — NEVER commit
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+vault.db
+privaparse.db
+
+# Model weights (downloaded on demand)
+models/gliner/
+!models/gliner/.gitkeep
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# IDE
+.idea/
+.vscode/
+
+# Generated reports keep their directory but not stale runs
+docs/*-report.local.md
