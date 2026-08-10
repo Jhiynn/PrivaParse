@@ -60,6 +60,19 @@ prüft das.
   nicht das Datumsformat. Der Task-Auftrag nennt zusätzlich Einstellungs-
   und Sterbedatum als Beispiele für die erste Gruppe; drei Dokumente
   decken drei der fünf genannten Beispiele ab, nicht alle fünf.
+- **Meldedaten (seit wann eine Person unter einer Anschrift gemeldet ist)
+  zählen als personenbetreffend und werden markiert.** Dieselbe Prüfung
+  wie oben: Seit diesem Datum hat die Person einen bestimmten Status —
+  strukturell derselbe Fall wie ein Einstellungs- oder Haftantrittsdatum,
+  nur mit einem Wohnsitz statt einer Arbeitsstelle oder Haftanstalt als
+  Status, und anders als ein Rechnungs- oder Dokumentendatum, das nichts
+  über die Person aussagt, nur über einen Vorgang. de-105 und de-110 sind
+  — nach Durchsicht des gesamten Korpus, nicht nur dieser beiden
+  Dokumente — die einzigen Meldedaten, die überhaupt vorkommen; beide sind
+  markiert. Der vertragliche Übergabetermin in de-053 (Mietvertrag) bleibt
+  dagegen bewusst unmarkiert: er ist eine Vertragsklausel (wann der Besitz
+  laut Vertrag übergeht, nicht seit wann die Person gemeldet ist) und
+  liest sich näher an einem Dokumentendatum als an einem Meldedatum.
 - **Batch A (IBAN, CARD, TAX_ID, IP, POSTAL_CODE) besteht aus Werten, die
   `generate_decidable()` erzeugt hat** — von Konstruktion aus gültig gegen
   ihren jeweiligen Validator, damit das Gold-Set den Checksum-Mechanismus
@@ -1038,14 +1051,13 @@ Endsaldo: 2.015,63 EUR
 
 Bei Fragen zu einzelnen Buchungen wenden Sie sich an Ihre Filiale.
 
-### id: de-102 | kind: kontoauszug
-Kontoauszug Nr. 4/2026
+### id: de-102 | kind: dauerauftrag
+Bestätigung Dauerauftrag
 
-Kontonummer: {{ACCOUNT_NUMBER:994828918}}
-Zeitraum: 01.04.2026 – 30.04.2026
+Ab sofort wird monatlich ein Betrag von 250,00 EUR vom Konto
+{{ACCOUNT_NUMBER:994828918}} abgebucht.
 
-Es sind keine Rücklastschriften zu verzeichnen. Der Auszug wird wie
-gewohnt postalisch zugestellt.
+Die erste Ausführung erfolgt zum nächsten Monatsersten.
 
 ### id: de-103 | kind: kontoeroeffnung
 Bestätigung der Kontoeröffnung
@@ -1060,16 +1072,17 @@ Werktage per Post.
 ### id: de-104 | kind: geburtsbescheinigung
 Geburtsbescheinigung — Auszug
 
-Hiermit wird bestätigt, dass {{PERSON:Fabian Kessler}} am 14.03.1990 in
-{{CITY:Freiburg im Breisgau}} geboren wurde.
+Hiermit wird bestätigt, dass {{PERSON:Fabian Kessler}} am
+{{DATE_OF_BIRTH:14.03.1990}} in {{CITY:Freiburg im Breisgau}} geboren
+wurde.
 
 Die Bescheinigung dient der Vorlage beim Standesamt.
 
 ### id: de-105 | kind: wohnsitzbestaetigung
 Wohnsitzbestätigung
 
-Hiermit bestätigen wir, dass {{PERSON:Nora Vogt}} seit dem 03.02.2019 mit
-Hauptwohnsitz in {{CITY:Bonn}} gemeldet ist.
+Hiermit bestätigen wir, dass {{PERSON:Nora Vogt}} seit dem
+{{DATE:03.02.2019}} mit Hauptwohnsitz in {{CITY:Bonn}} gemeldet ist.
 
 Diese Bestätigung wird auf Antrag der Antragstellerin ausgestellt.
 
@@ -1114,7 +1127,7 @@ Die Anmeldung wurde durch die zuständige kantonale Stelle bestätigt.
 Meldebestätigung
 
 {{PERSON:Elif Kurtuluş}}, geboren in {{CITY:Izmir}}, {{COUNTRY:Türkei}}, ist
-seit dem 01.09.2025 in der Gemeinde gemeldet.
+seit dem {{DATE:01.09.2025}} in der Gemeinde gemeldet.
 
 Diese Bestätigung wird auf Antrag ausgestellt.
 
