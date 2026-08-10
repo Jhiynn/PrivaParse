@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Sequence
 
 from privaparse.app.logging import get_logger
-from privaparse.parser.types import SOURCE_GLINER, EntityType, Span
+from privaparse.parser.types import SOURCE_GLINER, Span
 
 if TYPE_CHECKING:  # pragma: no cover
     from privaparse.app.config import Settings
@@ -179,7 +179,7 @@ class GlinerDetector:
         item: Any,
         chunk: Chunk,
         text: str,
-        entity_type: EntityType,
+        entity_type: str,
     ) -> Span | None:
         surface, local_start, local_end, score = _unpack(item)
         if not surface:

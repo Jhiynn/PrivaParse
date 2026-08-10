@@ -192,7 +192,7 @@ def _unique_by_surface(spans: Sequence[Span]) -> list[Span]:
     return out
 
 
-def _sweep_pattern(surface: str, entity_type: EntityType) -> re.Pattern[str]:
+def _sweep_pattern(surface: str, entity_type: str) -> re.Pattern[str]:
     escaped = re.escape(surface)
     if entity_type == EntityType.EMAIL:
         # Addresses are case-insensitive in practice, and boundaries stop
