@@ -16,7 +16,7 @@ from privaparse.parser.types import EntityType
 
 @pytest.fixture()
 def detector() -> RegexDetector:
-    return RegexDetector(load_catalogue(), phone_region="DE")
+    return RegexDetector(load_catalogue())
 
 
 def _texts_of(spans, entity_type):

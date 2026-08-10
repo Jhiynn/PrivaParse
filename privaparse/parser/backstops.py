@@ -1,12 +1,17 @@
 """Regex finders that run alongside the model.
 
 Their job is recall, not authority: a backstop span survives only where no
-model span overlaps it. Every one of them is exact by construction, so the
-validators in ``validators.py`` never second-guess them.
+model span overlaps it. Precision varies by finder: IBAN, card and IP are
+checksum- or parse-gated, but ``vat_de`` is a shape match with no checksum to
+run, and email is a heuristic pattern like any other. ``validators.py`` never
+second-guesses a backstop span regardless — it only re-checks what the model
+proposes, on the theory that a rule should not be asked to grade its own
+output.
 
-Each returns spans with an empty ``type``; the detector stamps the placeholder
-type from the catalogue, because the same finder can serve a type the user
-renamed.
+Each returns raw ``(start, end)`` offsets, not a typed ``Span``: a finder does
+not know which placeholder it is serving, because the same finder can serve a
+type the user renamed. ``RegexDetector`` is the only place that builds a
+``Span``, stamping the type from the catalogue.
 """
 
 from __future__ import annotations
@@ -17,14 +22,9 @@ import phonenumbers
 
 from privaparse.parser.detector import _EMAIL_RE
 from privaparse.parser.registry import register_backstop
-from privaparse.parser.types import SOURCE_REGEX, Span
 from privaparse.parser.validators import is_valid_card, is_valid_iban
 
 _IBAN_RE = re.compile(r"\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]{2,4}){2,8}\b")
-# Separator sits *between* digits, not after the last one — ``(?:\d[ -]?){12,19}``
-# lets the final optional separator ride along into the match, so "4111 1111
-# 1111 1111 wurde" would capture the trailing space and glue the placeholder to
-# the next word. Same 12-19 digit range, just anchored on a digit at both ends.
 _CARD_RE = re.compile(r"\b\d(?:[ -]?\d){11,18}\b")
 _IPV4_RE = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 _IPV6_RE = re.compile(r"\b(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4}\b")
@@ -36,52 +36,62 @@ _VAT_DE_RE = re.compile(r"\bDE\d{9}\b")
 _PHONE_LENIENCY = phonenumbers.Leniency.STRICT_GROUPING
 
 
-def _span(text: str, start: int, end: int) -> Span:
-    return Span(start=start, end=end, text=text[start:end], type="", score=1.0,
-                source=SOURCE_REGEX)
-
-
-def _matches(text: str, pattern: re.Pattern[str], check=None) -> list[Span]:
-    out: list[Span] = []
+def _matches(text: str, pattern: re.Pattern[str], check=None) -> list[tuple[int, int]]:
+    out: list[tuple[int, int]] = []
     for match in pattern.finditer(text):
-        if check is not None and not check(match.group(0)):
-            continue
-        out.append(_span(text, match.start(), match.end()))
+        start, end = match.start(), match.end()
+        # A greedy pattern can overreach into a following token — an IBAN
+        # swallowing "BIC", a card swallowing an expiry digit or two. The gate
+        # rejecting the whole match does not mean nothing here is real: peel
+        # back to the last separator and retry before giving up on it.
+        while check is not None and not check(text[start:end]):
+            cut = max(text.rfind(" ", start, end), text.rfind("-", start, end))
+            if cut <= start:
+                end = start
+                break
+            end = cut
+        if end > start:
+            out.append((start, end))
     return out
 
 
 @register_backstop("email")
-def find_emails(text: str) -> list[Span]:
+def find_emails(text: str) -> list[tuple[int, int]]:
     return _matches(text, _EMAIL_RE)
 
 
 @register_backstop("phone")
-def find_phones(text: str, region: str = "DE") -> list[Span]:
-    found: dict[tuple[int, int], Span] = {}
+def find_phones(text: str, region: str = "DE") -> list[tuple[int, int]]:
+    # Single-region by design: a backstop is (text) -> offsets with nothing
+    # else in the call, so RegexDetector has no channel to carry a per-type
+    # region into it. A second region belongs in a catalogue options: map, not
+    # a detector that no longer knows what a phone number is — the old
+    # extra_regions capability is dropped along with that, not just unwired.
+    found: dict[tuple[int, int], tuple[int, int]] = {}
     for match in phonenumbers.PhoneNumberMatcher(text, region, leniency=_PHONE_LENIENCY):
-        found.setdefault((match.start, match.end), _span(text, match.start, match.end))
+        found.setdefault((match.start, match.end), (match.start, match.end))
     return list(found.values())
 
 
 @register_backstop("iban")
-def find_ibans(text: str) -> list[Span]:
+def find_ibans(text: str) -> list[tuple[int, int]]:
     """Checksum-gated. The pattern alone matches far too much."""
     return _matches(text, _IBAN_RE, is_valid_iban)
 
 
 @register_backstop("card")
-def find_cards(text: str) -> list[Span]:
+def find_cards(text: str) -> list[tuple[int, int]]:
     """Luhn-gated, which is what keeps order and invoice numbers out."""
     return _matches(text, _CARD_RE, is_valid_card)
 
 
 @register_backstop("ip")
-def find_ips(text: str) -> list[Span]:
+def find_ips(text: str) -> list[tuple[int, int]]:
     from privaparse.parser.validators import is_valid_ip
 
     return _matches(text, _IPV4_RE, is_valid_ip) + _matches(text, _IPV6_RE, is_valid_ip)
 
 
 @register_backstop("vat_de")
-def find_vat_de(text: str) -> list[Span]:
+def find_vat_de(text: str) -> list[tuple[int, int]]:
     return _matches(text, _VAT_DE_RE)

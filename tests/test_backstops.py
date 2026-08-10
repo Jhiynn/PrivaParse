@@ -11,18 +11,45 @@ TEXT = (
 )
 
 
-def _texts(name: str) -> list[str]:
-    return [span.text for span in registry.get_backstop(name)(TEXT)]
+def _texts(name: str, text: str = TEXT) -> list[str]:
+    return [text[a:b] for a, b in registry.get_backstop(name)(text)]
 
 
 def test_iban_backstop_finds_the_iban_and_nothing_else():
     assert _texts("iban") == ["DE89 3704 0044 0532 0130 00"]
 
 
+def test_iban_backstop_is_not_lost_to_an_adjacent_bic():
+    # The greedy pattern used to swallow " BIC COBADEFFXXX" into the match,
+    # mod97 rejected the overreached string whole, and the real IBAN was
+    # dropped rather than narrowed — this is exactly what a German invoice or
+    # remittance slip looks like.
+    text = "IBAN DE89 3704 0044 0532 0130 00 BIC COBADEFFXXX"
+    assert _texts("iban", text) == ["DE89 3704 0044 0532 0130 00"]
+
+
+def test_iban_backstop_is_not_lost_before_the_word_sepa():
+    text = "DE89 3704 0044 0532 0130 00 SEPA"
+    assert _texts("iban", text) == ["DE89 3704 0044 0532 0130 00"]
+
+
 def test_card_backstop_finds_the_card_and_not_the_order_number():
     found = _texts("card")
     assert "4111 1111 1111 1111" in found
     assert "4711" not in found
+
+
+def test_card_backstop_is_not_lost_to_an_adjacent_expiry_date():
+    # Same failure mode as the IBAN case: the pattern grabbed " 12" off
+    # "12/25" too, Luhn rejected the 18-digit whole, and the real card number
+    # was dropped rather than narrowed back to 16 digits.
+    text = "Kreditkarte 4111 1111 1111 1111 12/25 gueltig."
+    assert _texts("card", text) == ["4111 1111 1111 1111"]
+
+
+def test_card_backstop_is_not_lost_to_trailing_digits():
+    text = "Karte 4111 1111 1111 1111 99 Euro."
+    assert _texts("card", text) == ["4111 1111 1111 1111"]
 
 
 def test_ip_backstop_finds_the_address_and_not_the_date():

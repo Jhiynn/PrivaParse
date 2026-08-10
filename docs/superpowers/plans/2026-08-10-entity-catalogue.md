@@ -1539,6 +1539,28 @@ def test_backstop_spans_carry_the_placeholder_type():
 Run: `pytest tests/test_backstops.py -v`
 Expected: FAIL — the stub backstops return `[]` and `RegexDetector` takes no catalogue.
 
+> **Two rulings that override the code blocks below.** Both came out of the
+> Task 5 review and are binding.
+>
+> **Finders return `list[tuple[int, int]]`, not `Span`.** The code below has
+> them return spans with an empty `type` for `RegexDetector` to stamp, which
+> forced the removal of the non-empty-type guard `Span.__post_init__` gained in
+> Task 2. Returning offset pairs makes the invariant unbreakable instead of
+> documented: only `RegexDetector` constructs a `Span`, the guard stays, and
+> `_span()` plus its explanatory paragraph disappear. The rename-survival
+> property that motivated the indirection is untouched — the finder still does
+> not name its own type.
+>
+> **`RegexDetector` loses `phone_region`.** The parameter is assigned and never
+> read: `detect()` calls `finder(text)`, so `find_phones`' own `region="DE"`
+> default always wins. A constructor argument that looks configurable and does
+> nothing is worse than no argument. If a second region is ever needed its home
+> is a per-type `options:` map in the catalogue, not a detector that no longer
+> knows what a phone number is. The `extra_regions` capability the old
+> constructor had goes with it — nothing in production ever set it — and that
+> choice belongs in a comment next to `region: str = "DE"`, not only in a
+> deleted test.
+
 - [ ] **Step 3: Write the backstops**
 
 Create `privaparse/parser/backstops.py`. Add it to `registry.load_builtins`:

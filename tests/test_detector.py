@@ -11,6 +11,29 @@ from privaparse.parser.detector import CompositeDetector, StaticDetector
 from privaparse.parser.types import Span
 
 
+class _DetectOnly:
+    """Has ``detect`` and nothing else — GlinerDetector's actual shape.
+
+    ``Detector`` is a structural Protocol, so its ``detect_many`` default body
+    reaches no one: nothing inherits from a Protocol. GlinerDetector and every
+    hand-written test fake (``NameListDetector`` included) predate
+    ``detect_many`` and never got it, so this is what the production hybrid
+    detector's first element really looks like.
+    """
+
+    def detect(self, text: str) -> list[Span]:
+        return [Span(0, len(text), text, "WHOLE")] if text else []
+
+
+def test_composite_detect_many_tolerates_a_detector_without_it():
+    composite = CompositeDetector([_DetectOnly()])
+
+    results = composite.detect_many(["ab", "xyz"])
+
+    assert [s.text for s in results[0]] == ["ab"]
+    assert [s.text for s in results[1]] == ["xyz"]
+
+
 def test_composite_detect_many_keeps_each_texts_spans_separate():
     """Fan out per text and merge per text — never flatten across texts.
 

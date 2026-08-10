@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Iterable, Protocol, Sequence, runtime_checkabl
 import phonenumbers
 
 from privaparse.app.logging import get_logger
-from privaparse.parser.types import Span
+from privaparse.parser.types import SOURCE_REGEX, Span
 
 if TYPE_CHECKING:  # pragma: no cover
     from privaparse.app.catalogue import Catalogue
@@ -106,9 +106,8 @@ class RegexDetector:
     model the final word; these spans survive where the model found nothing.
     """
 
-    def __init__(self, catalogue: "Catalogue", phone_region: str = "DE") -> None:
+    def __init__(self, catalogue: "Catalogue") -> None:
         self.catalogue = catalogue
-        self.phone_region = phone_region
 
     def detect(self, text: str) -> list[Span]:
         from privaparse.parser import registry
@@ -118,17 +117,17 @@ class RegexDetector:
             if placeholder.backstop is None:
                 continue
             finder = registry.get_backstop(placeholder.backstop)
-            for span in finder(text):
-                # The finder does not know which type it is serving; the
-                # catalogue does.
+            for start, end in finder(text):
+                # The finder returns offsets, not a typed Span: it does not
+                # know which placeholder it is serving; the catalogue does.
                 spans.append(
                     Span(
-                        start=span.start,
-                        end=span.end,
-                        text=span.text,
+                        start=start,
+                        end=end,
+                        text=text[start:end],
                         type=placeholder.name,
-                        score=span.score,
-                        source=span.source,
+                        score=1.0,
+                        source=SOURCE_REGEX,
                     )
                 )
         return spans
@@ -157,7 +156,12 @@ class CompositeDetector:
     def detect_many(self, texts: Sequence[str]) -> list[list[Span]]:
         per_text: list[list[Span]] = [[] for _ in texts]
         for detector in self.detectors:
-            for index, spans in enumerate(detector.detect_many(texts)):
+            # Detector is a structural Protocol; nothing inherits its
+            # detect_many default. GlinerDetector, and every hand-written test
+            # fake, only ever defined detect — so the method may not exist.
+            batch = getattr(detector, "detect_many", None)
+            results = batch(texts) if batch else [detector.detect(t) for t in texts]
+            for index, spans in enumerate(results):
                 per_text[index].extend(spans)
         return per_text
 

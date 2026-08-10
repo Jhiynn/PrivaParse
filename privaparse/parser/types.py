@@ -32,14 +32,6 @@ class Span:
     Offsets always refer to the **original** document, never to a masked or
     chunked view — every producer is responsible for translating back before
     handing a span on.
-
-    ``type`` may be transiently empty. A backstop finder (``parser.backstops``)
-    does not know which placeholder it is serving — the same regex can back a
-    type the user renamed — so it returns spans before that is decided, and the
-    caller constructs the real, typed ``Span`` immediately after. Rejecting an
-    empty type here would make that two-step handoff impossible. Legality
-    against the catalogue, including non-emptiness, is checked once, in
-    ``EntityResolver`` — the first point an unresolved type has consequences.
     """
 
     start: int
@@ -54,6 +46,8 @@ class Span:
             raise ValueError(f"span start must be >= 0, got {self.start}")
         if self.end <= self.start:
             raise ValueError(f"span end {self.end} must be greater than start {self.start}")
+        if not self.type:
+            raise ValueError("span type must not be empty")
 
     @property
     def length(self) -> int:
