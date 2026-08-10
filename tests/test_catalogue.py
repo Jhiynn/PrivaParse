@@ -115,3 +115,32 @@ def test_discovery_falls_back_to_cwd(tmp_path):
 
 def test_discovery_returns_none_when_nothing_is_configured(tmp_path):
     assert discover_catalogue_path(env={}, cwd=tmp_path, home=tmp_path) is None
+
+
+def test_span_accepts_a_type_outside_the_builtin_three():
+    from privaparse.parser.types import Span
+
+    span = Span(start=0, end=4, text="DE89", type="IBAN")
+    assert span.type == "IBAN"
+    assert str(span.type) == "IBAN"
+
+
+def test_entity_type_constants_are_plain_strings():
+    from privaparse.parser.types import EntityType
+
+    assert EntityType.PERSON == "PERSON"
+    assert f"{EntityType.EMAIL}" == "EMAIL"
+
+
+def test_settings_entity_schema_comes_from_the_catalogue(tmp_path, monkeypatch):
+    from privaparse.app.config import load_settings
+
+    override = tmp_path / "privaparse.entities.yaml"
+    override.write_text(
+        "version: 1\nplaceholder_types:\n  PHONE:\n    enabled: false\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("PRIVAPARSE_ENTITIES", str(override))
+
+    schema = load_settings().entity_schema
+    assert "person" in schema
+    assert "phone_number" not in schema

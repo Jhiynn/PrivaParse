@@ -7,27 +7,15 @@ Every setting can be overridden by an environment variable with the
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+if TYPE_CHECKING:  # pragma: no cover
+    from privaparse.app.catalogue import Catalogue
+
 DeviceSpec = str  # "auto" | "cpu" | "cuda" | "cuda:0" | ...
-
-# Entity types supported in Phase 1. The schema descriptions are handed to
-# GLiNER2 verbatim; per the GLiNER2 docs, described labels beat bare labels.
-DEFAULT_ENTITY_SCHEMA: dict[str, str] = {
-    "person": "Vor- und Nachnamen von Menschen, auch mit Titeln wie Dr. oder Prof.",
-    "email": "E-Mail-Adressen",
-    "phone number": "Telefon- und Mobilnummern, auch mit Landesvorwahl",
-}
-
-# Maps the GLiNER2 schema keys above onto our internal EntityType values.
-SCHEMA_KEY_TO_TYPE: dict[str, str] = {
-    "person": "PERSON",
-    "email": "EMAIL",
-    "phone number": "PHONE",
-}
 
 
 class Settings(BaseSettings):
@@ -78,6 +66,12 @@ class Settings(BaseSettings):
         description="After detection, re-find every accepted surface form elsewhere "
         "in the document so a missed repeat still gets its placeholder.",
     )
+    catalogue_path: Path | None = Field(
+        default=None,
+        description="Entity catalogue YAML. None means: discover it (PRIVAPARSE_ENTITIES, "
+        "./privaparse.entities.yaml, ~/.config/privaparse/entities.yaml), then fall back "
+        "to the built-in.",
+    )
 
     # --- performance -------------------------------------------------------
     device: DeviceSpec = Field(default="auto")
@@ -127,8 +121,19 @@ class Settings(BaseSettings):
         )
 
     @property
+    def catalogue(self) -> "Catalogue":
+        """The resolved catalogue. Cached — loading parses YAML and validates."""
+        cached = self.__dict__.get("_catalogue")
+        if cached is None:
+            from privaparse.app.catalogue import load_catalogue
+
+            cached = load_catalogue(self.catalogue_path)
+            object.__setattr__(self, "_catalogue", cached)
+        return cached
+
+    @property
     def entity_schema(self) -> dict[str, str]:
-        return dict(DEFAULT_ENTITY_SCHEMA)
+        return self.catalogue.schema()
 
     @property
     def db_url(self) -> str:

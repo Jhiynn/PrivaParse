@@ -43,7 +43,7 @@ def gliner(model_settings: Settings):
 
 def test_model_loads_and_finds_german_names(gliner) -> None:
     spans = gliner.detect(SAMPLE)
-    persons = [s.text for s in spans if s.type is EntityType.PERSON]
+    persons = [s.text for s in spans if s.type == EntityType.PERSON]
     assert persons, f"no person found in the sample; got {spans}"
 
 

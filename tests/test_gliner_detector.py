@@ -58,7 +58,7 @@ def test_dict_results_become_spans(settings: Settings) -> None:
     spans = detector.detect(text)
 
     assert len(spans) == 1
-    assert spans[0].type is EntityType.PERSON
+    assert spans[0].type == EntityType.PERSON
     assert spans[0].score == pytest.approx(0.9)
     assert spans[0].source == SOURCE_GLINER
     assert spans[0].verify_against(text)
@@ -83,11 +83,9 @@ def test_all_three_schema_labels_are_mapped(settings: Settings) -> None:
             _entities(
                 person=[{"text": "Max Mustermann", "start": 0, "end": 14, "confidence": 0.9}],
                 email=[{"text": "max@test.de", "start": 16, "end": 27, "confidence": 0.9}],
-                **{
-                    "phone number": [
-                        {"text": "+49 170 1234567", "start": 29, "end": 44, "confidence": 0.9}
-                    ]
-                },
+                phone_number=[
+                    {"text": "+49 170 1234567", "start": 29, "end": 44, "confidence": 0.9}
+                ],
             )
         ],
     )

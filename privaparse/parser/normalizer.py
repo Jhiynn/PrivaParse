@@ -74,9 +74,9 @@ _TITLES = frozenset(
 
 def normalize(value: str, entity_type: EntityType) -> str:
     """Map a surface form onto its vault key."""
-    if entity_type is EntityType.EMAIL:
+    if entity_type == EntityType.EMAIL:
         return normalize_email(value)
-    if entity_type is EntityType.PHONE:
+    if entity_type == EntityType.PHONE:
         return normalize_phone(value)
     return normalize_person(value)
 

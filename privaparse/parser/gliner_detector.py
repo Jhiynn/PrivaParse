@@ -30,7 +30,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Sequence
 
-from privaparse.app.config import SCHEMA_KEY_TO_TYPE
 from privaparse.app.logging import get_logger
 from privaparse.parser.types import SOURCE_GLINER, EntityType, Span
 
@@ -68,6 +67,7 @@ class GlinerDetector:
         self.settings = settings
         self.device = device
         self.schema = settings.entity_schema
+        self._label_to_type = settings.catalogue.label_to_type()
         #: Optional (done, total) callback so a CLI can draw a progress bar.
         self._progress = progress
         self._model = model if model is not None else self._load_model()
@@ -158,12 +158,12 @@ class GlinerDetector:
 
         for result, chunk in zip(results, chunks):
             for label, items in (result or {}).get("entities", {}).items():
-                entity_type = SCHEMA_KEY_TO_TYPE.get(label.lower())
+                entity_type = self._label_to_type.get(label.lower())
                 if entity_type is None:
                     continue
 
                 for item in items:
-                    span = self._build_span(item, chunk, text, EntityType(entity_type))
+                    span = self._build_span(item, chunk, text, entity_type)
                     if span is None:
                         dropped += 1
                         continue

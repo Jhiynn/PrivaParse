@@ -36,7 +36,7 @@ _TRAILING_TRIM = " \t\r\n.,;:!?)>]}\"'“«‘›*_"
 #: substring matching produces noise ("Li" inside "Lieferung").
 _MIN_SWEEP_LENGTH = 3
 
-_TYPE_RANK = {EntityType.EMAIL: 3, EntityType.PHONE: 3, EntityType.PERSON: 1}
+_TYPE_RANK = {"EMAIL": 3, "PHONE": 3, "PERSON": 1}
 _SOURCE_RANK = {SOURCE_REGEX: 3, SOURCE_GLINER: 2, SOURCE_COREF: 1}
 
 
@@ -172,16 +172,16 @@ def _passes_rule_check(span: Span) -> bool:
     """
     if span.source == SOURCE_REGEX:
         return True
-    if span.type is EntityType.EMAIL:
+    if span.type == EntityType.EMAIL:
         return is_valid_email(span.text)
-    if span.type is EntityType.PHONE:
+    if span.type == EntityType.PHONE:
         return is_plausible_phone(span.text)
     return True
 
 
 def _unique_by_surface(spans: Sequence[Span]) -> list[Span]:
     """One representative per (type, surface form)."""
-    seen: set[tuple[EntityType, str]] = set()
+    seen: set[tuple[str, str]] = set()
     out: list[Span] = []
     for span in spans:
         key = (span.type, span.text.strip().casefold())
@@ -194,11 +194,11 @@ def _unique_by_surface(spans: Sequence[Span]) -> list[Span]:
 
 def _sweep_pattern(surface: str, entity_type: EntityType) -> re.Pattern[str]:
     escaped = re.escape(surface)
-    if entity_type is EntityType.EMAIL:
+    if entity_type == EntityType.EMAIL:
         # Addresses are case-insensitive in practice, and boundaries stop
         # "max@test.de" from matching inside "notmax@test.de".
         return re.compile(rf"(?<![\w.+-]){escaped}(?![\w-])", re.IGNORECASE)
-    if entity_type is EntityType.PERSON:
+    if entity_type == EntityType.PERSON:
         return re.compile(rf"(?<!\w){escaped}(?!\w)")
     return re.compile(escaped)
 

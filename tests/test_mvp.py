@@ -76,7 +76,7 @@ def test_repeated_value_reuses_one_placeholder(
     """"Max Mustermann" appears twice in the sample and must map to one entity."""
     result = engine.pseudonymize(beispiel_md)
 
-    person_spans = [r for r in result.spans if r.span.type is EntityType.PERSON]
+    person_spans = [r for r in result.spans if r.span.type == EntityType.PERSON]
     assert len(person_spans) == 2
     assert len({r.placeholder for r in person_spans}) == 1
     assert result.text.count("[[PERSON_A1]]") == 2

@@ -3,18 +3,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
 
 
-class EntityType(str, Enum):
-    """Entity types supported in Phase 1."""
+class EntityType:
+    """Well-known placeholder type names.
+
+    Deliberately not an ``Enum``: the set of types is decided by the catalogue
+    at runtime, and an enum would make every user-defined type a second-class
+    citizen. These constants exist so the code that genuinely does care about
+    the three built-in types can say so without a string literal.
+    """
 
     PERSON = "PERSON"
     EMAIL = "EMAIL"
     PHONE = "PHONE"
-
-    def __str__(self) -> str:
-        return self.value
 
 
 #: Where a span came from. Used by the merge step to break ties.
@@ -35,7 +37,7 @@ class Span:
     start: int
     end: int
     text: str
-    type: EntityType
+    type: str
     score: float = 1.0
     source: str = SOURCE_REGEX
 
@@ -44,6 +46,8 @@ class Span:
             raise ValueError(f"span start must be >= 0, got {self.start}")
         if self.end <= self.start:
             raise ValueError(f"span end {self.end} must be greater than start {self.start}")
+        if not self.type:
+            raise ValueError("span type must not be empty")
 
     @property
     def length(self) -> int:
