@@ -2204,8 +2204,11 @@ TEXTS = [
 
 def test_one_mapping_covers_every_text(engine):
     result = engine.pseudonymize_batch(TEXTS)
-    assert len({result.mapping_id}) == 1
     assert len(result.texts) == 3
+    # Not `len({result.mapping_id}) == 1` — a one-element set literal always
+    # has length one, so that asserts nothing. The property is that the single
+    # id resolves placeholders from every text at once.
+    assert engine.reverse(result.mapping_id, "\n".join(result.texts)).is_clean
 
 
 def test_a_value_in_two_texts_gets_one_placeholder(engine):
@@ -2229,10 +2232,21 @@ def test_batch_refuses_text_that_already_contains_placeholders(engine):
         engine.pseudonymize_batch(["fine", "already [[PERSON_A1]] here"])
 
 
-def test_empty_batch_creates_no_mapping(engine):
+def test_empty_batch_still_creates_a_real_mapping(engine, other_text):
+    """An empty batch gets a real session id, not a falsy sentinel.
+
+    ``engine.reverse`` reads ``mapping_id or find_mapping_for(...)``, so an
+    empty string would take the auto-discovery branch and resolve placeholders
+    from whatever session happened to issue them — the opposite of a pin.
+    """
     result = engine.pseudonymize_batch([])
     assert result.texts == []
     assert result.replacements == 0
+    assert len(result.mapping_id) == 36
+
+    restored = engine.reverse(result.mapping_id, other_text)
+    assert restored.restored == 0
+    assert restored.foreign
 
 
 def test_detect_many_matches_detect_one_by_one(fake_detector):
