@@ -25,11 +25,47 @@ VECTORS = [
     ("luhn", "4111111111111112", False),
     # Passes Luhn but is far too short to be a card.
     ("luhn", "18", False),
+    # Steuer-ID: checksum enforced. This one vector alone cannot prove the
+    # checksum stayed strict once the union also accepts Steuernummer shapes
+    # (see below) — test_steuer_id_checksum_is_unweakened_by_the_wider_union
+    # checks _is_valid_steuer_id directly, immune to that widening.
     ("tax_de", "36574261809", True),
-    ("tax_de", "36574261808", False),
-    ("tax_de", "12345678901", False),
-    ("blz_de", "37040044", True),
-    ("blz_de", "3704004", False),
+    # Steuernummer shapes: none of these are valid Steuer-IDs (either the
+    # wrong length, or, where the length coincides, the wrong checksum), but
+    # TAX_ID's own prompt promises "Steuernummer" too, and the format has no
+    # public checksum to check past its length.
+    ("tax_de", "181/815/08155", True),
+    ("tax_de", "18181508155", True),
+    ("tax_de", "1337108153", True),
+    ("tax_de", "13/371/08153", True),
+    # 36574261808 is 36574261809 with the check digit flipped — previously
+    # the only failure mode this validator could name. It is still not a
+    # Steuer-ID, but it is still 11 plain digits, which is a valid
+    # Steuernummer shape, so the union now accepts it: rejecting it would
+    # mean rejecting a real Steuernummer merely for sharing a length with
+    # the Steuer-ID format.
+    ("tax_de", "36574261808", True),
+    ("tax_de", "DE123456789", True),
+    ("tax_de", "DE 123 456 789", True),
+    # Near-misses that stay provably impossible under every branch.
+    ("tax_de", "123456789", False),  # 9 digits: short of both the 10-11 range
+    ("tax_de", "1234567890123", False),  # 13 digits: long past every branch
+    ("tax_de", "DE12345678", False),  # VAT-ID shape, one digit short
+    ("tax_de", "DE1234567890", False),  # VAT-ID shape, one digit too many
+    ("tax_de", "FR123456789", False),  # right VAT-ID shape, wrong country
+    ("bank_routing_de", "37040044", True),
+    ("bank_routing_de", "3704004", False),
+    # BIC shapes: ROUTING_NUMBER's own prompt promises "Bankleitzahlen, BIC,
+    # Routing-Nummern", but the digits-only check (formerly registered as
+    # blz_de) rejected all three of these real BIC shapes outright.
+    ("bank_routing_de", "DEUTDEFF", True),
+    ("bank_routing_de", "DEUTDEFF500", True),
+    ("bank_routing_de", "COBADEFFXXX", True),
+    ("bank_routing_de", "deutdeff", True),  # case-insensitive, like every other builtin here
+    ("bank_routing_de", "DEUTDEF", False),  # 7 characters: neither 8 nor 11
+    ("bank_routing_de", "DEUTDEFF50", False),  # branch code must be 0 or 3 characters, not 2
+    ("bank_routing_de", "1EUTDEFF", False),  # digit in the bank-code position
+    ("bank_routing_de", "DEUT12FF", False),  # digits in the country-code position
     ("postal_de", "50667", True),
     ("postal_de", "5066", False),
     ("ip_parse", "192.168.0.1", True),
@@ -54,6 +90,22 @@ VECTORS = [
 @pytest.mark.parametrize("name, value, expected", VECTORS)
 def test_validator_vectors(name, value, expected):
     assert registry.get_validator(name)(value) is expected
+
+
+def test_steuer_id_checksum_is_unweakened_by_the_wider_tax_de_union():
+    """tax_de's union of Steuer-ID / Steuernummer / VAT-ID shapes means an
+    11-digit value that fails the Steuer-ID checksum is still accepted
+    overall — it is still a plausible Steuernummer (see the "36574261808"
+    case in VECTORS above). That must not be read as the checksum having
+    gone soft: this calls the checksum function directly, where the
+    Steuernummer branch cannot rescue a bad result, so a regression in the
+    checksum itself cannot hide behind the union.
+    """
+    from privaparse.parser.validators import _is_valid_steuer_id
+
+    assert _is_valid_steuer_id("36574261809") is True
+    assert _is_valid_steuer_id("36574261808") is False
+    assert _is_valid_steuer_id("12345678901") is False
 
 
 def test_every_catalogue_validator_is_registered():

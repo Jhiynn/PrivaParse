@@ -162,8 +162,13 @@ placeholder_types:
   ROUTING_NUMBER:
     labels: [routing_number]
     prompts: {routing_number: "Bankleitzahlen, BIC, Routing-Nummern"}
-    normalizer: digits
-    validator: builtin:blz_de
+    # strip_upper, not digits: the validator now accepts a BIC as well as a
+    # BLZ, and a BIC's letters are the bank and country code, not noise —
+    # normalizer: digits would strip "DEUTDEFF" to "" (dropped entirely) and
+    # "DEUTDEFF500" to "500" (colliding with any other BIC sharing that
+    # trailing digit run).
+    normalizer: strip_upper
+    validator: builtin:bank_routing_de
     sweep: exact
     threshold: 0.6
 
@@ -193,7 +198,11 @@ placeholder_types:
   CARD_EXPIRY:
     labels: [card_expiry]
     prompts: {card_expiry: "Gueltigkeitsdatum einer Zahlungskarte"}
-    normalizer: date_iso
+    # date_iso only recognises a three-part date, so "08/27" falls through
+    # to its casefold fallback — and "08/27", "08-27" and "08 / 27" then
+    # casefold to three different strings for one expiry. expiry needs its
+    # own normalizer, matching what expiry_shape actually accepts.
+    normalizer: expiry
     validator: builtin:expiry_shape
     sweep: exact
     threshold: 0.6

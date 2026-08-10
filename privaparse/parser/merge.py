@@ -340,14 +340,27 @@ def _sweep_pattern(surface: str, sweep: str) -> re.Pattern[str] | None:
     "Berlin" across a document produces more noise than protection, and the
     noise is indistinguishable from a detection failure when you read the
     output.
+
+    ``word`` and ``exact`` compile to the identical pattern below: both are
+    case-sensitive, boundary-anchored, literal matches. ``exact`` used to mean
+    "no boundary at all", which is not a real distinction so much as a missing
+    one — a five-digit POSTAL_CODE swept with the old ``exact`` pattern would
+    happily match as a substring of an unrelated nine-digit customer number,
+    splicing a placeholder into the middle of it. A sweep with no boundary
+    check is not "exact", it is unbounded. Boundary-anchoring is not optional
+    for any mode that runs by default, so there is nothing left for a separate
+    branch to do differently. The catalogue keeps the two names distinct
+    because they still document different intent for the type author — `word`
+    for values whose surface form is prose (names), `exact` for values with no
+    inflection (account numbers, secrets) — and a future mode could yet need
+    to tell them apart (an inflection-tolerant `word`, say). There is no
+    behavioural difference between them today.
     """
     escaped = re.escape(surface)
     if sweep == "off":
         return None
     if sweep == "icase":
         return re.compile(rf"(?<![\w.+-]){escaped}(?![\w-])", re.IGNORECASE)
-    if sweep == "exact":
-        return re.compile(escaped)
     return re.compile(rf"(?<!\w){escaped}(?!\w)")
 
 

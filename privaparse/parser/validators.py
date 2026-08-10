@@ -23,8 +23,32 @@ from privaparse.parser.registry import register_validator
 
 _SEPARATORS_RE = re.compile(r"[\s.\-/]")
 _DIGITS_ONLY_RE = re.compile(r"^\d+$")
-_EXPIRY_RE = re.compile(r"^(0[1-9]|1[0-2])\s*[/\-.]\s*(\d{2}|\d{4})$")
+
+#: A card expiry: MM then a 2- or 4-digit year, joined by "/", "-" or ".".
+#: Shared as a bare fragment with normalizer.py's ``expiry`` normalizer, so a
+#: shape this validator accepts can never silently fall outside what the
+#: normalizer recognises — that gap is exactly what let "08/27", "08-27" and
+#: "08 / 27" fragment into three placeholders for one expiry date before the
+#: normalizer had a dedicated shape to canonicalise against.
+EXPIRY_FRAGMENT = r"(0[1-9]|1[0-2])\s*[/\-.]\s*(\d{2}|\d{4})"
+_EXPIRY_RE = re.compile(rf"^{EXPIRY_FRAGMENT}$")
 _CVV_RE = re.compile(r"^\d{3,4}$")
+
+#: "DE" plus 9 digits, no separators — a German VAT-ID (Umsatzsteuer-
+#: Identifikationsnummer). Shared as a bare string, not just a compiled
+#: pattern, because backstops.py's ``find_vat_de`` needs the same shape
+#: wrapped in ``\b`` word boundaries instead of ``^…$`` anchors; importing a
+#: fragment both build from is what keeps the two definitions from silently
+#: drifting apart the way ``PLACEHOLDER_RE`` and a hand-written type-name
+#: check once did.
+VAT_DE_FRAGMENT = r"DE\d{9}"
+_VAT_DE_RE = re.compile(rf"^{VAT_DE_FRAGMENT}$")
+
+#: ISO 9362 BIC/SWIFT shape: 4-letter bank code, 2-letter country code,
+#: 2-character alphanumeric location code, optional 3-character alphanumeric
+#: branch code. 8 characters without a branch, 11 with one — nothing in
+#: between is a real BIC.
+_BIC_RE = re.compile(r"^[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}([A-Z0-9]{3})?$")
 
 register_validator("email_syntax")(is_valid_email)
 register_validator("phone_shape")(is_plausible_phone)
@@ -100,13 +124,47 @@ def is_valid_card(value: str) -> bool:
 
 @register_validator("tax_de")
 def is_valid_tax_de(value: str) -> bool:
-    """German Steuer-Identifikationsnummer: 11 digits, ISO 7064 MOD 11,10.
+    """Accepts any shape the TAX_ID type actually covers: a Steuer-ID (with
+    its checksum enforced), a Steuernummer, or a VAT-ID.
+
+    TAX_ID routes two labels — ``tax_id`` and ``tax_number`` — and its
+    prompt promises "Steuer-Identifikationsnummer" and "Steuernummer,
+    Umsatzsteuer-Identifikationsnummer". The original version of this
+    validator only ever checked the first of those three: a model-detected
+    Steuernummer or VAT-ID was vetoed and leaked in clear, because it is not
+    a Steuer-ID and was never going to pass that checksum. A validator has
+    to cover the whole family a type routes, not just the one member with a
+    convenient checksum.
+
+    The Steuer-ID branch (``_is_valid_steuer_id``) is unchanged and stays
+    exactly as strict — it is the one member of this family with a public,
+    checkable algorithm, and weakening it would remove the only proof this
+    validator can actually offer. Steuernummer is accepted by length alone
+    (10 or 11 digits once separators are stripped): the format varies by
+    Bundesland and has no single public checksum, so anything past a length
+    check would be inventing a rule precise enough to reject real numbers —
+    the exact failure this widening exists to close. One consequence worth
+    naming: an 11-digit value that fails the Steuer-ID checksum is still
+    accepted here, as a plausible Steuernummer. That is correct, not a
+    loophole — the checksum was never a property Steuernummer had to begin
+    with, so failing it says nothing about whether the value is real.
+    """
+    compact = _compact(value)
+    if _is_valid_steuer_id(compact):
+        return True
+    if _DIGITS_ONLY_RE.match(compact) and len(compact) in (10, 11):
+        return True
+    return bool(_VAT_DE_RE.match(compact))
+
+
+def _is_valid_steuer_id(compact: str) -> bool:
+    """German Steuerliche Identifikationsnummer: 11 digits, ISO 7064 MOD 11,10.
 
     The digit-repetition rule is checked too — exactly one digit appears twice
     or three times in the first ten, and that alone rejects most sequences a
-    model mistakes for a tax number.
+    model mistakes for a tax number. Takes an already-compacted string: its
+    only caller has already stripped separators and upper-cased.
     """
-    compact = _compact(value)
     if not _DIGITS_ONLY_RE.match(compact) or len(compact) != 11:
         return False
 
@@ -125,10 +183,22 @@ def is_valid_tax_de(value: str) -> bool:
     return check == int(compact[10])
 
 
-@register_validator("blz_de")
-def is_valid_blz(value: str) -> bool:
+@register_validator("bank_routing_de")
+def is_valid_bank_routing_de(value: str) -> bool:
+    """An eight-digit BLZ (Bankleitzahl), or a BIC in its standard shape.
+
+    Renamed from ``blz_de``/``is_valid_blz``: ROUTING_NUMBER's own prompt
+    promises "Bankleitzahlen, BIC, Routing-Nummern", but the old name and
+    implementation covered only the first of those three, so a
+    model-detected BIC — a routing identifier just as much as a BLZ — was
+    vetoed and leaked in clear. ``DEUTDEFF``, ``DEUTDEFF500`` and
+    ``COBADEFFXXX`` are all real BIC shapes an eight-digits-only check
+    rejects outright.
+    """
     compact = _compact(value)
-    return bool(_DIGITS_ONLY_RE.match(compact)) and len(compact) == 8
+    if _DIGITS_ONLY_RE.match(compact) and len(compact) == 8:
+        return True
+    return bool(_BIC_RE.match(compact))
 
 
 @register_validator("postal_de")

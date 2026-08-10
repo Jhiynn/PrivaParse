@@ -22,13 +22,15 @@ import phonenumbers
 
 from privaparse.parser.detector import _EMAIL_RE
 from privaparse.parser.registry import register_backstop
-from privaparse.parser.validators import is_valid_card, is_valid_iban
+from privaparse.parser.validators import VAT_DE_FRAGMENT, is_valid_card, is_valid_iban
 
 _IBAN_RE = re.compile(r"\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]{2,4}){2,8}\b")
 _CARD_RE = re.compile(r"\b\d(?:[ -]?\d){11,18}\b")
 _IPV4_RE = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 _IPV6_RE = re.compile(r"\b(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4}\b")
-_VAT_DE_RE = re.compile(r"\bDE\d{9}\b")
+#: Built from validators.py's shape fragment rather than a second literal
+#: "DE\d{9}", so tax_de's VAT-ID branch and this finder cannot drift apart.
+_VAT_DE_RE = re.compile(rf"\b{VAT_DE_FRAGMENT}\b")
 
 #: Phone matching uses STRICT_GROUPING, not VALID. The lenient level reads
 #: German dates (04.06.2024) as phone numbers — measured on the gold set it

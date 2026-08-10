@@ -17,6 +17,7 @@ import phonenumbers
 from privaparse.app.logging import get_logger
 from privaparse.parser import registry
 from privaparse.parser.registry import register_normalizer
+from privaparse.parser.validators import EXPIRY_FRAGMENT
 
 log = get_logger("normalizer")
 
@@ -30,6 +31,7 @@ __all__ = [
     "normalize_digits",
     "normalize_identity",
     "normalize_date_iso",
+    "normalize_expiry",
 ]
 
 _WHITESPACE_RE = re.compile(r"\s+")
@@ -80,6 +82,10 @@ _NON_DIGIT_RE = re.compile(r"\D")
 _STRIP_RE = re.compile(r"[\s.\-/]")
 _DATE_DMY_RE = re.compile(r"^(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{4})$")
 _DATE_ISO_RE = re.compile(r"^(\d{4})-(\d{1,2})-(\d{1,2})$")
+#: Built from validators.py's own fragment rather than a second copy of the
+#: same shape, so a value expiry_shape accepts can never fall outside what
+#: this normalizer recognises.
+_EXPIRY_RE = re.compile(rf"^{EXPIRY_FRAGMENT}$")
 
 
 def normalize(value: str, normalizer: str) -> str:
@@ -127,6 +133,25 @@ def normalize_date_iso(value: str) -> str:
         year, month, day = match.groups()
         return f"{year}-{int(month):02d}-{int(day):02d}"
     return text.casefold()
+
+
+@register_normalizer("expiry")
+def normalize_expiry(value: str) -> str:
+    """``MM/YY``, regardless of separator or a 2- vs 4-digit year.
+
+    date_iso does not recognise a two-part date at all — it requires a full
+    day/month/year or year/month/day, so a card expiry falls through to its
+    casefold fallback. expiry_shape accepts "/", "-" and "." as separators
+    and both 2- and 4-digit years, so "08/27", "08-27", "08 / 27" and
+    "08/2027" all pass the same validator while casefold gives every one of
+    those spellings a different key — the same card expiring four times.
+    """
+    text = value.strip()
+    match = _EXPIRY_RE.match(text)
+    if not match:
+        return text.casefold()
+    month, year = match.groups()
+    return f"{month}/{year[-2:]}"
 
 
 @register_normalizer("email")

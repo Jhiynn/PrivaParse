@@ -126,10 +126,30 @@ def test_normalize_dispatches_by_registered_name() -> None:
         ("date_iso", "12.03.2026", "2026-03-12"),
         ("date_iso", "2026-03-12", "2026-03-12"),
         ("date_iso", "12. Maerz 2026", "12. maerz 2026"),
+        ("expiry", "08/27", "08/27"),
+        ("expiry", "08-27", "08/27"),
+        ("expiry", "08 / 27", "08/27"),
+        ("expiry", "08/2027", "08/27"),
+        ("expiry", "not a date", "not a date"),
     ],
 )
 def test_registered_normalizers(name, raw, expected):
     assert normalize(raw, name) == expected
+
+
+def test_expiry_merges_every_spelling_expiry_shape_accepts():
+    """The bug this closes: date_iso only recognises a three-part date, so a
+    two-part expiry fell through to casefold, which does not strip
+    whitespace or unify separators — "08/27", "08-27" and "08 / 27" each got
+    their own placeholder for what is one expiry date on one card."""
+    spellings = ["08/27", "08-27", "08 / 27", "08/2027"]
+    keys = {normalize(spelling, "expiry") for spelling in spellings}
+    assert len(keys) == 1
+
+
+def test_expiry_keeps_distinct_months_and_years_apart():
+    assert normalize("08/27", "expiry") != normalize("09/27", "expiry")
+    assert normalize("08/27", "expiry") != normalize("08/28", "expiry")
 
 
 def test_two_spellings_of_one_iban_collide():

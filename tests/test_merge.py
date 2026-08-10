@@ -303,6 +303,47 @@ def test_sweep_keeps_original_casing_of_the_new_occurrence() -> None:
     assert extra[0].verify_against(text)
 
 
+def test_sweep_exact_mode_does_not_splice_into_a_longer_digit_run() -> None:
+    """``exact`` used to compile with no boundary at all, so a short
+    structured value could match as a substring of an unrelated longer digit
+    run. Reproduces the review's own POSTAL_CODE example: sweeping "12345"
+    must not find it inside "912345678", a wholly unrelated customer number
+    that just happens to contain those five digits in the middle."""
+    text = "PLZ 12345 Berlin. Kundennummer 912345678 bitte angeben."
+    protected = protect(text)
+    accepted = [_span(text, "12345", "POSTAL_CODE", source=SOURCE_REGEX, score=1.0)]
+
+    extra = coreference_sweep(accepted, protected, catalogue=load_catalogue())
+    assert extra == []
+
+
+def test_sweep_exact_mode_does_not_splice_cvv_into_a_longer_digit_run() -> None:
+    """Same failure mode as above, for CARD_CVV — and CARD_CVV is
+    reversible: false, so a spliced fragment here could never be restored
+    even for the document that legitimately contains it."""
+    text = "CVV 123 auf der Karte. Bestellnummer 91237 im System."
+    protected = protect(text)
+    accepted = [_span(text, "123", "CARD_CVV", source=SOURCE_REGEX, score=1.0)]
+
+    extra = coreference_sweep(accepted, protected, catalogue=load_catalogue())
+    assert extra == []
+
+
+def test_sweep_exact_mode_still_finds_a_genuine_repeat() -> None:
+    """The boundary fix must not turn into a false negative: a postal code
+    that legitimately appears twice, each time as its own standalone token,
+    still has to be found and masked at the second occurrence."""
+    text = "PLZ 12345 Berlin. Zur Bestätigung erneut: 12345 auf dem Umschlag."
+    protected = protect(text)
+    accepted = [_span(text, "12345", "POSTAL_CODE", source=SOURCE_REGEX, score=1.0)]
+
+    extra = coreference_sweep(accepted, protected, catalogue=load_catalogue())
+    assert len(extra) == 1
+    assert extra[0].text == "12345"
+    assert extra[0].verify_against(text)
+    assert extra[0].start > accepted[0].start
+
+
 def test_resolve_spans_runs_the_whole_cleanup() -> None:
     """Pipeline mechanics (merge, sweep, merge again) — not the veto. Every
     span here is either PERSON (no validator) or SOURCE_REGEX (never
