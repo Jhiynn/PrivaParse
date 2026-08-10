@@ -209,6 +209,18 @@ def test_type_without_a_bar_gets_no_verdict():
     assert "CITY" not in {name for name, _, _ in report.verdicts()}
 
 
+def test_verdict_says_nothing_was_measured_rather_than_a_conclusion() -> None:
+    """PERSON has a bar but nothing in report.partial — zero gold support,
+    the same case verdicts() reports as "no gold entities — nothing
+    measured". That is an absence of data, not a passing measurement, so the
+    sentence must say only that nothing was decided — it must not append a
+    conclusion ("fine-tuning not required") that no measurement supports."""
+    report = EvalReport(label="x", documents=1, catalogue=load_catalogue())
+    assert "nothing to decide" in report.verdict()
+    assert "fine-tuning not required" not in report.verdict()
+    assert "FINE-TUNING WARRANTED" not in report.verdict()
+
+
 def _report_with(precision: float, recall: float) -> EvalReport:
     text = "x"
     report = evaluate(
@@ -255,6 +267,26 @@ def test_report_renders_a_table_and_a_verdict() -> None:
     assert "stub" in rendered
     assert "PERSON [FAIL]" in rendered
     assert "Max Mustermann" in rendered
+
+
+def test_report_includes_the_per_label_section_and_its_recall_caveat() -> None:
+    """A future edit to format_report could drop the per-label table's
+    explanation and leave a reader assuming recall is simply missing by
+    accident, rather than uncomputable by design — see the comment above
+    EvalReport.by_label. Pins both the section existing and the row it
+    renders for an actual match, not just the caveat text in isolation."""
+    text = "Max Mustermann kam."
+    doc = _document(text, [(0, 14, "PERSON")])
+    matched = Span(
+        start=0, end=14, text="Max Mustermann", type="PERSON", score=0.9,
+        source=SOURCE_GLINER, label="full_name",
+    )
+    report = evaluate(StaticDetector([matched]), [doc], label="stub", catalogue=load_catalogue())
+
+    rendered = format_report([report])
+    assert "## Per model label" in rendered
+    assert "Recall is not shown" in rendered
+    assert "| stub | full_name | 1 | 0 | 1.000 |" in rendered
 
 
 # --- gold data -------------------------------------------------------------

@@ -132,7 +132,16 @@ class EvalReport:
 
     def verdict(self) -> str:
         """PERSON's verdict, spelled out as one sentence. A thin wrapper over
-        :meth:`verdicts`, kept for the same reason as `needs_finetuning`."""
+        :meth:`verdicts`, kept for the same reason as `needs_finetuning`.
+
+        Zero gold support is checked first and returns its own sentence,
+        separately from the bar comparison below: "no data" is not the same
+        claim as "passed", and the two must not be squashed into one
+        sentence that appends a conclusion ("fine-tuning not required") to a
+        case where nothing was actually measured.
+        """
+        if not self.person_partial.support:
+            return "no PERSON entities in the gold set — nothing to decide"
         for name, ok, explanation in self.verdicts():
             if name != "PERSON":
                 continue

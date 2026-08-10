@@ -116,6 +116,27 @@ def test_trailing_punctuation_is_trimmed_off_model_spans() -> None:
     assert merged[0].verify_against(text)
 
 
+def test_a_trimmed_model_span_keeps_its_model_label() -> None:
+    """_trim reconstructs a new Span whenever it actually strips something —
+    this is that reconstruction path, not the no-op early return. label has
+    to survive it or a PERSON span trimmed only for trailing punctuation
+    would already show up as "(rule)" in evaluate()'s by_label table, before
+    the exact-span boundary rule in _largest_remainder ever gets involved."""
+    text = "Das war Max Mustermann."
+    start = text.index("Max Mustermann.")
+    ragged = Span(
+        start=start,
+        end=start + len("Max Mustermann."),
+        text="Max Mustermann.",
+        type=EntityType.PERSON,
+        score=0.9,
+        source=SOURCE_GLINER,
+        label="full_name",
+    )
+    merged = merge_spans([ragged], protected=protect(text), catalogue=None)
+    assert merged[0].label == "full_name"
+
+
 def test_regex_spans_are_never_trimmed() -> None:
     """Trimming an exact match can only damage it — a trailing dot may belong
     to the address. Not the veto — no catalogue needed."""
@@ -500,6 +521,24 @@ def test_a_straddling_model_span_keeps_its_larger_remainder() -> None:
         (0, 19, "Herr Max Mustermann", SOURCE_GLINER),
         (20, 31, "max@test.de", SOURCE_REGEX),
     ]
+
+
+def test_a_straddling_model_spans_remainder_keeps_its_model_label() -> None:
+    """Same scenario as the test above, checking the field that test does
+    not: _largest_remainder narrows PERSON(0,23) down to (0,20) before _trim
+    ever sees it, so label has to survive that narrowing specifically, not
+    just the ordinary edge-trim _trim does on its own. Without label=span.label
+    in _largest_remainder, this exact case — a PERSON/EMAIL overlap, the one
+    that function exists for — would silently misattribute the false
+    positive to "(rule)" in evaluate()'s by_label table instead of the model
+    label that actually produced it."""
+    text = "Herr Max Mustermann max@test.de"
+    model = Span(0, 23, text[0:23], "PERSON", 0.9, SOURCE_GLINER, label="full_name")
+    backstop = Span(20, 31, text[20:31], "EMAIL", 1.0, SOURCE_REGEX)
+
+    kept = merge_spans([backstop, model], protected=protect(text), catalogue=None)
+    person = next(s for s in kept if s.type == "PERSON")
+    assert person.label == "full_name"
 
 
 def test_a_straddling_model_span_end_to_end(settings) -> None:
