@@ -6,6 +6,8 @@ real thing are in ``test_gliner_model.py`` behind the ``model`` marker.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from privaparse.app.config import Settings
@@ -31,6 +33,45 @@ class StubModel:
     def batch_extract_entities(self, texts, schema, **kwargs):
         self.calls.append(("batch", tuple(texts), kwargs))
         return [self._next() for _ in texts]
+
+
+class OracleModel:
+    """Answers each call by scanning the text it is actually given, rather
+    than popping a pre-baked queue like StubModel does.
+
+    This is what makes ``detect_many``'s own grouping test below able to fail.
+    GlinerDetector's offset-repair (``_locate``'s last resort — "a unique
+    occurrence anywhere is still unambiguous") can silently relocate a span
+    that a wrong chunk-to-result pairing sent to the wrong place, provided the
+    surface text is still findable somewhere in whatever text it ends up
+    checked against. A canned, positionally-indexed stub can come out looking
+    "corrected" by that fallback even when ``detect_many``'s own cursor
+    bookkeeping is wrong underneath it — an earlier version of that test used
+    exactly such a stub and passed against three different broken cursor
+    implementations. Scanning honestly from the actual chunk text removes
+    that escape hatch: a chunk-result mismatch hands ``_build_span`` a
+    genuinely wrong local offset for the chunk it lands on, and the resulting
+    span either fails to verify or cannot be told apart from another real
+    occurrence of the same name in the same document — so it is dropped, not
+    quietly relocated.
+    """
+
+    def __init__(self, names: list[str]) -> None:
+        self._patterns = [re.compile(rf"(?<!\w){re.escape(name)}(?!\w)") for name in names]
+
+    def _scan(self, text: str) -> dict:
+        hits = [
+            {"text": m.group(0), "start": m.start(), "end": m.end(), "confidence": 0.9}
+            for pattern in self._patterns
+            for m in pattern.finditer(text)
+        ]
+        return {"entities": {"person": hits}} if hits else {"entities": {}}
+
+    def extract_entities(self, text, schema, **kwargs):
+        return self._scan(text)
+
+    def batch_extract_entities(self, texts, schema, **kwargs):
+        return [self._scan(t) for t in texts]
 
 
 @pytest.fixture()
@@ -239,40 +280,64 @@ def test_duplicate_hits_from_overlapping_chunks_collapse(settings: Settings) -> 
 # --- detect_many -------------------------------------------------------
 
 
-def test_detect_many_keeps_each_texts_spans_in_the_right_slot(settings: Settings) -> None:
-    """Chunks from every text are flattened into one model submission and must
-    be split back out by text afterward. An off-by-one in that split would
-    silently attribute one document's entities to another — a cross-document
-    leak, not just a wrong answer, which is why the grouping is checked
-    directly instead of trusting that per-text behaviour generalises.
+def test_detect_many_matches_per_text_detect_across_varied_chunk_counts(
+    settings: Settings,
+) -> None:
+    """``detect_many``'s flatten-then-split-back bookkeeping, checked in a way
+    that can actually fail.
 
-    The three texts have deliberately different chunk counts — one, zero, and
-    more than one — with the empty text in the middle, so a cursor that
-    forgets to skip it misaligns every text that follows.
+    A first version of this test used ``StubModel`` (a canned, positionally
+    indexed queue) and asserted on the final span positions. It passed
+    against three different broken cursor implementations, because
+    ``_locate``'s own offset-repair — a last-resort, whole-text search for a
+    *unique* occurrence of the surface — silently relocated the misattributed
+    span back to the right place anyway. See ``OracleModel`` above for why
+    that escape hatch existed and how this closes it.
+
+    Comparing against ``detect()`` called once per text is the point, not
+    incidental: a single-element batch has no split to get wrong, so it is a
+    trustworthy independent answer for what each text's spans should be.
+    Five texts give chunk counts of one, zero, and two different multi-chunk
+    counts (checked below rather than assumed), with the empty text in the
+    middle and a *second* multi-chunk text after the first — a wrong cursor
+    advance after the first multi-chunk text only shows up once something
+    later has to read past where it left off. The repeated name inside the
+    first multi-chunk text is what defeats ``_locate``'s uniqueness fallback
+    even for a same-text misattribution.
+
+    The failure mode that matters is a **dropped** span — PII forwarded to
+    the LLM unmasked — not a misplaced one, so this compares full span lists,
+    and separately confirms both sides actually found everything rather than
+    agreeing while both silently drop the same thing.
     """
-    short_text = "Anna Krueger kam."
-    filler = "Ein Satz ohne Namen. " * 15
-    long_text = filler + "Am Ende kam Erika Musterfrau."
-    texts = [short_text, "   \n  ", long_text]
+    filler = "Ein Absatz ohne besonderen Namen darin steht hier. "
+    names = ["Klaus Weber", "Petra Lindqvist", "Sofia Herrera", "Ingo Baumann"]
 
-    long_chunks = chunk_text(long_text, settings.chunk_chars)
-    assert len(long_chunks) > 1  # the bug only shows up once a text needs >1 chunk
-
-    results = [
-        _entities(person=[{"text": "Anna Krueger", "start": 0, "confidence": 0.9}]),
-        *[_entities() for _ in long_chunks],
+    texts = [
+        f"Kurzer Text mit {names[0]} drin.",
+        f"{names[1]} schrieb zuerst. "
+        + filler * 6
+        + f"Und dann schrieb {names[1]} noch einmal ganz am Ende.",
+        "   \n  ",  # whitespace only -> zero chunks
+        filler * 8 + f"Ganz am Schluss kam {names[2]} vorbei.",
+        f"Noch ein kurzer Satz mit {names[3]}.",
     ]
-    results[-1] = _entities(person=[{"text": "Erika Musterfrau", "start": 0, "confidence": 0.9}])
-    detector = _detector(settings, results)
 
-    per_text = detector.detect_many(texts)
+    chunk_counts = [len(chunk_text(t, settings.chunk_chars)) if t.strip() else 0 for t in texts]
+    assert chunk_counts[2] == 0, "the middle text must contribute zero chunks"
+    multi_chunk_texts = sum(1 for c in chunk_counts if c > 1)
+    assert multi_chunk_texts >= 2, "need two multi-chunk texts for drift to show"
 
-    assert len(per_text) == 3
-    assert [s.text for s in per_text[0]] == ["Anna Krueger"]
-    assert per_text[1] == []
-    assert [s.text for s in per_text[2]] == ["Erika Musterfrau"]
-    for spans, source in zip(per_text, texts):
-        assert all(span.verify_against(source) for span in spans)
+    detector = GlinerDetector(settings, resolve_device(settings), model=OracleModel(names))
+
+    via_batch = detector.detect_many(texts)
+    via_single = [detector.detect(t) for t in texts]
+
+    assert via_batch == via_single
+
+    expected = [[names[0]], [names[1], names[1]], [], [names[2]], [names[3]]]
+    for spans, wanted in zip(via_single, expected):
+        assert sorted(s.text for s in spans) == sorted(wanted)
 
 
 def test_chunks_cover_the_whole_document() -> None:

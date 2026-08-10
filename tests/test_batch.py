@@ -12,7 +12,7 @@ import pytest
 from privaparse.database.models import Entity
 from privaparse.database.placeholder import find_placeholders
 from privaparse.parser.entity_resolver import UnknownEntityTypeError
-from privaparse.parser.types import SOURCE_REGEX, EntityType, Span
+from privaparse.parser.types import SOURCE_GLINER, SOURCE_REGEX, EntityType, Span
 
 TEXTS = [
     "Sehr geehrter Herr Max Mustermann,",
@@ -22,9 +22,17 @@ TEXTS = [
 
 
 def test_one_mapping_covers_every_text(engine):
+    """One id has to be enough to restore placeholders drawn from all three
+    texts at once — the actual scenario this task exists for: an LLM answer
+    that mixes placeholders the model copied from several of the batch's
+    texts into one response.
+    """
     result = engine.pseudonymize_batch(TEXTS)
-    assert len({result.mapping_id}) == 1
     assert len(result.texts) == 3
+
+    combined_answer = "\n".join(result.texts)
+    restored = engine.reverse(result.mapping_id, combined_answer)
+    assert restored.is_clean
 
 
 def test_a_value_in_two_texts_gets_one_placeholder(engine):
@@ -67,10 +75,36 @@ def test_batch_refuses_text_that_already_contains_placeholders(engine):
         engine.pseudonymize_batch(["fine", "already [[PERSON_A1]] here"])
 
 
-def test_empty_batch_creates_no_mapping(engine):
-    result = engine.pseudonymize_batch([])
-    assert result.texts == []
-    assert result.replacements == 0
+def test_empty_batch_creates_a_real_mapping_with_zero_entries(engine):
+    """Ruled by the project owner: a falsy mapping_id (empty string, or None)
+    is a trap specifically because ``PrivaParseEngine.reverse`` treats a
+    falsy id as "find whichever session issued every placeholder in this
+    text" rather than "this exact session, and nothing else". A caller handed
+    a falsy id from an empty batch and then calling
+    ``engine.reverse(empty.mapping_id, answer)`` would silently resolve
+    against some *other* session that happens to cover the text — reproduced
+    below with a placeholder from a real, unrelated batch. A real mapping id
+    that happens to have issued nothing behaves like every other mapping id
+    instead: lookup is explicit, not a fallback search, and correctly
+    resolves nothing.
+    """
+    other = engine.pseudonymize_batch(TEXTS)
+    empty = engine.pseudonymize_batch([])
+
+    assert empty.mapping_id
+    assert empty.texts == []
+    assert empty.replacements == 0
+
+    with engine.database.session() as session:
+        mapping = engine.repository(session).get_mapping(empty.mapping_id)
+        assert mapping is not None
+        assert mapping.entries == []
+
+    foreign_placeholder = other.spans[0][0].placeholder
+    result = engine.reverse(empty.mapping_id, f"Re: {foreign_placeholder}")
+    assert result.restored == 0
+    assert result.foreign == [foreign_placeholder]
+    assert foreign_placeholder in result.text
 
 
 # --- validate every text before writing any of them -------------------------
@@ -127,7 +161,36 @@ def test_detect_many_matches_detect_one_by_one(fake_detector):
     assert per_text == [fake_detector.detect(text) for text in TEXTS]
 
 
-def test_detect_raw_returns_unfiltered_spans(engine):
-    protected, spans = engine.detect_raw(TEXTS[0])
-    assert protected.original == TEXTS[0]
-    assert isinstance(spans, list)
+def test_detect_raw_returns_unfiltered_spans(settings):
+    """``isinstance(spans, list)`` would pass even if detect_raw quietly ran
+    the merge/threshold step and returned an empty or fully-filtered list —
+    it does not test the one thing detect_raw promises over detect(): that
+    nothing has been dropped yet. A span scored below the merge threshold is
+    the direct way to show that: detect_raw must still return it, and
+    detect() — which does run resolve_spans — must not.
+    """
+    from privaparse.engine import PrivaParseEngine
+    from privaparse.parser.detector import StaticDetector
+
+    text = "Vielleicht Max Mustermann, vielleicht nicht."
+    start = text.index("Max Mustermann")
+    weak = Span(
+        start,
+        start + len("Max Mustermann"),
+        "Max Mustermann",
+        EntityType.PERSON,
+        0.1,
+        SOURCE_GLINER,
+    )
+    assert weak.score < settings.threshold  # otherwise this test proves nothing
+
+    engine = PrivaParseEngine(settings, detector=StaticDetector([weak]), configure_logs=False)
+    try:
+        protected, raw_spans = engine.detect_raw(text)
+        resolved_spans = engine.detect(text)
+
+        assert protected.original == text
+        assert weak in raw_spans
+        assert weak not in resolved_spans
+    finally:
+        engine.close()

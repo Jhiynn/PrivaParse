@@ -110,11 +110,12 @@ class GlinerDetector:
         return self.detect_many([text])[0]
 
     def detect_many(self, texts: Sequence[str]) -> list[list[Span]]:
-        """One model batch across every text.
+        """One flat submission across every text, batched by the model.
 
         Chunking already happens per text; this flattens all the chunks into
-        one submission so a request carrying fifty short strings costs one
-        batched pass rather than fifty single-chunk ones.
+        one list before calling ``_extract``, so a request carrying fifty
+        short strings costs ``ceil(50 / batch_size)`` model calls — seven, at
+        the default batch size of 8 — rather than fifty single-chunk ones.
         """
         chunk_groups = [
             chunk_text(text, self.settings.chunk_chars) if text.strip() else []

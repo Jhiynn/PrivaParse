@@ -132,8 +132,8 @@ class EntityResolver:
 
         The vault key is a digest, so the placeholder stays stable across
         documents while the value itself never reaches disk. No surface form is
-        recorded and no usage is registered, so ``_persist`` writes no mapping
-        entry and ``reverse()`` finds nothing — the one-way door is a
+        recorded and no usage is registered, so no mapping entry ever gets
+        written for it and ``reverse()`` finds nothing — the one-way door is a
         consequence of what was written, not a flag someone can flip later.
         """
         digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()

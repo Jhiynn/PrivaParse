@@ -141,21 +141,31 @@ def pseudonymize_batch(
     still leave text 1 and text 2 already written by the time text 3's own
     call raised. The fix cannot be "let the exception unwind and roll it
     back": the vault's nested-SAVEPOINT writes have a known pre-existing
-    rollback defect (see the reasoning in ``EntityResolver.resolve()``), so a
-    rejected batch must not depend on rollback to leave nothing behind — it
-    must never write in the first place.
+    rollback defect (see the reasoning in ``EntityResolver.resolve()``), so
+    an unknown-type rejection must not depend on rollback to leave nothing
+    behind — it must never write in the first place. That guarantee covers
+    only this one failure mode: an exception raised mid-``resolve()`` for any
+    other reason can still leave an earlier text's entities written, the same
+    pre-existing gap ``EntityResolver.resolve()`` has within a single text.
+
+    An empty batch still creates a mapping row, with zero entries, rather
+    than returning a sentinel. ``PrivaParseEngine.reverse`` treats a falsy
+    ``mapping_id`` as "find whichever session issued every placeholder in
+    this text" — so an empty string or ``None`` handed back here would make
+    ``reverse(empty.mapping_id, answer)`` silently resolve against some
+    *other* session that happens to cover the text, not against this call at
+    all. A real id that happens to have issued nothing behaves like every
+    other mapping id instead: ``reverse()`` against it correctly resolves
+    nothing.
     """
     for index, text in enumerate(texts):
         if contains_placeholder(text):
             raise AlreadyPseudonymizedError(
                 f"text {index} already contains PrivaParse placeholders. "
-                f"Pseudonymising it again would nest placeholders and make the "
-                f"result irreversible. Reverse it first, or pass the original "
-                f"document."
+                "Pseudonymising it again would nest placeholders and make the "
+                "result irreversible. Reverse it first, or pass the original "
+                "document."
             )
-
-    if not texts:
-        return BatchResult(mapping_id="")
 
     protected = [protect(text, scan_code=settings.scan_code) for text in texts]
     raw = detector.detect_many([p.view for p in protected])
@@ -198,11 +208,12 @@ def pseudonymize_batch(
     repo.session.commit()
 
     log.info(
-        "pseudonymised %d text(s) as %s: %d replacement(s), %d placeholder(s)",
+        "pseudonymised %d text(s) as %s: %d replacement(s), %d placeholder(s), mapping=%s",
         len(texts),
-        source_name or "<batch>",
+        source_name or ("<text>" if len(texts) == 1 else "<batch>"),
         sum(len(r.spans) for r in resolutions),
         len(merged),
+        mapping.id,
     )
     return BatchResult(
         mapping_id=mapping.id,
