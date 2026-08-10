@@ -34,7 +34,16 @@ wie im Katalog (`privaparse catalog show`);
 - **Batch A (IBAN, CARD, TAX_ID, IP, POSTAL_CODE) besteht aus Werten, die
   `generate_decidable()` erzeugt hat** — von Konstruktion aus gültig gegen
   ihren jeweiligen Validator, damit das Gold-Set den Checksum-Mechanismus
-  prüft statt zufällig eine falsche Nummer zurückzuweisen.
+  prüft statt zufällig eine falsche Nummer zurückzuweisen. Drei der vier
+  TAX_ID-Werte sind zusätzlich in Dreiergruppen umformatiert
+  (`08 170 772 018` statt `08170772018`), wie eine Finanzamt-Steuer-ID
+  amtlich gedruckt wird — der reine Zifferstring ist nicht mehr die exakte
+  Ausgabe von `generate_decidable()`, nur derselbe Wert anders geschrieben.
+  Ein TAX_ID (de-047) bleibt bewusst in der ungruppierten Rohform: das Modell
+  erkennt die gruppierte Schreibweise nicht zuverlässig als `tax_id`
+  (gemessene Recall 0.250), und ein Gold-Set, das nur die Schreibweise
+  enthält, die das Modell schon beherrscht, würde genau die Lücke verstecken,
+  die zu messen der Zweck dieses Typs ist.
 
 ## Aufbau des Korpus
 
@@ -484,7 +493,7 @@ Ihr Musterhandel-Team
 Finanzamt Musterstadt
 Referat 213
 
-Steuerliche Identifikationsnummer: {{TAX_ID:08 170 772 018}}
+Steuerliche Identifikationsnummer: {{TAX_ID:08170772018}}
 
 Sehr geehrte Steuerpflichtige,
 

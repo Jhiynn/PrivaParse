@@ -219,13 +219,39 @@ def test_settings_entity_schema_comes_from_the_catalogue(tmp_path, monkeypatch):
 ALL_42 = 42
 
 
-def test_default_catalogue_routes_every_model_label():
+def test_default_catalogue_defines_every_model_label():
+    """Every one of the 42 documented labels has a placeholder type
+    somewhere in the catalogue file — nothing is silently missing or
+    mistyped. Deliberately checked against ``catalogue.types`` (every
+    defined type), not ``catalogue.enabled`` — "has a home in the
+    catalogue" and "is currently sent to the model" are different claims
+    since Task 12's sweep, which is exactly what the next test is for.
+    """
     from privaparse.app.catalogue import MODEL_LABELS, load_catalogue
 
     catalogue = load_catalogue()
+    defined = {label for placeholder in catalogue.types.values() for label in placeholder.labels}
+    assert defined == set(MODEL_LABELS)
+    assert len(defined) == ALL_42
+
+
+def test_four_low_value_types_are_disabled_and_their_labels_stay_unrouted():
+    """CITY, REGION, COUNTRY and DATE ship disabled: 0 true positives
+    against 27 false positives measured on the Task 12 gold set (91
+    documents) — see each type's own comment in entities.default.yaml.
+    ``label_to_type()`` only walks ``catalogue.enabled``, so their 7 labels
+    fall out of routing without being un-defined (previous test).
+    """
+    from privaparse.app.catalogue import load_catalogue
+
+    catalogue = load_catalogue()
     routed = set(catalogue.label_to_type())
-    assert routed == set(MODEL_LABELS)
-    assert len(routed) == ALL_42
+    disabled_labels = {
+        "city", "state_or_region", "country",
+        "sensitive_date", "document_date", "expiration_date", "transaction_date",
+    }
+    assert len(routed) == ALL_42 - len(disabled_labels)
+    assert routed.isdisjoint(disabled_labels)
 
 
 def test_default_catalogue_has_25_types():

@@ -249,10 +249,19 @@ def test_eval_writes_a_report_and_prints_a_verdict(workspace: Path) -> None:
     # entity — proof the per-type verdict actually catches a type that misses
     # its bar, not just one hand-fed a passing Counts in a unit test.
     assert "PERSON [FAIL]" in text
-    # Email and phone come from rules, so they are the control group and must
-    # score perfectly even without a model.
+    # Email comes from rules, so it is the control group and must score
+    # perfectly even without a model.
     assert "| regex | EMAIL | 21 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 |" in text
-    assert "| regex | PHONE | 18 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 |" in text
+    # Phone is 0.947, not 1.000 — one deliberate exception, not a regression.
+    # de-047 keeps its Steuer-ID in the bare, ungrouped digit form
+    # generate_decidable() actually produces; the other three TAX_ID gold
+    # entities are re-spaced into the official "XX XXX XXX XXX" grouping.
+    # An 11-digit run with no separators is indistinguishable, to the phone
+    # backstop's shape check, from a German mobile number, so that one gold
+    # document is a known, kept collision — restoring it is what makes
+    # TAX_ID's low measured recall on the grouped form visible at all. See
+    # eval/gold/de_gold_source.md's Batch A note and the Task 12 fix report.
+    assert "| regex | PHONE | 18 | 0.947 | 1.000 | 0.947 | 1.000 | 0.973 |" in text
 
 
 def test_eval_can_compare_several_modes_in_one_run(workspace: Path) -> None:
