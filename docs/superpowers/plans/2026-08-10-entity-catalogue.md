@@ -884,6 +884,15 @@ Add `from typing import TYPE_CHECKING` and a guarded
 `from privaparse.app.catalogue import Catalogue` import so the annotation
 resolves without a module-level cycle.
 
+> **Known behaviour change, ruled deliberate.** The old hardcoded schema key
+> for phone was `"phone number"` (with a space); the catalogue uses the model
+> card's `phone_number`. Wiring the catalogue in here therefore changes the
+> literal label sent to a zero-shot model, and the README's PHONE figures
+> (P/R/F1 = 1.000) were measured under the old spelling. The weightless suite
+> stays green because it uses fake detectors. Task 12 re-measures and updates
+> the README; until then, PHONE's numbers describe a label that is no longer
+> sent.
+
 - [ ] **Step 6: Read the label map from the catalogue**
 
 In `privaparse/parser/gliner_detector.py`, replace the
