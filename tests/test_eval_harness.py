@@ -302,9 +302,16 @@ def test_gold_set_loads_and_every_offset_is_correct() -> None:
 
 
 def test_gold_set_covers_all_three_types_and_includes_negatives() -> None:
+    """The original three types stay covered as the corpus grows around them.
+
+    Not an equality any more: Task 12 widened the gold set to fourteen types
+    (see test_gold_set_contains_negative_documents for the >=80/>=30 floor),
+    so the only thing this test still owns is that PERSON, EMAIL and PHONE —
+    the three types with a measured baseline — are not among the casualties.
+    """
     documents = load_gold()
     types = {e.type for d in documents for e in d.entities}
-    assert types == {"PERSON", "EMAIL", "PHONE"}
+    assert {"PERSON", "EMAIL", "PHONE"} <= types
 
     empty = [d for d in documents if not d.entities]
     assert len(empty) >= 5, "negative documents are how precision gets measured"
@@ -357,3 +364,42 @@ def test_offset_mismatch_is_rejected() -> None:
 
     with pytest.raises(ValueError, match="offset mismatch"):
         _validate("x-1", "Max Mustermann", [{"start": 0, "end": 3, "type": "PERSON", "text": "Max Mustermann"}])
+
+
+def test_every_gold_type_exists_in_the_catalogue():
+    from privaparse.app.catalogue import load_catalogue
+    from privaparse.evaluation import DEFAULT_GOLD_PATH
+    from privaparse.evaluation.harness import load_gold
+
+    catalogue = load_catalogue()
+    for document in load_gold(DEFAULT_GOLD_PATH):
+        for entity in document.entities:
+            assert entity.type in catalogue.types, f"{document.id}: {entity.type}"
+
+
+def test_gold_offsets_match_their_own_text():
+    from privaparse.evaluation import DEFAULT_GOLD_PATH
+    from privaparse.evaluation.harness import load_gold
+
+    for document in load_gold(DEFAULT_GOLD_PATH):
+        for entity in document.entities:
+            assert document.text[entity.start : entity.end] == entity.text, document.id
+
+
+def test_gold_set_contains_negative_documents():
+    from privaparse.evaluation import DEFAULT_GOLD_PATH
+    from privaparse.evaluation.harness import load_gold
+
+    documents = load_gold(DEFAULT_GOLD_PATH)
+    negatives = [d for d in documents if not d.entities]
+    assert len(documents) >= 80
+    assert len(negatives) >= 30, "false positives are invisible without negatives"
+
+
+def test_generated_decidable_values_pass_their_validators():
+    from privaparse.evaluation.build_gold import generate_decidable
+
+    from privaparse.parser import registry
+
+    for entity_type, value, validator in generate_decidable(seed=7):
+        assert registry.get_validator(validator)(value), f"{entity_type}: {value}"

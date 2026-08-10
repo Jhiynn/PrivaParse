@@ -1,12 +1,18 @@
 # Deutsches Gold-Set — annotierte Quelle
 
-Kompilieren mit `python eval/build_gold.py`. Alles vor dem ersten `### id:` wird
-ignoriert.
+Kompilieren mit `python -m privaparse.evaluation.build_gold`. Alles vor dem
+ersten `### id:` wird ignoriert.
 
 ## Annotationsregeln
 
 Entitäten werden inline markiert: `{{PERSON:Max Mustermann}}`, `{{EMAIL:...}}`,
-`{{PHONE:...}}`.
+`{{PHONE:...}}`. Seit der Erweiterung auf den vollen Katalog kommen dieselbe
+Syntax auch für `{{IBAN:...}}`, `{{CARD:...}}`, `{{TAX_ID:...}}`, `{{IP:...}}`,
+`{{POSTAL_CODE:...}}`, `{{ADDRESS:...}}`, `{{DATE_OF_BIRTH:...}}`,
+`{{NATIONAL_ID:...}}`, `{{PASSPORT:...}}`, `{{ACCOUNT_ID:...}}` und
+`{{USERNAME:...}}` zum Einsatz — die Typnamen müssen exakt so geschrieben sein
+wie im Katalog (`privaparse catalog show`);
+`test_every_gold_type_exists_in_the_catalogue` prüft das.
 
 - **Titel und Anreden gehören nicht zur Entität.** `Herr`, `Frau`, `Dr.`,
   `Prof.`, `Dipl.-Ing.` bleiben außerhalb der Markierung. Sie sind für sich
@@ -14,10 +20,36 @@ Entitäten werden inline markiert: `{{PERSON:Max Mustermann}}`, `{{EMAIL:...}}`,
 - **Adelspartikel gehören dazu.** `von`, `von der`, `zu` sind in Deutschland
   Namensbestandteil. `Max von Bergen` ist nicht `Max Bergen`.
 - **Firmen, Orte und Behörden werden nicht markiert.** Sie stehen bewusst im
-  Set, um False Positives zu messen.
-- **Aktenzeichen, Rechnungsnummern und Beträge werden nicht markiert.** Sie
-  sehen Telefonnummern ähnlich genug, um die Precision zu testen.
+  Set, um False Positives zu messen. Ein bloßer Orts- oder Postleitzahlname
+  ohne Straße und Hausnummer ist keine `ADDRESS` — der Katalog verlangt dafür
+  eine vollständige Anschrift oder zumindest Straße plus Hausnummer.
+- **Aktenzeichen, Bestell-, Artikel- und Rechnungsnummern sowie Beträge werden
+  nicht markiert.** Sie sehen Telefonnummern, Kartennummern oder Kontokennungen
+  ähnlich genug, um die Precision zu testen.
+- **Kunden-, Konto- und Mandantennummern werden als `ACCOUNT_ID` markiert**,
+  wenn sie explizit eine Person oder ein Mandat referenzieren — das ist die
+  Unterscheidung zur vorigen Regel: eine Rechnungsnummer identifiziert einen
+  Vorgang, eine Kundennummer identifiziert einen Menschen.
 - Telefonnummern werden vollständig markiert, so wie sie geschrieben stehen.
+- **Batch A (IBAN, CARD, TAX_ID, IP, POSTAL_CODE) besteht aus Werten, die
+  `generate_decidable()` erzeugt hat** — von Konstruktion aus gültig gegen
+  ihren jeweiligen Validator, damit das Gold-Set den Checksum-Mechanismus
+  prüft statt zufällig eine falsche Nummer zurückzuweisen.
+
+## Aufbau des Korpus
+
+Kein Marker außerhalb von `### id:`-Blöcken: Der Compiler ignoriert nur Text
+vor dem allerersten Dokument, alles danach landet sonst unbemerkt im Text des
+vorherigen Dokuments. Zwischenüberschriften gibt es deshalb hier nicht — die
+Batch-Grenzen stehen nur in dieser Präambel:
+
+- **de-001 – de-038**: ursprüngliches Set. PERSON, EMAIL, PHONE, 10 Negative.
+- **de-039 – de-050** (Batch A, 12 Dokumente): IBAN, CARD, TAX_ID, IP,
+  POSTAL_CODE — generierte, checksum-gültige Werte im realistischen Kontext.
+- **de-051 – de-068** (Batch B, 18 Dokumente): ADDRESS, DATE_OF_BIRTH,
+  NATIONAL_ID, PASSPORT, ACCOUNT_ID, USERNAME — von Hand annotiert.
+- **de-069 – de-091** (Batch C, 23 Dokumente): Negative. Kein einziger Marker
+  in diesem Block ist ein Versehen — das Fehlen ist die Messung.
 
 ### id: de-001 | kind: brief
 Sehr geehrter Herr {{PERSON:Max Mustermann}},
@@ -344,3 +376,514 @@ ist dieselbe Person, sie schreibt sich nur unterschiedlich. Erreichbar über
 Wetterbericht für Norddeutschland: Am Vormittag stark bewölkt, zeitweise
 Regen. Höchstwerte um 14 Grad. In der Nacht Abkühlung auf 6 Grad, örtlich
 Nebelfelder. Der Wind weht mäßig aus West.
+
+### id: de-039 | kind: mahnung
+Zahlungserinnerung
+
+Sehr geehrte Damen und Herren,
+
+für unsere Rechnung Nr. 5521 vom 03.01.2026 über 480,00 EUR ist noch kein
+Zahlungseingang zu verzeichnen. Wir bitten um Ausgleich bis zum 20.01.2026 auf
+folgendes Konto:
+
+IBAN: {{IBAN:DE44370400440144272509}}
+
+Sollten Sie zwischenzeitlich bereits gezahlt haben, betrachten Sie dieses
+Schreiben als gegenstandslos.
+
+Buchhaltung
+
+### id: de-040 | kind: mahnung
+Zweite Mahnung
+
+Musterhandel GmbH, {{POSTAL_CODE:39984}} Musterhausen
+
+Sehr geehrte Damen und Herren,
+
+trotz unserer Erinnerung vom 04.01.2026 ist der Rechnungsbetrag von 129,50 EUR
+weiterhin offen. Wir bitten letztmalig um Überweisung bis zum 15.02.2026 auf:
+
+IBAN: {{IBAN:DE78370400440611178002}}
+
+Bei weiterem Zahlungsverzug behalten wir uns rechtliche Schritte vor.
+
+Buchhaltung
+
+### id: de-041 | kind: kontowechsel
+Mitteilung einer Kontoänderung
+
+Sehr geehrte Damen und Herren,
+
+wir haben unsere Bankverbindung geändert. Bitte nutzen Sie ab sofort
+ausschließlich die neue IBAN für Überweisungen an uns.
+
+Alte IBAN (nicht mehr gültig): {{IBAN:DE81370400440909925047}}
+Neue IBAN: {{IBAN:DE37370400440861425548}}
+
+Wir bitten um entsprechende Anpassung in Ihrer Buchhaltung.
+
+Mit freundlichen Grüßen
+
+### id: de-042 | kind: zahlungsaufforderung
+Zahlungsaufforderung
+
+Für den Vertrag Nr. 88213 ist die Jahresrate zum 01.03.2026 fällig. Bitte
+überweisen Sie 960,00 EUR auf folgendes Konto:
+
+IBAN: {{IBAN:DE75370400440820096753}}
+
+Verwendungszweck bitte die Vertragsnummer angeben.
+
+### id: de-043 | kind: lastschrift
+Einzugsermächtigung Vereinsbeitrag
+
+Hiermit ermächtige ich den Verein, den Jahresbeitrag per Lastschrift von
+folgendem Konto einzuziehen:
+
+IBAN: {{IBAN:DE40370400440067760436}}
+
+Meine hinterlegte Postleitzahl lautet {{POSTAL_CODE:87483}}.
+
+Datum, Unterschrift
+
+### id: de-044 | kind: bestellbestaetigung
+Bestellbestätigung Nr. 2026-04471
+
+Vielen Dank für Ihre Bestellung. Die Zahlung wurde erfolgreich mit folgender
+Karte autorisiert:
+
+Kartennummer: {{CARD:4342347850000005}}
+
+Die Ware wird innerhalb von 3 bis 5 Werktagen versendet.
+
+Ihr Musterhandel-Team
+
+### id: de-045 | kind: bestellbestaetigung
+Bestellbestätigung Nr. 2026-04512
+
+Ihre Bestellung wurde erfasst. Belastet wird folgende hinterlegte Karte:
+
+Kartennummer: {{CARD:5115826780000005}}
+
+Eine Rechnung liegt der Lieferung bei.
+
+Ihr Musterhandel-Team
+
+### id: de-046 | kind: bestellbestaetigung
+Bestellbestätigung Nr. 2026-04588
+
+Zahlung per Kreditkarte eingegangen:
+
+Kartennummer: {{CARD:3766496171000001}}
+
+Lieferadresse: Versandzentrum Nord, {{POSTAL_CODE:23399}} Nordhafen
+
+Ihr Musterhandel-Team
+
+### id: de-047 | kind: steuerbescheid
+Finanzamt Musterstadt
+Referat 213
+
+Steuerliche Identifikationsnummer: {{TAX_ID:08 170 772 018}}
+
+Sehr geehrte Steuerpflichtige,
+
+Ihr Einkommensteuerbescheid für den Veranlagungszeitraum 2025 liegt diesem
+Schreiben bei. Bitte prüfen Sie die Angaben auf Vollständigkeit.
+
+Bei Rückfragen wenden Sie sich bitte unter Angabe der oben genannten Nummer an
+das Finanzamt.
+
+Finanzamt Musterstadt
+
+### id: de-048 | kind: steuerbescheid
+Finanzamt Musterstadt
+Referat 118
+
+Steuerliche Identifikationsnummer: {{TAX_ID:04 826 373 520}}
+
+Sehr geehrter Steuerpflichtiger,
+
+wir bestätigen den Eingang Ihrer Steuererklärung für das Jahr 2025. Die
+Bearbeitung dauert erfahrungsgemäß sechs bis acht Wochen.
+
+Finanzamt Musterstadt
+
+### id: de-049 | kind: steuerbescheid
+Finanzamt Musterstadt
+Referat 213
+
+Steuerliche Identifikationsnummern der Ehegatten:
+{{TAX_ID:05 070 694 649}} und {{TAX_ID:06 996 426 306}}
+
+Für die Zusammenveranlagung zur Einkommensteuer 2025 benötigen wir noch die
+Kapitalertragsbescheinigung Ihrer Bank.
+
+Finanzamt Musterstadt
+
+### id: de-050 | kind: log
+Serverlog-Auszug
+
+2026-03-18 09:14:02 INFO  auth-service  login accepted  ip={{IP:98.107.48.125}}
+2026-03-18 09:14:07 WARN  auth-service  rate limit triggered  ip={{IP:8.199.221.156}}
+2026-03-18 09:15:44 ERROR gateway-service  upstream timeout after 3 retries  ip={{IP:196.1.228.69}}
+
+### id: de-051 | kind: ummeldung
+Ummeldung des Wohnsitzes
+
+Sehr geehrte Damen und Herren,
+
+hiermit teile ich Ihnen meinen Umzug mit. Meine neue Anschrift lautet:
+
+{{ADDRESS:Kastanienallee 27, 04109 Leipzig}}
+
+Bitte aktualisieren Sie Ihre Unterlagen entsprechend.
+
+Mit freundlichen Grüßen
+{{PERSON:Robert Lindemann}}
+
+### id: de-052 | kind: paketankuendigung
+Sendungsverfolgung
+
+Ihr Paket wird morgen zwischen 10 und 14 Uhr zugestellt an:
+
+{{ADDRESS:Rosenweg 9}}
+{{PERSON:Julia Hartmann}}
+
+Bei Abwesenheit hinterlegen wir eine Benachrichtigungskarte.
+
+### id: de-053 | kind: mietvertragsnotiz
+Notiz zum Mietvertrag
+
+Der Mietvertrag für das Objekt {{ADDRESS:Talstraße 5, 70173 Stuttgart}} wurde
+heute von beiden Parteien unterschrieben. Übergabetermin ist der 01.04.2026.
+
+Mieterin: Frau {{PERSON:Carolin Wagner}}
+
+### id: de-054 | kind: formular
+Antragsformular Mitgliedschaft
+
+Name: {{PERSON:Jonas Peters}}
+Geburtsdatum: {{DATE_OF_BIRTH:14.09.1991}}
+E-Mail: {{EMAIL:jonas.peters@beispiel.de}}
+
+Ich beantrage hiermit die Aufnahme als Mitglied.
+
+### id: de-055 | kind: personalakte
+Personalakte — Ergänzung
+
+{{PERSON:Melanie Schuster}}, geboren am {{DATE_OF_BIRTH:3. Februar 1988}}, hat
+zum 01.05.2026 die Abteilung gewechselt.
+
+Personalabteilung
+
+### id: de-056 | kind: aufnahmebogen
+Aufnahmebogen
+
+Patient: {{PERSON:Karl-Heinz Ostermann}}
+Geburtsdatum: {{DATE_OF_BIRTH:27.11.1957}}
+Versicherung: gesetzlich
+
+Aufnahmegrund: Vorsorgeuntersuchung
+
+### id: de-057 | kind: identitaetspruefung
+Identitätsprüfung
+
+Zur Kontoeröffnung wurde der Personalausweis von {{PERSON:Sandra Kellner}}
+geprüft. Ausweisnummer: {{NATIONAL_ID:L2XC00T4K9}}
+
+Die Prüfung war erfolgreich, die Kopie wurde datenschutzkonform vernichtet.
+
+### id: de-058 | kind: meldebestaetigung
+Meldebestätigung
+
+Hiermit bestätigen wir die Anmeldung von {{PERSON:Timo Brandes}} unter der
+Identifikationsnummer {{NATIONAL_ID:96130508J020}}.
+
+Einwohnermeldeamt
+
+### id: de-059 | kind: bescheinigung
+Bescheinigung
+
+{{PERSON:Doris Feldmann}} ist bei uns unter der amtlichen Kennnummer
+{{NATIONAL_ID:DE-93-4471-KL}} geführt.
+
+Diese Bescheinigung dient ausschließlich internen Zwecken.
+
+### id: de-060 | kind: visumantrag
+Visumantrag — interne Notiz
+
+Antragsteller: {{PERSON:Farid Amir}}
+Reisepassnummer: {{PASSPORT:C01X0044T7}}
+Gültig bis: 2029
+
+Der Antrag wurde vollständig eingereicht.
+
+### id: de-061 | kind: meldeschein
+Meldeschein
+
+Gast: {{PERSON:Ingrid Vollmer}}
+Reisepass-Nr.: {{PASSPORT:PA7734215}}
+Anreise: 12.06.2026, Abreise: 15.06.2026
+
+Zimmer 214
+
+### id: de-062 | kind: grenzkontrollvermerk
+Interner Vermerk
+
+Bei der Kontrolle wurde der Reisepass von {{PERSON:Elena Sokolova}} mit der
+Nummer {{PASSPORT:70RUS884321}} vorgelegt und als gültig eingestuft.
+
+### id: de-063 | kind: kundenschreiben
+Sehr geehrte Damen und Herren,
+
+zu meiner Kundennummer {{ACCOUNT_ID:KD-4471-2298}} bitte ich um Übersendung
+einer aktuellen Vertragsübersicht.
+
+Mit freundlichen Grüßen
+{{PERSON:Bernhard Sailer}}
+
+### id: de-064 | kind: aktennotiz
+Aktennotiz
+
+Für unseren Mandanten {{PERSON:Heike Brandl}} wurde die Mandantennummer
+{{ACCOUNT_ID:M-2026-0317}} angelegt. Die Akte ist damit eröffnet.
+
+### id: de-065 | kind: supportticket
+Support-Ticket #88213-A
+
+Kunde: {{PERSON:Oliver Krahl}}
+Kontokennung: {{ACCOUNT_ID:acc_7f3e9b21}}
+
+Anliegen: Zugriff auf das Kundenportal ist nicht möglich, Fehlermeldung
+"Sitzung abgelaufen".
+
+### id: de-066 | kind: onboarding
+IT-Onboarding
+
+Für {{PERSON:Nadine Kruse}} wurde ein Zugang eingerichtet.
+Benutzername: {{USERNAME:n.kruse}}
+
+Das Erstpasswort wird separat per Post zugestellt.
+
+### id: de-067 | kind: forenprofil
+Community-Hinweis
+
+Der Beitrag von {{USERNAME:coder_flitzer99}} wurde von der Moderation
+geprüft und freigegeben.
+
+### id: de-068 | kind: zugangsprotokoll
+Zugriffsprotokoll
+
+Anmeldename {{USERNAME:j_bauer84}} hat sich um 08:42 Uhr erfolgreich am
+System angemeldet.
+
+### id: de-069 | kind: negativ
+Az. 12 C 45/26
+
+Termin zur mündlichen Verhandlung: 14.04.2026, 10:30 Uhr, Saal 3.
+
+Die Parteien werden gebeten, fünfzehn Minuten vor Beginn zu erscheinen.
+
+### id: de-070 | kind: negativ
+Geschäftszeichen: 4 O 231/24
+
+In der Sache liegt derzeit keine Entscheidung vor. Der nächste Verfahrensschritt
+ist für das dritte Quartal 2026 vorgesehen.
+
+### id: de-071 | kind: negativ
+Bestellübersicht
+
+Artikel-Nr. 4342347850000001, Aktenordner, 10 Stück
+Artikel-Nr. 7723119055406683, Druckerpapier, 5 Pakete
+
+Rechnungsnummer 2026-33871.
+
+### id: de-072 | kind: negativ
+Rechnung
+
+Rechnungsnummer: 5521-2026
+Bestellnummer: 9981774400221193
+Artikelnummer: 3301-A
+
+Alle Preise verstehen sich inklusive gesetzlicher Mehrwertsteuer.
+
+### id: de-073 | kind: negativ
+Versionshinweise
+
+Aktuelle Version: v2.13.0+cu130
+Vorherige Version: v2.12.4+cu128
+
+Änderungen: verbesserte Speicherverwaltung, mehrere Fehlerbehebungen im
+Tokenizer.
+
+### id: de-074 | kind: negativ
+Build-Protokoll
+
+build 20260318 — Status: erfolgreich
+build 20260317 — Status: fehlgeschlagen (Timeout beim Kompilieren)
+
+Laufzeit des letzten Builds: 14 Minuten 22 Sekunden.
+
+### id: de-075 | kind: negativ
+Stadtentwicklung
+
+Die geplante Marktplatzsanierung im Bahnhofsviertel soll im kommenden Jahr
+beginnen. Betroffen sind auch die Fußgängerzone und der Kirchplatz.
+
+Eine Bürgerversammlung ist für den Herbst vorgesehen.
+
+### id: de-076 | kind: negativ
+Verkehrsmeldung
+
+Wegen Bauarbeiten ist die Umgehungsstraße am Gewerbegebiet Nordfeld bis auf
+Weiteres nur einspurig befahrbar. Der Kreisverkehr am Industriering bleibt
+gesperrt.
+
+Eine Umleitung über die Ringstraße wird empfohlen.
+
+### id: de-077 | kind: negativ
+Quartalszahlen
+
+| Quartal | Umsatz (TEUR) | Kosten (TEUR) |
+| --- | ---: | ---: |
+| Q1 | 412 | 355 |
+| Q2 | 468 | 371 |
+| Q3 | 501 | 389 |
+| Q4 | 533 | 402 |
+
+Die Zahlen sind vorläufig und ungeprüft.
+
+### id: de-078 | kind: negativ
+Lagerbestand
+
+| Artikel | Bestand | Mindestbestand |
+| --- | ---: | ---: |
+| Ordner A4 | 340 | 100 |
+| Klarsichthüllen | 1200 | 300 |
+| Tonerkartuschen | 48 | 20 |
+
+Nachbestellung erfolgt automatisch bei Unterschreitung.
+
+### id: de-079 | kind: negativ
+def compute_total(items):
+    total = 0
+    for item in items:
+        total += item.price * item.quantity
+    return round(total, 2)
+
+class Cart:
+    def __init__(self):
+        self.items = []
+
+### id: de-080 | kind: negativ
+SELECT id, status, created_at
+FROM orders
+WHERE status = 'pending'
+  AND created_at < NOW() - INTERVAL '7 days'
+ORDER BY created_at ASC
+LIMIT 100;
+
+### id: de-081 | kind: negativ
+Sehr geehrte Damen und Herren,
+
+wir bestätigen den Eingang Ihres Schreibens und werden uns in Kürze mit einer
+Rückmeldung bei Ihnen melden.
+
+Mit freundlichen Grüßen
+Die Geschäftsleitung
+
+### id: de-082 | kind: negativ
+Liebe Mitglieder,
+
+die diesjährige Jahreshauptversammlung findet im September statt. Genaue
+Informationen zu Ort und Uhrzeit folgen in Kürze.
+
+Der Vorstand
+
+### id: de-083 | kind: negativ
+Terminübersicht
+
+Kick-off: 3. März 2026
+Zwischenbericht: 15.06.2026
+Abschlusspräsentation: 2026-09-30
+Nachbesprechung: Montag, der 12. Oktober 2026
+
+Alle Termine finden im Hauptgebäude statt.
+
+### id: de-084 | kind: negativ
+Fristenkalender
+
+Einreichung der Unterlagen bis 01.02.26.
+Widerspruchsfrist endet am 28.02.2026.
+Zahlungsziel: 31. März 2026.
+Nächste Überprüfung: 01/07/2026.
+
+Verspätete Einreichungen können nicht berücksichtigt werden.
+
+### id: de-085 | kind: negativ
+Preisliste 2026
+
+Beratungsstunde: 95,00 EUR
+Express-Zuschlag: 25,00 EUR
+Versandkosten Inland: 4,90 EUR
+Versandkosten Ausland: 14,90 EUR
+
+Alle Preise zzgl. gesetzlicher Mehrwertsteuer.
+
+### id: de-086 | kind: negativ
+Angebot
+
+Grundpaket: 1.200,00 EUR
+Zusatzmodul Reporting: 350,00 EUR
+Wartung pro Jahr: 480,00 EUR
+
+Gültig bis 30.04.2026.
+
+### id: de-087 | kind: negativ
+Bankleitzahl-Änderung
+
+Im Zuge der Fusion ändert sich die Bankleitzahl unserer Filiale auf 37040044.
+Ihre Kontonummer und IBAN bleiben unverändert.
+
+Bei Fragen steht Ihnen unsere Hotline zur Verfügung.
+
+### id: de-088 | kind: negativ
+Filialinformation
+
+Unsere neue Filiale in der Innenstadt führt ab sofort die Bankleitzahl
+50010517. Kontoeröffnungen sind ab Montag möglich.
+
+Öffnungszeiten: Montag bis Freitag, 9 bis 17 Uhr.
+
+### id: de-089 | kind: negativ
+Auszug aus den Nutzungsbedingungen
+
+§ 5 Haftungsausschluss
+
+Der Anbieter haftet nicht für mittelbare Schäden, entgangenen Gewinn oder
+Datenverlust, soweit gesetzlich zulässig. § 9 Abs. 3 bleibt hiervon unberührt.
+
+Gerichtsstand ist der Sitz des Anbieters.
+
+### id: de-090 | kind: negativ
+Tagesordnung Fachkonferenz
+
+09:00 Registrierung
+09:30 Eröffnung, Raum A1
+10:15 Vortragsreihe, Raum B2
+12:00 Mittagspause
+13:30 Workshops, Räume C1 bis C4
+16:00 Abschlussdiskussion, Raum A1
+
+Änderungen im Programmablauf vorbehalten.
+
+### id: de-091 | kind: negativ
+Produktdatenblatt
+
+Abmessungen: 45 x 30 x 12 cm
+Gewicht: 3,4 kg
+Material: eloxiertes Aluminium
+Betriebstemperatur: -10 °C bis 50 °C
+
+Die technischen Daten können sich ohne Ankündigung ändern.

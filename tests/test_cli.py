@@ -251,7 +251,7 @@ def test_eval_writes_a_report_and_prints_a_verdict(workspace: Path) -> None:
     assert "PERSON [FAIL]" in text
     # Email and phone come from rules, so they are the control group and must
     # score perfectly even without a model.
-    assert "| regex | EMAIL | 20 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 |" in text
+    assert "| regex | EMAIL | 21 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 |" in text
     assert "| regex | PHONE | 18 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 |" in text
 
 
