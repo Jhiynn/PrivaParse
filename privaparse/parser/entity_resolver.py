@@ -76,18 +76,25 @@ class EntityResolver:
         the one ``reverse()`` puts back, so the restored text reads the way the
         author wrote it rather than the way some earlier document did.
 
-        This is also where a span's type is checked against the catalogue —
-        the last point before a value reaches the vault, and the first point
-        where an unknown type would have consequences.
+        Every span's type is checked against the catalogue in a pass of its
+        own, before the pass that writes anything. An earlier valid span must
+        not leave a row behind when a later span turns out to have a type the
+        catalogue does not define — and interleaving the check with the writes
+        would make that guarantee depend on the repository correctly rolling
+        back a partially-written document on exception, which is a property of
+        a driver two layers down, not of this method.
         """
-        result = Resolution()
-
-        for span in sorted(spans, key=lambda s: s.start):
+        ordered = sorted(spans, key=lambda s: s.start)
+        for span in ordered:
             if span.type not in self.catalogue.types:
                 raise UnknownEntityTypeError(
                     f"span at {span.start} claims type {span.type!r}, which the "
                     f"catalogue does not define"
                 )
+
+        result = Resolution()
+
+        for span in ordered:
             placeholder_type = self.catalogue.get(span.type)
             normalized = normalize(span.text, placeholder_type.normalizer)
             if not normalized:

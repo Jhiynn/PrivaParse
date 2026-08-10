@@ -63,3 +63,20 @@ def test_unknown_type_fails_before_anything_is_written(repo):
     with pytest.raises(UnknownEntityTypeError, match="NOPE"):
         resolver.resolve([Span(0, 3, "abc", "NOPE", 0.9, SOURCE_GLINER)])
     assert repo.session.query(Entity).count() == 0
+
+
+def test_a_valid_span_before_an_unknown_type_still_writes_nothing(repo):
+    """The single-span version above passes trivially: there is nothing before
+    the bad span for a write to happen to. A valid PERSON ahead of the bad
+    span is the case that actually exercises "before anything is written" —
+    the type check has to run for every span before any span's write, not
+    just check-then-write one at a time in document order.
+    """
+    resolver = EntityResolver(repo, load_catalogue())
+    spans = [
+        Span(0, 14, "Max Mustermann", "PERSON", 0.9, SOURCE_GLINER),
+        Span(20, 23, "abc", "NOPE", 0.9, SOURCE_GLINER),
+    ]
+    with pytest.raises(UnknownEntityTypeError, match="NOPE"):
+        resolver.resolve(spans)
+    assert repo.session.query(Entity).count() == 0
