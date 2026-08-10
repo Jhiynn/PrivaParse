@@ -126,6 +126,10 @@ def pseudonymize_batch(
 ) -> BatchResult:
     """Pseudonymise several texts under one mapping, in one transaction.
 
+    Refuses any text that already contains placeholders: pseudonymising twice
+    produces a document that cannot be reversed cleanly, and silently doing it
+    would hand back something that looks right and is not.
+
     Detection runs across all of them in a single call so the model batches;
     resolution runs in text order so the first spelling seen still wins, the
     same rule single-text pseudonymisation follows.
