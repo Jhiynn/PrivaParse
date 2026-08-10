@@ -39,7 +39,7 @@ def _main(
     db: Optional[Path] = typer.Option(None, "--db", help="Path to the vault database."),
     threshold: Optional[float] = typer.Option(
         None, "--threshold", min=0.0, max=1.0,
-        help="Score floor for a type with no threshold: of its own in the "
+        help="Score floor for a type with no threshold of its own in the "
         "catalogue. Most types declare one and are unaffected by this.",
     ),
     batch_size: Optional[int] = typer.Option(None, "--batch-size", min=1),

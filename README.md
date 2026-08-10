@@ -20,30 +20,108 @@ back into whatever the model replies.
 
 ## Status
 
-Phase 1: plain text and Markdown, three entity types (person, email, phone), CLI
-and Python library. No OCR, no PDF, no REST API, no cloud models — those are
-Phase 2.
+Phase 1: plain text and Markdown, a 25-type entity catalogue (21 enabled by
+default — four ship disabled on measured evidence, see below), CLI and Python
+library. No OCR, no PDF, no REST API, no cloud models — those are Phase 2.
 
 ### Does GLiNER2 need fine-tuning for German? No.
 
-Measured on a hand-annotated German gold set (38 documents — letters, emails,
-file notes, minutes — with 60 person, 20 email and 18 phone entities, plus 10
-documents containing no PII at all):
+That verdict is specifically about PERSON — the only type this question was
+ever built to answer (see `EvalReport.verdict()` in
+`privaparse/evaluation/harness.py`). Measured on the German gold set in
+`eval/gold/` — **91 documents, 33 with no PII at all** (a gold set with only
+positives cannot see a false positive, which turns out to be exactly where
+this configuration struggles) — scored against the catalogue PrivaParse
+ships today: **21 enabled types, 35 labels**. An earlier note in this README
+quoted PERSON at P 0.967 / R 0.983 / F1 0.975; that number is real, but it
+was measured under 3 labels on 38 documents with no negatives, which is not
+the configuration below. Both numbers describe something true; only one
+describes what ships.
 
-| Type | Precision (partial) | Recall (partial) | F1 |
-| --- | ---: | ---: | ---: |
-| PERSON | 0.967 | 0.983 | 0.975 |
-| EMAIL | 1.000 | 1.000 | 1.000 |
-| PHONE | 1.000 | 1.000 | 1.000 |
+The threshold was fixed *before* this run, same discipline as before:
+fine-tuning is warranted if PERSON partial-match recall drops below 0.90 or
+precision below 0.85.
 
-The threshold was fixed *before* the run: fine-tuning is warranted if PERSON
-partial-match recall drops below 0.90 or precision below 0.85. Recall came in at
-0.983 — one miss in sixty names, and that one is the salutation `Frau Doktor`
-with no name attached. `fastino/gliner2-privacy-filter-PII-multi` is built on
-`microsoft/mdeberta-v3-base`, so German is not a special case for it.
+| Type | Precision | Recall | F1 | Support |
+| --- | ---: | ---: | ---: | ---: |
+| PERSON | 0.973 | 0.961 | 0.967 | 76 |
+| EMAIL | 1.000 | 1.000 | 1.000 | 21 |
+| PHONE | 0.818 | 1.000 | 0.900 | 18 |
+| IBAN | 1.000 | 1.000 | 1.000 | 6 |
 
-Reproduce with `privaparse eval`; full report in
-[docs/eval-report.md](docs/eval-report.md).
+PERSON clears both floors comfortably — **fine-tuning not warranted.**
+`fastino/gliner2-privacy-filter-PII-multi` is built on
+`microsoft/mdeberta-v3-base`, so German is not a special case for it. EMAIL
+and PHONE come from rules, not the model, so they are the control group:
+EMAIL is clean, PHONE is not — see "One defect, two numbers" below for why.
+
+**Nine more types, each resting on three gold entities — thin, and stated as
+such rather than presented with PERSON's confidence:**
+
+| Type | Precision | Recall | F1 | Support |
+| --- | ---: | ---: | ---: | ---: |
+| CARD | 1.000 | 1.000 | 1.000 | 3 |
+| PASSPORT | 1.000 | 1.000 | 1.000 | 3 |
+| USERNAME | 1.000 | 1.000 | 1.000 | 3 |
+| IP | 1.000 | 1.000 | 1.000 | 3 |
+| DATE_OF_BIRTH | 1.000 | 1.000 | 1.000 | 3 |
+| ADDRESS | 0.750 | 1.000 | 0.857 | 3 |
+| NATIONAL_ID | 0.750 | 1.000 | 0.857 | 3 |
+| ACCOUNT_ID | 0.750 | 1.000 | 0.857 | 3 |
+| POSTAL_CODE | 0.600 | 1.000 | 0.750 | 3 |
+
+Support of 3 means one false positive is the entire gap: 0.750 is three
+correct against one wrong, not a stable operating point the way PERSON's 76
+or EMAIL's 21 are. Read this block as a first pass, not a verdict.
+
+**One defect, two numbers.** TAX_ID reports P 1.000 / R 0.000 / F1 0.000
+(support 4) — recall zero by design, and the gold set keeps it that way on
+purpose (`eval/gold/de_gold_source.md`'s Batch A note). Three of the four
+gold Steuer-IDs are written the way a Finanzamt letter actually prints one —
+grouped in threes, `XX XXX XXX XXX` — and the model does not reliably tag
+that presentation as `tax_id` at all. The fourth is kept in the bare,
+ungrouped form on purpose, specifically because that rendering exposes a
+second failure: an unbroken eleven-digit string reads to the phone backstop
+as a German mobile number, so it scores as a PHONE false positive instead of
+a TAX_ID true positive. That collision is part of why PHONE's own precision
+above is 0.818 rather than 1.000 — under its 0.95 bar — not a separate
+problem from TAX_ID's recall. A reader who sees only one of these two
+numbers will read it as two small issues instead of the one real one.
+
+**Seven types with no gold data at all:** `DRIVERS_LICENSE`,
+`LICENSE_NUMBER`, `ACCOUNT_NUMBER`, `ROUTING_NUMBER`, `CARD_EXPIRY`,
+`CARD_CVV`, `SECRET`. None has a single gold entity in the corpus, so none
+of them can register a true positive or a miss — the only thing that can
+happen to any of them is a false positive. Reconstructing exact counts from
+the precision/recall/support above (rounding to three decimals pins the
+integers uniquely) shows the fourteen measured types account for 11 of the
+corpus's 23 false positives; the other 12 belong to this group of seven,
+with no way to say from this gold set which of the seven produced which
+one. `privaparse eval` prints 1.000 or 0.000 for each of them depending on
+whether it happened to be one that tripped — neither number means the type
+works or doesn't; it means nothing was there to check it against.
+
+**Overall, across all 21 enabled types on all 91 documents: 23 false
+positives against 7 false negatives.** That ratio is the finding this gold
+set exists to produce — at the precision a wider catalogue reports, the
+failure mode is precision, not recall, and a corpus of nothing but real PII
+could never have shown that, because every detection would have looked like
+a hit.
+
+**Four types ship disabled:** `CITY`, `REGION`, `COUNTRY`, `DATE`. Measured
+false positives against zero true positives on this gold set — CITY 13,
+REGION 4 (`state_or_region`), DATE 19 (`transaction_date` 14,
+`expiration_date` 5). COUNTRY measured 0 false positives too, so its
+disabling rests on judgement rather than this evidence — a country name
+rarely identifies a person alone, but the corpus never gave the model one to
+get wrong either way. Re-enabling any of them is `enabled: true` in a
+`privaparse.entities.yaml` overlay; see the comment on each type in
+`privaparse/app/entities.default.yaml` for the full reasoning.
+
+Reproduce the detection table with `privaparse eval` (needs GLiNER2 — see
+Install). `docs/eval-report.md` has not yet been regenerated for this
+configuration and still describes the earlier, 3-label measurement — the
+table above is the current one.
 
 Those numbers are for short documents, which is what the gold set contains. On
 documents long enough to be split into chunks, recall depends on the chunk
@@ -59,15 +137,26 @@ document, a 1500-character window scored PERSON recall 0.900 while 512 scored
 
 ### Throughput
 
-On an RTX 3060 (fp16, `torch.compile`): **163 documents/second**, 5.8 ms p50 per
-short document, ~53 KB/s sustained on long ones — flat from 4 KB to 58 KB.
-Quality is identical across every device, dtype and batch size measured, on both
-Linux and Windows.
+Two configurations, measured together in one sandbox session on the same
+RTX 3060 so the ratio between them means something: **46.5 documents/second**
+(p50 21.4 ms) against the shipped catalogue — 21 enabled types, 35 labels —
+versus **161.7 documents/second** against the original 3-label configuration
+alone (person, email, phone). Widening the catalogue costs roughly 3.5x
+throughput; that is the price of the other 32 labels, not a regression.
+These two numbers are not comparable to a throughput figure from a different
+measurement session — GPU clock state, driver version and thermal history
+all move the absolute value, which is exactly why this pair was measured
+together rather than against an older number from a different run.
 
-Full matrix in [docs/bench-report.md](docs/bench-report.md). If your own numbers
-come out an order of magnitude worse, run `privaparse doctor` before blaming the
-code: a laptop GPU held in its idle power state still reports 100 % utilisation
-and costs a factor of 14. That story is in
+Quality is identical across every device, dtype and batch size measured, on
+both Linux and Windows.
+
+Full matrix in [docs/bench-report.md](docs/bench-report.md) — that file has
+not yet been regenerated for the 21-type catalogue and still describes the
+3-label configuration; the two numbers above are current. If your own
+numbers come out an order of magnitude worse, run `privaparse doctor` before
+blaming the code: a laptop GPU held in its idle power state still reports
+100 % utilisation and costs a factor of 14. That story is in
 [docs/performance-notes.md](docs/performance-notes.md).
 
 ## Install
@@ -298,6 +387,9 @@ couple of seconds. To include the model tests:
 ```bash
 .venv/Scripts/python -m pytest -m model
 ```
+
+7/7 pass under the current 21-type catalogue, last checked in the same
+sandbox session the numbers above came from.
 
 Schema changes go through Alembic, because the vault holds data that cannot be
 regenerated:
