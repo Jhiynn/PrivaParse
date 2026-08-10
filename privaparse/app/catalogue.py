@@ -15,6 +15,7 @@ config, which is the opposite of what a privacy tool should do on upgrade.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
@@ -40,6 +41,12 @@ __all__ = [
 CATALOGUE_VERSION = 1
 DEFAULT_CATALOGUE_PATH = Path(__file__).with_name("entities.default.yaml")
 SWEEP_MODES = frozenset({"word", "icase", "exact", "off"})
+
+#: What a type name must look like to ever render. Mirrors the first capture
+#: group of ``PLACEHOLDER_RE`` exactly — validating against anything looser
+#: (``str.isupper()``, say, which ignores digits and so accepts a leading one)
+#: would let a name pass the catalogue and then never match as a placeholder.
+_TYPE_NAME_RE = re.compile(r"^[A-Z][A-Z0-9]*$")
 
 #: The 42 labels documented by fastino/gliner2-privacy-filter-PII-multi. Used
 #: only to warn about typos — GLiNER is zero-shot, so a label outside this set
@@ -216,10 +223,11 @@ def _build(raw: dict[str, Any], sources: Mapping[str, Path]) -> Catalogue:
 
 
 def _build_type(name: str, body: dict[str, Any]) -> PlaceholderType:
-    if not name.isupper():
+    if not _TYPE_NAME_RE.fullmatch(name):
         raise CatalogueError(
-            f"placeholder type {name!r} must be upper case — it is rendered "
-            f"literally into [[{name}_A1]]"
+            f"placeholder type {name!r} must match {_TYPE_NAME_RE.pattern!r} — "
+            f"it is rendered literally into [[{name}_A1]], and PLACEHOLDER_RE "
+            f"would not recognise anything else as a type name"
         )
     bar = body.get("bar")
     return PlaceholderType(
@@ -231,10 +239,27 @@ def _build_type(name: str, body: dict[str, Any]) -> PlaceholderType:
         backstop=_strip_builtin(body.get("backstop")),
         sweep=body.get("sweep", "word"),
         threshold=body.get("threshold"),
-        reversible=bool(body.get("reversible", True)),
-        enabled=bool(body.get("enabled", True)),
+        reversible=_require_bool(body, "reversible", True, name),
+        enabled=_require_bool(body, "enabled", True, name),
         bar=Bar(precision=bar.get("precision"), recall=bar.get("recall")) if bar else None,
     )
+
+
+def _require_bool(body: dict[str, Any], key: str, default: bool, type_name: str) -> bool:
+    """Reject anything that is not a real boolean.
+
+    ``bool("false")`` is ``True`` — a non-empty string is truthy — so a YAML
+    author who writes ``enabled: "false"`` would silently get a type that
+    stays on. Fail closed instead of guessing what a non-boolean value meant.
+    """
+    if key not in body:
+        return default
+    value = body[key]
+    if not isinstance(value, bool):
+        raise CatalogueError(
+            f"{type_name}: {key} must be true or false, got {value!r}"
+        )
+    return value
 
 
 def _strip_builtin(value: str | None) -> str | None:

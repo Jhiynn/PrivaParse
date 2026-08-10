@@ -21,6 +21,8 @@ app = typer.Typer(
 )
 vault_app = typer.Typer(help="Inspect the local vault.", no_args_is_help=True)
 app.add_typer(vault_app, name="vault")
+catalog_app = typer.Typer(help="Inspect and check the entity catalogue.", no_args_is_help=True)
+app.add_typer(catalog_app, name="catalog")
 
 _OVERRIDES = "privaparse_overrides"
 
@@ -216,6 +218,13 @@ def doctor(ctx: typer.Context) -> None:
     typer.echo(f"threshold  {settings.threshold}")
     typer.echo(f"batch size {settings.batch_size}")
     typer.echo(f"scan code  {settings.scan_code}")
+
+    catalogue = settings.catalogue
+    source = settings.catalogue_path or "built-in + discovered"
+    typer.echo(f"catalogue  {source}")
+    typer.echo(
+        f"           {len(catalogue.enabled)} type(s), {len(catalogue.schema())} label(s)"
+    )
 
     try:
         resolved = resolve_device(settings)
@@ -419,6 +428,53 @@ def vault_stats(ctx: typer.Context) -> None:
     typer.echo(f"mappings      {stats.mappings}")
     for entity_type, count in sorted(stats.by_type.items()):
         typer.echo(f"  {entity_type:<8} {count}")
+
+
+@catalog_app.command("show")
+def catalog_show(ctx: typer.Context) -> None:
+    """List the resolved placeholder types. Prints no prompts and no values."""
+    settings = load_settings(**ctx.obj[_OVERRIDES])
+    catalogue = settings.catalogue
+
+    typer.echo(f"{'TYPE':<18} {'LABELS':>6} {'THRESH':>7} {'REV':>4} {'SWEEP':<6} SOURCE")
+    for placeholder in sorted(catalogue.types.values(), key=lambda t: t.name):
+        threshold = (
+            f"{placeholder.threshold:.2f}" if placeholder.threshold is not None else "—"
+        )
+        source = catalogue.sources.get(placeholder.name)
+        marker = "" if placeholder.enabled else "  (disabled)"
+        typer.echo(
+            f"{placeholder.name:<18} {len(placeholder.labels):>6} {threshold:>7} "
+            f"{'yes' if placeholder.reversible else 'no':>4} {placeholder.sweep:<6} "
+            f"{source.name if source else '-'}{marker}"
+        )
+    enabled = catalogue.enabled
+    typer.echo(
+        f"\n{len(enabled)} enabled type(s), {len(catalogue.schema())} label(s) "
+        f"sent to the model"
+    )
+
+
+@catalog_app.command("validate")
+def catalog_validate(
+    file: Optional[Path] = typer.Argument(
+        None, exists=True, dir_okay=False, readable=True,
+        help="Catalogue to check. Omit to check the resolved one.",
+    ),
+) -> None:
+    """Load a catalogue and report what is wrong with it. Changes nothing."""
+    from privaparse.app.catalogue import CatalogueError, load_catalogue
+
+    try:
+        catalogue = load_catalogue(file)
+    except CatalogueError as exc:
+        typer.secho(f"invalid: {exc}", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+    typer.secho(
+        f"ok — {len(catalogue.enabled)} enabled type(s), "
+        f"{len(catalogue.schema())} label(s)",
+        fg=typer.colors.GREEN,
+    )
 
 
 # --- helpers ---------------------------------------------------------------

@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from privaparse.app.catalogue import (
+    DEFAULT_CATALOGUE_PATH,
     CatalogueError,
     discover_catalogue_path,
     load_catalogue,
@@ -27,7 +28,13 @@ def _write(tmp_path: Path, body: str, name: str = "privaparse.entities.yaml") ->
 
 
 def test_default_catalogue_loads_and_has_person():
-    catalogue = load_catalogue()
+    # Pass the built-in path explicitly rather than calling load_catalogue()
+    # bare. With no argument, loading falls through to discover_catalogue_path(),
+    # which reads the real PRIVAPARSE_ENTITIES env var, the real cwd and the
+    # real home directory — any of which could hold a stray catalogue file on
+    # the machine running the test. Passing the path merges the default onto
+    # itself, which is a no-op, and skips discovery entirely.
+    catalogue = load_catalogue(DEFAULT_CATALOGUE_PATH)
     assert catalogue.version == 1
     assert catalogue.get("PERSON").normalizer == "person"
 
@@ -99,6 +106,40 @@ def test_two_types_claiming_one_label_is_an_error(tmp_path):
         load_catalogue(override)
 
 
+def test_enabled_must_be_a_real_boolean(tmp_path):
+    # "false" is a non-empty string, and bool("false") is True — a YAML author
+    # who quotes the word gets a type that silently stays on. Catalogue
+    # loading is fail-closed, so this must be a load error, not a truthy 1.
+    override = _write(
+        tmp_path, 'version: 1\nplaceholder_types:\n  PERSON:\n    enabled: "false"\n'
+    )
+    with pytest.raises(CatalogueError, match="enabled"):
+        load_catalogue(override)
+
+
+def test_reversible_must_be_a_real_boolean(tmp_path):
+    override = _write(
+        tmp_path, 'version: 1\nplaceholder_types:\n  PERSON:\n    reversible: "false"\n'
+    )
+    with pytest.raises(CatalogueError, match="reversible"):
+        load_catalogue(override)
+
+
+def test_type_name_must_satisfy_the_placeholder_grammar(tmp_path):
+    # "1PERSON".isupper() is True — digits are not cased characters, so
+    # .isupper() only looks at "PERSON" — but PLACEHOLDER_RE requires a
+    # letter first. The label must not collide with a built-in one (e.g.
+    # "person"), or the pre-existing duplicate-label check would raise
+    # first and the test would pass for the wrong reason.
+    override = _write(
+        tmp_path,
+        "version: 1\nplaceholder_types:\n  1PERSON:\n    labels: [made_up_label]\n"
+        "    normalizer: person\n",
+    )
+    with pytest.raises(CatalogueError, match="1PERSON"):
+        load_catalogue(override)
+
+
 def test_discovery_prefers_env_over_cwd(tmp_path):
     from_env = _write(tmp_path, MINIMAL, "from-env.yaml")
     _write(tmp_path, MINIMAL)
@@ -157,3 +198,51 @@ def test_settings_entity_schema_comes_from_the_catalogue(tmp_path, monkeypatch):
     # under any input - only a real catalogue read can. This is what makes
     # the test discriminate the new behaviour from the old.
     assert "iban" in schema
+
+
+# --- Task 9: the full catalogue --------------------------------------------
+
+ALL_42 = 42
+
+
+def test_default_catalogue_routes_every_model_label():
+    from privaparse.app.catalogue import MODEL_LABELS, load_catalogue
+
+    catalogue = load_catalogue()
+    routed = set(catalogue.label_to_type())
+    assert routed == set(MODEL_LABELS)
+    assert len(routed) == ALL_42
+
+
+def test_default_catalogue_has_25_types():
+    assert len(load_catalogue().types) == 25
+
+
+def test_secrets_are_irreversible_by_default():
+    assert load_catalogue().get("SECRET").reversible is False
+
+
+def test_every_declared_validator_and_backstop_resolves():
+    from privaparse.parser import registry
+
+    catalogue = load_catalogue()
+    for placeholder in catalogue.types.values():
+        if placeholder.validator:
+            registry.get_validator(placeholder.validator)
+        if placeholder.backstop:
+            registry.get_backstop(placeholder.backstop)
+        registry.get_normalizer(placeholder.normalizer)
+
+
+def test_every_registered_validator_and_backstop_is_used():
+    """Mirror of the test above: a validator or backstop that no type names
+    is dead code, not a safety net. Ten validators and six backstops are
+    registered; the shipped catalogue is what is supposed to make every one
+    of them reachable."""
+    from privaparse.parser import registry
+
+    catalogue = load_catalogue()
+    used_validators = {t.validator for t in catalogue.types.values() if t.validator}
+    used_backstops = {t.backstop for t in catalogue.types.values() if t.backstop}
+    assert used_validators == set(registry.known_validators())
+    assert used_backstops == set(registry.known_backstops())

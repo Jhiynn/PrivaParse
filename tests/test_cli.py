@@ -15,6 +15,18 @@ from tests.conftest import DATA_DIR, NameListDetector
 runner = CliRunner()
 
 
+@pytest.fixture(name="runner")
+def _runner_fixture() -> CliRunner:
+    """The catalog tests below take ``runner`` as a fixture argument rather
+    than closing over the module global the way ``_run()`` does. Registering
+    under a different def name than ``runner`` matters: a fixture literally
+    named ``def runner(...)`` would rebind the module-level ``runner`` above
+    to the fixture function itself, and every existing test that goes through
+    ``_run()`` -> the module global would start calling ``.invoke`` on a
+    function object instead of a ``CliRunner``."""
+    return runner
+
+
 @pytest.fixture(autouse=True)
 def fake_model(monkeypatch: pytest.MonkeyPatch):
     """Give the CLI the fake person detector instead of loading GLiNER2."""
@@ -263,3 +275,32 @@ def test_bench_reports_speed_and_quality_together(workspace: Path) -> None:
     # not recommended.
     assert "FAILED QUALITY" in text
     assert "No configuration met the quality floor" in text
+
+
+def test_catalog_show_lists_types(runner):
+    result = runner.invoke(app, ["catalog", "show"])
+    assert result.exit_code == 0
+    assert "PERSON" in result.stdout
+    assert "SECRET" in result.stdout
+
+
+def test_catalog_show_prints_no_prompts_or_values(runner):
+    result = runner.invoke(app, ["catalog", "show"])
+    # exit_code is checked here, not just the absence of the prompt text:
+    # without it, this assertion holds vacuously before the `catalog` command
+    # exists at all (a "no such command" error prints no prompt text either).
+    assert result.exit_code == 0
+    assert "Vor- und Nachnamen" not in result.stdout
+
+
+def test_catalog_validate_reports_a_bad_file(runner, tmp_path):
+    bad = tmp_path / "bad.yaml"
+    bad.write_text("version: 1\nplaceholder_types:\n  X:\n    normalizer: nope\n", encoding="utf-8")
+    result = runner.invoke(app, ["catalog", "validate", str(bad)])
+    assert result.exit_code == 1
+    assert "normalizer" in result.stdout
+
+
+def test_doctor_shows_the_catalogue(runner):
+    result = runner.invoke(app, ["doctor"])
+    assert "catalogue" in result.stdout

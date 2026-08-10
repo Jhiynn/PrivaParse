@@ -3,13 +3,37 @@
 # A user file (PRIVAPARSE_ENTITIES, ./privaparse.entities.yaml, or
 # ~/.config/privaparse/entities.yaml) is deep-merged ONTO this one. To remove a
 # type, set `enabled: false` — omitting it here changes nothing.
+#
+# All 42 labels documented by fastino/gliner2-privacy-filter-PII-multi are
+# routed below, onto 25 placeholder types. Granularity errs high on purpose:
+# merging two types later is a migration that rewrites a column and
+# de-duplicates rows, which is mechanical. Splitting one type into two later is
+# not possible without re-detecting every stored value, because the
+# information that would separate them was discarded at write time. SECRET is
+# the deliberate exception — it merges five labels because every one of them
+# is irreversible, never restored, and never distinguished by anything
+# downstream.
+#
+# Thresholds below are conservative starting points, not measurements. A later
+# sweep over the extended gold set replaces them with read-off values.
+#
+# Type names carry no underscore: PLACEHOLDER_RE is `[A-Z][A-Z0-9]*` for the
+# type followed by a literal "_" before the suffix, so an underscore inside
+# the name itself (e.g. a hypothetical NATIONAL_ID) would truncate the parsed
+# type at the first one and the rendered placeholder would never match its
+# own regex again. Multi-word names are closed up instead: NATIONALID, not
+# NATIONAL_ID.
 version: 1
 
 placeholder_types:
   PERSON:
-    labels: [person]
+    labels: [person, full_name, first_name, middle_name, last_name]
     prompts:
       person: "Vor- und Nachnamen von Menschen, auch mit Titeln wie Dr. oder Prof."
+      full_name: "Vollstaendige Namen einer Person"
+      first_name: "Vorname einer Person"
+      middle_name: "Zweiter Vorname einer Person"
+      last_name: "Nachname einer Person"
     normalizer: person
     sweep: word
     reversible: true
@@ -39,3 +63,195 @@ placeholder_types:
     reversible: true
     enabled: true
     bar: { precision: 0.95, recall: 0.95 }
+
+  DATEOFBIRTH:
+    labels: [date_of_birth]
+    prompts: {date_of_birth: "Geburtsdatum einer Person"}
+    normalizer: date_iso
+    sweep: exact
+    threshold: 0.6
+
+  ADDRESS:
+    labels: [address, street_address]
+    prompts:
+      address: "Vollstaendige Anschrift mit Strasse, Hausnummer und Ort"
+      street_address: "Strasse und Hausnummer"
+    normalizer: casefold
+    sweep: word
+    threshold: 0.6
+
+  CITY:
+    labels: [city]
+    prompts: {city: "Staedte und Gemeinden"}
+    normalizer: casefold
+    sweep: "off"
+    threshold: 0.7
+
+  REGION:
+    labels: [state_or_region]
+    prompts: {state_or_region: "Bundeslaender, Regionen, Kantone"}
+    normalizer: casefold
+    sweep: "off"
+    threshold: 0.7
+
+  POSTALCODE:
+    labels: [postal_code]
+    prompts: {postal_code: "Postleitzahlen"}
+    normalizer: digits
+    validator: builtin:postal_de
+    sweep: exact
+    threshold: 0.6
+
+  COUNTRY:
+    labels: [country]
+    prompts: {country: "Laendernamen"}
+    normalizer: casefold
+    sweep: "off"
+    threshold: 0.8
+
+  NATIONALID:
+    labels: [government_id, national_id_number]
+    prompts:
+      government_id: "Amtliche Ausweis- und Identifikationsnummern"
+      national_id_number: "Nationale Identifikationsnummer"
+    normalizer: strip_upper
+    sweep: exact
+    threshold: 0.6
+
+  PASSPORT:
+    labels: [passport_number]
+    prompts: {passport_number: "Reisepassnummern"}
+    normalizer: strip_upper
+    sweep: exact
+    threshold: 0.6
+
+  DRIVERSLICENSE:
+    labels: [drivers_license_number]
+    prompts: {drivers_license_number: "Fuehrerscheinnummern"}
+    normalizer: strip_upper
+    sweep: exact
+    threshold: 0.6
+
+  LICENSENUMBER:
+    labels: [license_number]
+    prompts: {license_number: "Lizenz- und Zulassungsnummern"}
+    normalizer: strip_upper
+    sweep: exact
+    threshold: 0.7
+
+  TAXID:
+    labels: [tax_id, tax_number]
+    prompts:
+      tax_id: "Steuer-Identifikationsnummer"
+      tax_number: "Steuernummer, Umsatzsteuer-Identifikationsnummer"
+    normalizer: strip_upper
+    validator: builtin:tax_de
+    backstop: builtin:vat_de
+    sweep: exact
+    threshold: 0.5
+
+  ACCOUNTNUMBER:
+    labels: [bank_account, account_number]
+    prompts:
+      bank_account: "Bankkontonummern"
+      account_number: "Kontonummern"
+    normalizer: strip_upper
+    sweep: exact
+    threshold: 0.6
+
+  ROUTINGNUMBER:
+    labels: [routing_number]
+    prompts: {routing_number: "Bankleitzahlen, BIC, Routing-Nummern"}
+    normalizer: digits
+    validator: builtin:blz_de
+    sweep: exact
+    threshold: 0.6
+
+  IBAN:
+    labels: [iban]
+    prompts: {iban: "IBAN-Kontonummern"}
+    normalizer: strip_upper
+    validator: builtin:iban_mod97
+    backstop: builtin:iban
+    sweep: exact
+    threshold: 0.5
+    bar: { precision: 0.95, recall: 0.95 }
+
+  CARD:
+    labels: [payment_card, card_number]
+    prompts:
+      payment_card: "Kreditkarten- und Zahlungskartennummern"
+      card_number: "Kartennummern"
+    normalizer: digits
+    validator: builtin:luhn
+    backstop: builtin:card
+    sweep: exact
+    threshold: 0.5
+    reversible: false
+    bar: { precision: 0.95, recall: 0.95 }
+
+  CARDEXPIRY:
+    labels: [card_expiry]
+    prompts: {card_expiry: "Gueltigkeitsdatum einer Zahlungskarte"}
+    normalizer: date_iso
+    validator: builtin:expiry_shape
+    sweep: exact
+    threshold: 0.6
+
+  CARDCVV:
+    labels: [card_cvv]
+    prompts: {card_cvv: "Kartenpruefnummer, CVV, CVC"}
+    normalizer: digits
+    validator: builtin:cvv_shape
+    sweep: exact
+    threshold: 0.6
+    reversible: false
+
+  USERNAME:
+    labels: [username]
+    prompts: {username: "Benutzernamen und Anmeldenamen"}
+    normalizer: casefold
+    sweep: word
+    threshold: 0.8
+
+  IP:
+    labels: [ip_address]
+    prompts: {ip_address: "IPv4- und IPv6-Adressen"}
+    normalizer: casefold
+    validator: builtin:ip_parse
+    backstop: builtin:ip
+    sweep: exact
+    threshold: 0.5
+
+  ACCOUNTID:
+    labels: [account_id, sensitive_account_id]
+    prompts:
+      account_id: "Kunden-, Konto- und Mandantennummern"
+      sensitive_account_id: "Besonders schutzwuerdige Kontokennungen"
+    normalizer: casefold
+    sweep: exact
+    threshold: 0.7
+
+  SECRET:
+    labels: [password, secret, api_key, access_token, recovery_code]
+    prompts:
+      password: "Passwoerter"
+      secret: "Geheimnisse und vertrauliche Zeichenketten"
+      api_key: "API-Schluessel"
+      access_token: "Zugriffstoken"
+      recovery_code: "Wiederherstellungscodes"
+    normalizer: identity
+    sweep: exact
+    threshold: 0.8
+    reversible: false
+
+  DATE:
+    labels: [sensitive_date, document_date, expiration_date, transaction_date]
+    prompts:
+      sensitive_date: "Datumsangaben, die eine Person betreffen"
+      document_date: "Datum eines Dokuments"
+      expiration_date: "Ablaufdatum"
+      transaction_date: "Datum einer Transaktion"
+    normalizer: date_iso
+    sweep: exact
+    threshold: 0.8
