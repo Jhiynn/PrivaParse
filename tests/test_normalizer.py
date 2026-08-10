@@ -10,7 +10,6 @@ from privaparse.parser.normalizer import (
     normalize_person,
     normalize_phone,
 )
-from privaparse.parser.types import EntityType
 
 
 @pytest.mark.parametrize(
@@ -105,7 +104,42 @@ def test_empty_input_normalises_to_empty() -> None:
     assert normalize_person("   ") == ""
 
 
-def test_normalize_dispatches_on_type() -> None:
-    assert normalize("MAX@TEST.DE", EntityType.EMAIL) == "max@test.de"
-    assert normalize("0170 1234567", EntityType.PHONE) == "+491701234567"
-    assert normalize("Dr. Max Mustermann", EntityType.PERSON) == "max mustermann"
+def test_normalize_dispatches_by_registered_name() -> None:
+    """normalize() takes a registry name, not an entity type — the catalogue
+    supplies the name, so dispatch must key off exactly what it stores."""
+    assert normalize("MAX@TEST.DE", "email") == "max@test.de"
+    assert normalize("0170 1234567", "phone") == "+491701234567"
+    assert normalize("Dr. Max Mustermann", "person") == "max mustermann"
+
+
+@pytest.mark.parametrize(
+    "name, raw, expected",
+    [
+        ("strip_upper", "DE89 3704 0044 0532 0130 00", "DE89370400440532013000"),
+        ("strip_upper", "de89-3704-0044", "DE89370400 44".replace(" ", "")),
+        ("digits", "4111 1111-1111 1111", "4111111111111111"),
+        ("digits", "CVV: 123", "123"),
+        # str.casefold() maps ß to ss, same as normalize_person relies on
+        # (normalizer.py); "musterstraße" would be str.lower(), not this.
+        ("casefold", "  Musterstraße   5 ", "musterstrasse 5"),
+        ("identity", "  Sk-Live-XYZ ", "  Sk-Live-XYZ "),
+        ("date_iso", "12.03.2026", "2026-03-12"),
+        ("date_iso", "2026-03-12", "2026-03-12"),
+        ("date_iso", "12. Maerz 2026", "12. maerz 2026"),
+    ],
+)
+def test_registered_normalizers(name, raw, expected):
+    assert normalize(raw, name) == expected
+
+
+def test_two_spellings_of_one_iban_collide():
+    assert normalize("DE89 3704 0044", "strip_upper") == normalize("de89370400.44", "strip_upper")
+
+
+def test_two_distinct_ibans_do_not_collide():
+    assert normalize("DE89 3704", "strip_upper") != normalize("DE89 3705", "strip_upper")
+
+
+def test_unknown_normalizer_name_raises():
+    with pytest.raises(KeyError, match="normalizer"):
+        normalize("x", "does_not_exist")

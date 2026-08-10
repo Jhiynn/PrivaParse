@@ -15,8 +15,8 @@ import unicodedata
 import phonenumbers
 
 from privaparse.app.logging import get_logger
+from privaparse.parser import registry
 from privaparse.parser.registry import register_normalizer
-from privaparse.parser.types import EntityType
 
 log = get_logger("normalizer")
 
@@ -26,6 +26,10 @@ __all__ = [
     "normalize_email",
     "normalize_phone",
     "normalize_casefold",
+    "normalize_strip_upper",
+    "normalize_digits",
+    "normalize_identity",
+    "normalize_date_iso",
 ]
 
 _WHITESPACE_RE = re.compile(r"\s+")
@@ -72,13 +76,57 @@ _TITLES = frozenset(
 )
 
 
-def normalize(value: str, entity_type: str) -> str:
-    """Map a surface form onto its vault key."""
-    if entity_type == EntityType.EMAIL:
-        return normalize_email(value)
-    if entity_type == EntityType.PHONE:
-        return normalize_phone(value)
-    return normalize_person(value)
+_NON_DIGIT_RE = re.compile(r"\D")
+_STRIP_RE = re.compile(r"[\s.\-/]")
+_DATE_DMY_RE = re.compile(r"^(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{4})$")
+_DATE_ISO_RE = re.compile(r"^(\d{4})-(\d{1,2})-(\d{1,2})$")
+
+
+def normalize(value: str, normalizer: str) -> str:
+    """Map a surface form onto its vault key using the named normalizer."""
+    return registry.get_normalizer(normalizer)(value)
+
+
+@register_normalizer("strip_upper")
+def normalize_strip_upper(value: str) -> str:
+    """Whitespace, dots, hyphens and slashes removed, then upper-cased.
+
+    For values whose spacing is presentational: an IBAN printed in groups of
+    four and the same IBAN printed solid are one value, and giving them two
+    placeholders would make the document read as if two accounts were involved.
+    """
+    return _STRIP_RE.sub("", unicodedata.normalize("NFKC", value)).upper()
+
+
+@register_normalizer("digits")
+def normalize_digits(value: str) -> str:
+    return _NON_DIGIT_RE.sub("", value)
+
+
+@register_normalizer("identity")
+def normalize_identity(value: str) -> str:
+    """Unchanged. Only for irreversible types, whose key is hashed anyway."""
+    return value
+
+
+@register_normalizer("date_iso")
+def normalize_date_iso(value: str) -> str:
+    """``YYYY-MM-DD`` for the numeric forms, casefold for anything else.
+
+    Deliberately shallow: month names vary by language and a wrong parse would
+    merge two different dates onto one placeholder, which is worse than leaving
+    "12. Maerz 2026" and "2026-03-12" as separate entries.
+    """
+    text = _WHITESPACE_RE.sub(" ", value).strip()
+    match = _DATE_DMY_RE.match(text)
+    if match:
+        day, month, year = match.groups()
+        return f"{year}-{int(month):02d}-{int(day):02d}"
+    match = _DATE_ISO_RE.match(text)
+    if match:
+        year, month, day = match.groups()
+        return f"{year}-{int(month):02d}-{int(day):02d}"
+    return text.casefold()
 
 
 @register_normalizer("email")

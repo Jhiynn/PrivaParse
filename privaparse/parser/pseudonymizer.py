@@ -87,7 +87,7 @@ def pseudonymize_text(
     )
     _verify_spans(text, spans)
 
-    resolution = EntityResolver(repo).resolve(spans)
+    resolution = EntityResolver(repo, settings.catalogue).resolve(spans)
     new_text = apply_replacements(text, resolution.spans)
 
     mapping = _persist(repo, resolution, text=text, source_name=source_name)

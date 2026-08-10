@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable
 
 from privaparse.app.logging import get_logger, register_secret
 from privaparse.database.models import Entity, EntityValue
 from privaparse.database.repository import VaultRepository
 from privaparse.parser.normalizer import normalize
 from privaparse.parser.types import Span
+
+if TYPE_CHECKING:  # pragma: no cover
+    from privaparse.app.catalogue import Catalogue
 
 log = get_logger("resolver")
 
@@ -51,8 +54,9 @@ class Resolution:
 class EntityResolver:
     """Maps surface forms onto stable placeholders through the global vault."""
 
-    def __init__(self, repo: VaultRepository) -> None:
+    def __init__(self, repo: VaultRepository, catalogue: "Catalogue") -> None:
         self.repo = repo
+        self.catalogue = catalogue
 
     def resolve(self, spans: Iterable[Span]) -> Resolution:
         """Resolve spans **in document order**.
@@ -64,7 +68,8 @@ class EntityResolver:
         result = Resolution()
 
         for span in sorted(spans, key=lambda s: s.start):
-            normalized = normalize(span.text, span.type)
+            placeholder_type = self.catalogue.get(span.type)
+            normalized = normalize(span.text, placeholder_type.normalizer)
             if not normalized:
                 log.debug("skipping span at %d: normalises to empty", span.start)
                 continue
