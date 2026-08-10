@@ -219,20 +219,39 @@ def test_settings_entity_schema_comes_from_the_catalogue(tmp_path, monkeypatch):
 ALL_42 = 42
 
 
-def test_default_catalogue_defines_every_model_label():
-    """Every one of the 42 documented labels has a placeholder type
-    somewhere in the catalogue file — nothing is silently missing or
-    mistyped. Deliberately checked against ``catalogue.types`` (every
-    defined type), not ``catalogue.enabled`` — "has a home in the
-    catalogue" and "is currently sent to the model" are different claims
-    since Task 12's sweep, which is exactly what the next test is for.
+#: Task 14 measured every one of the 42 model labels alone, through the full
+#: pipeline, against the 124-document gold set. These four found zero true
+#: positives — no threshold or company of other labels can be short-changing
+#: them, since each ran by itself — so Part 1 of that task deleted them from
+#: entities.default.yaml outright. See docs/label-report.md for the full
+#: per-label sweep and each removed label's former type in
+#: entities.default.yaml for its own number.
+REMOVED_DEAD_LABELS = frozenset({"middle_name", "secret", "recovery_code", "sensitive_account_id"})
+
+
+def test_default_catalogue_defines_every_model_label_except_the_four_measured_dead():
+    """Until Task 14 this asserted ``defined == MODEL_LABELS`` — true when
+    every documented label had a placeholder type. It no longer is: four
+    labels are gone from the catalogue file entirely (see
+    ``REMOVED_DEAD_LABELS``), so ``defined`` is now a strict subset of
+    ``MODEL_LABELS``, not an equal set. MODEL_LABELS itself is unchanged
+    and stays at 42 by design — it documents what the model card offers,
+    not what this file chooses to define — so the gap is expected and
+    checked by name below, not just by count, to catch a future edit that
+    drops the wrong label as readily as one that drops too few or too
+    many.
+
+    Still deliberately checked against ``catalogue.types`` (every defined
+    type), not ``catalogue.enabled`` — "has a home in the catalogue" and
+    "is currently sent to the model" are different claims since Task 12's
+    sweep, which is exactly what the next test is for.
     """
     from privaparse.app.catalogue import MODEL_LABELS, load_catalogue
 
     catalogue = load_catalogue()
     defined = {label for placeholder in catalogue.types.values() for label in placeholder.labels}
-    assert defined == set(MODEL_LABELS)
-    assert len(defined) == ALL_42
+    assert defined == set(MODEL_LABELS) - REMOVED_DEAD_LABELS
+    assert len(defined) == ALL_42 - len(REMOVED_DEAD_LABELS)
 
 
 def test_four_low_value_types_are_disabled_and_their_labels_stay_unrouted():
@@ -245,6 +264,12 @@ def test_four_low_value_types_are_disabled_and_their_labels_stay_unrouted():
     — its comment says so explicitly, unlike the other three.
     ``label_to_type()`` only walks ``catalogue.enabled``, so their 7 labels
     fall out of routing without being un-defined (previous test).
+
+    31, not 35: Task 14 removed four more labels from the catalogue file
+    outright (``REMOVED_DEAD_LABELS``, previous test), on top of these 7.
+    Both counts are subtracted from 42 rather than hard-coding 31, so a
+    future change to either group's size fails here with the arithmetic
+    that explains it instead of a bare number to update by hand.
     """
     from privaparse.app.catalogue import load_catalogue
 
@@ -254,8 +279,9 @@ def test_four_low_value_types_are_disabled_and_their_labels_stay_unrouted():
         "city", "state_or_region", "country",
         "sensitive_date", "document_date", "expiration_date", "transaction_date",
     }
-    assert len(routed) == ALL_42 - len(disabled_labels)
+    assert len(routed) == ALL_42 - len(disabled_labels) - len(REMOVED_DEAD_LABELS)
     assert routed.isdisjoint(disabled_labels)
+    assert routed.isdisjoint(REMOVED_DEAD_LABELS)
 
 
 def test_default_catalogue_has_25_types():

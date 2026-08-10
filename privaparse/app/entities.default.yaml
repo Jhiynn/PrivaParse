@@ -4,17 +4,22 @@
 # ~/.config/privaparse/entities.yaml) is deep-merged ONTO this one. To remove a
 # type, set `enabled: false` — omitting it here changes nothing.
 #
-# All 42 labels documented by fastino/gliner2-privacy-filter-PII-multi are
-# routed below, onto 25 placeholder types — but only 21 of those types are
+# 38 of the 42 labels documented by fastino/gliner2-privacy-filter-PII-multi
+# are routed below, onto 25 placeholder types — but only 21 of those types are
 # currently enabled (CITY, REGION, COUNTRY and DATE are disabled; see each
-# type's own comment). Granularity errs high on purpose: merging two types
-# later is a migration that rewrites a column and de-duplicates rows, which is
-# mechanical. Splitting one type into two later is not possible without
-# re-detecting every stored value, because the information that would
-# separate them was discarded at write time. SECRET is the deliberate
-# exception — it merges five labels because every one of them is
-# irreversible, never restored, and never distinguished by anything
-# downstream.
+# type's own comment). The other four labels are not routed at all: Task 14
+# measured every label alone against the full gold set, and each of those
+# four found zero gold entities — see the removal note on each one's former
+# type (PERSON, ACCOUNT_ID, SECRET twice) and docs/label-report.md for the
+# full sweep. MODEL_LABELS in catalogue.py still lists all 42; that constant
+# documents what the model offers, not what this file chooses to send.
+# Granularity errs high on purpose: merging two types later is a migration
+# that rewrites a column and de-duplicates rows, which is mechanical.
+# Splitting one type into two later is not possible without re-detecting
+# every stored value, because the information that would separate them was
+# discarded at write time. SECRET is the deliberate exception — it merges
+# three labels because every one of them is irreversible, never restored, and
+# never distinguished by anything downstream.
 #
 # Thresholds below are a mix of two things, and each type's own comment says
 # which: a conservative starting point never yet measured (most types with no
@@ -54,12 +59,16 @@ version: 1
 
 placeholder_types:
   PERSON:
-    labels: [person, full_name, first_name, middle_name, last_name]
+    # middle_name dropped (Task 14): measured alone against the 99 gold
+    # PERSON entities it found none, and it cost nothing either — 0 found,
+    # 0 noise. Silent, not borderline; see docs/label-report.md for the
+    # full per-label sweep this and the other three Task 14 removals rest
+    # on.
+    labels: [person, full_name, first_name, last_name]
     prompts:
       person: "Vor- und Nachnamen von Menschen, auch mit Titeln wie Dr. oder Prof."
       full_name: "Vollstaendige Namen einer Person"
       first_name: "Vorname einer Person"
-      middle_name: "Zweiter Vorname einer Person"
       last_name: "Nachname einer Person"
     normalizer: person
     sweep: word
@@ -332,10 +341,13 @@ placeholder_types:
     threshold: 0.5
 
   ACCOUNT_ID:
-    labels: [account_id, sensitive_account_id]
+    # sensitive_account_id dropped (Task 14): measured alone against the 3
+    # gold ACCOUNT_ID entities it found none, and cost one false positive —
+    # noise with no matching benefit. account_id alone now carries the
+    # type's entire measured signal; see docs/label-report.md.
+    labels: [account_id]
     prompts:
       account_id: "Kunden-, Konto- und Mandantennummern"
-      sensitive_account_id: "Besonders schutzwuerdige Kontokennungen"
     normalizer: casefold
     sweep: exact
     # 0.750/1.000 at 0.8 and 0.9; 0.600 below that. No validator exists for
@@ -345,13 +357,19 @@ placeholder_types:
     threshold: 0.8
 
   SECRET:
-    labels: [password, secret, api_key, access_token, recovery_code]
+    # secret and recovery_code dropped (Task 14), each measured alone
+    # against the 3 gold SECRET entities. secret found none and cost
+    # nothing either — 0 found, 0 noise, silent. recovery_code found none
+    # and cost one false positive — noise with no matching benefit. The
+    # three labels that remain are not strong either (api_key finds one of
+    # three with no noise; password and access_token each find one of
+    # three and both carry noise of their own) — SECRET is the weakest
+    # type this catalogue measures; see docs/label-report.md.
+    labels: [password, api_key, access_token]
     prompts:
       password: "Passwoerter"
-      secret: "Geheimnisse und vertrauliche Zeichenketten"
       api_key: "API-Schluessel"
       access_token: "Zugriffstoken"
-      recovery_code: "Wiederherstellungscodes"
     normalizer: identity
     sweep: exact
     threshold: 0.8
