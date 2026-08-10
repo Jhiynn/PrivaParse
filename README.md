@@ -74,19 +74,39 @@ Support of 3 means one false positive is the entire gap: 0.750 is three
 correct against one wrong, not a stable operating point the way PERSON's 76
 or EMAIL's 21 are. Read this block as a first pass, not a verdict.
 
-**One defect, two numbers.** TAX_ID reports P 1.000 / R 0.000 / F1 0.000
-(support 4) — recall zero by design, and the gold set keeps it that way on
-purpose (`eval/gold/de_gold_source.md`'s Batch A note). Three of the four
-gold Steuer-IDs are written the way a Finanzamt letter actually prints one —
-grouped in threes, `XX XXX XXX XXX` — and the model does not reliably tag
-that presentation as `tax_id` at all. The fourth is kept in the bare,
-ungrouped form on purpose, specifically because that rendering exposes a
-second failure: an unbroken eleven-digit string reads to the phone backstop
-as a German mobile number, so it scores as a PHONE false positive instead of
-a TAX_ID true positive. That collision is part of why PHONE's own precision
-above is 0.818 rather than 1.000 — under its 0.95 bar — not a separate
-problem from TAX_ID's recall. A reader who sees only one of these two
-numbers will read it as two small issues instead of the one real one.
+**One defect, two numbers.** All four of PHONE's false positives are all
+four of TAX_ID's false negatives — the same defect, counted from both
+ends, not two separate ones. TAX_ID reports P 1.000 / R 0.000 / F1 0.000
+(support 4); recall zero by design, and the gold set keeps it that way on
+purpose (`eval/gold/de_gold_source.md`'s Batch A note). The four missed
+Steuer-IDs reach PHONE by two different routes. `de-047` keeps its
+Steuer-ID in the bare, ungrouped form `generate_decidable()` actually
+produces, and the phone *backstop* — the regex/`phonenumbers` rule, not the
+model — matches an unbroken eleven-digit string as a German mobile number
+directly. `de-048` and `de-049` write theirs the way a Finanzamt letter
+actually prints one, grouped in threes (`XX XXX XXX XXX`); the backstop
+finds nothing there, but the *model* labels all three `phone_number`
+instead — the per-label breakdown shows exactly this, `phone_number` at 0
+true positives and 3 false positives. `phone_shape`, the validator that
+would otherwise veto a model guess that is not actually phone-shaped, does
+not catch these three, because a grouped twelve-digit number genuinely is
+phone-shaped — and TAX_ID has no backstop of its own to produce an exact
+span the model's guess would have to compete with instead. PHONE's 0.818
+precision above and TAX_ID's 0.000 recall are this one defect, read from
+opposite sides of the same four entities.
+
+The fix is known and deliberately deferred, not missed. A checksum-
+validated TAX_ID backstop would turn it into an exact span, and the
+existing rule that an exact span trims back an overlapping model guess
+would resolve the three grouped cases on its own — the model's
+`phone_number` label would simply lose to a genuine TAX_ID match. The bare
+case needs a second rule that does not exist yet: when two *regex* spans of
+different types compete for the same text — a new TAX_ID backstop against
+the existing phone backstop, here — nothing currently prefers the one
+backed by a checksum over the one that only checked shape. Both fixes wait
+on a label-ablation study to measure whether `phone_number` is a
+false-positive driver generally, not only here, since that answer could
+change what the second rule needs to look like.
 
 **Seven types with no gold data at all:** `DRIVERS_LICENSE`,
 `LICENSE_NUMBER`, `ACCOUNT_NUMBER`, `ROUTING_NUMBER`, `CARD_EXPIRY`,
