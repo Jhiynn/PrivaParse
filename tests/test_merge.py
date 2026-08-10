@@ -7,6 +7,8 @@ import dataclasses
 import pytest
 
 from privaparse.app.catalogue import load_catalogue
+from privaparse.engine import PrivaParseEngine
+from privaparse.parser.detector import StaticDetector
 from privaparse.parser.markdown import protect
 from privaparse.parser.merge import coreference_sweep, merge_spans, resolve_spans
 from privaparse.parser.types import SOURCE_COREF, SOURCE_GLINER, SOURCE_REGEX, EntityType, Span
@@ -32,13 +34,18 @@ def test_low_confidence_spans_are_dropped() -> None:
     assert merge_spans([weak], threshold=0.1, catalogue=None) == [weak]
 
 
-def test_person_from_the_model_wins_over_an_overlapping_regex_email() -> None:
-    """A PERSON span from the model swallowing an email's local part used to
-    lose to a type rank that put EMAIL above PERSON regardless of source.
-    That rank is gone: the model's own classification now wins on source
-    alone. The failure mode the old rank was guarding against — a fragment
-    mistagged EMAIL — is now caught by the email_syntax validator instead
-    (see test_model_proposals_that_are_not_valid_syntax_are_dropped).
+def test_the_longer_regex_email_wins_over_a_shorter_overlapping_person_span() -> None:
+    """This is the local-part leak, caught live: a PERSON span from the model
+    over just "max" used to lose to a type rank that put EMAIL above PERSON.
+    Deleting that rank and ranking by source alone (this task's first attempt)
+    was also wrong — GLINER outranks REGEX, so the *shorter* PERSON span won
+    regardless of length, and "@test.de" would have shipped in clear. Length
+    has to lead the sort for the longer, correct span to survive; source only
+    speaks when two overlapping spans are the same length (see
+    test_the_model_wins_between_equal_length_overlapping_spans).
+    test_a_person_shaped_local_part_does_not_leak_the_rest_of_the_address
+    proves this holds at the rewritten-text level, not just here at the span
+    level.
 
     Priority resolution, not the veto — no catalogue needed. The email span
     is SOURCE_REGEX (never vetoed) and PERSON has no validator either way.
@@ -48,21 +55,27 @@ def test_person_from_the_model_wins_over_an_overlapping_regex_email() -> None:
     person = _span(text, "max", EntityType.PERSON, score=0.95)
 
     merged = merge_spans([person, email], catalogue=None)
-    assert [s.type for s in merged] == [EntityType.PERSON]
+    assert [s.type for s in merged] == [EntityType.EMAIL]
 
 
-def test_the_model_wins_over_regex_for_the_same_type() -> None:
-    """Priority resolution, not the veto: GLINER now outranks REGEX, so the
-    model's span wins even though it is shorter. Regex still supplies the
-    recall backstop and the checksum veto, but neither is "win a span the
-    model also found" — no catalogue needed, since PHONE's veto never runs
-    without one."""
+def test_the_longer_regex_phone_wins_over_a_shorter_overlapping_model_fragment() -> None:
+    """Same lesson as the email case above, for two spans that share a claimed
+    type: the model's span is missing the country code, the regex span has
+    it, and length decides before source is ever consulted — a shorter model
+    span must not win just because GLINER outranks REGEX. Because these two
+    spans differ in length by construction (that is the whole scenario), this
+    pair cannot demonstrate the source tie-break; that needs spans of equal
+    length, which is what test_the_model_wins_between_equal_length_overlapping_spans
+    is for.
+
+    Priority resolution, not the veto — no catalogue needed, since PHONE's
+    veto never runs without one."""
     text = "Ruf +49 170 1234567 an."
     from_regex = _span(text, "+49 170 1234567", EntityType.PHONE, source=SOURCE_REGEX, score=1.0)
     from_model = _span(text, "170 1234567", EntityType.PHONE, score=0.99)
 
     merged = merge_spans([from_model, from_regex], catalogue=None)
-    assert merged == [from_model]
+    assert merged == [from_regex]
 
 
 def test_longer_span_wins_at_equal_priority() -> None:
@@ -325,6 +338,8 @@ def test_resolve_spans_can_skip_the_sweep() -> None:
 
 
 def test_model_span_wins_an_overlap_against_a_backstop() -> None:
+    """Model and backstop claim the identical span — equal length by
+    construction — so source is what decides, and the model wins."""
     text = "Kontakt: max.mustermann@test.de"
     protected = protect(text)
     model = Span(9, 31, "max.mustermann@test.de", "EMAIL", 0.9, SOURCE_GLINER)
@@ -335,7 +350,36 @@ def test_model_span_wins_an_overlap_against_a_backstop() -> None:
     assert kept[0].source == SOURCE_GLINER
 
 
-def test_backstop_survives_where_the_model_found_nothing() -> None:
+def test_the_model_wins_between_equal_length_overlapping_spans() -> None:
+    """The dedicated equal-length case: two overlapping spans of identical
+    length, one from each source, deliberately not at the same start/end (a
+    coincidence of matching offsets could not be mistaken for the length
+    comparison actually running). Length is tied, so priority breaks it and
+    the model's span survives — this is what "the model decides" means once
+    length leads the sort, and it needs its own case that cannot pass by
+    accident the way an unequal-length pair could (length alone would decide
+    those regardless of which source said what)."""
+    text = "Kontakt ABCDEFGH bitte."
+    start = text.index("ABCDEFGH")
+    model = Span(start, start + 4, text[start : start + 4], "PERSON", 0.9, SOURCE_GLINER)
+    backstop = Span(
+        start + 2, start + 6, text[start + 2 : start + 6], "PERSON", 1.0, SOURCE_REGEX
+    )
+    assert model.length == backstop.length  # the property this test depends on
+
+    kept = merge_spans([backstop, model], catalogue=None)
+    assert len(kept) == 1
+    assert kept[0].source == SOURCE_GLINER
+
+
+def test_backstop_and_model_coexist_when_they_do_not_overlap() -> None:
+    """Not an overlap-precedence test — these two spans never touch, so
+    neither length nor source ever gets consulted; both are kept regardless.
+    Renamed from a name that implied it tested "the backstop surviving an
+    overlap", which it never did (its two spans are 13 characters apart) —
+    it tests the recall backstop filling a gap the model left, which is a
+    real and separate property worth keeping, just not this file's overlap
+    machinery."""
     text = "Anna schreibt an max@test.de"
     protected = protect(text)
     model = Span(0, 4, "Anna", "PERSON", 0.9, SOURCE_GLINER)
@@ -343,6 +387,33 @@ def test_backstop_survives_where_the_model_found_nothing() -> None:
 
     kept = merge_spans([model, backstop], protected=protected, catalogue=load_catalogue())
     assert {s.source for s in kept} == {SOURCE_GLINER, SOURCE_REGEX}
+
+
+def test_a_person_shaped_local_part_does_not_leak_the_rest_of_the_address(settings) -> None:
+    """Reproduces a real leak, found in review: the model tags just the local
+    part "max" as PERSON, the backstop finds the whole address. Before length
+    led the sort, the shorter PERSON span won on source rank alone, and the
+    rewritten document read "Kontakt: [[PERSON_..]]@test.de" — the domain
+    shipped in clear. ``merge_spans``'s surviving-span list alone would not
+    show this: a reader has to know the email span was 9-20 and the person
+    span 9-12 to notice the wrong one won. The leak is only visible in the
+    document text, so this goes through the real engine instead of calling
+    merge_spans directly.
+    """
+    text = "Kontakt: max@test.de"
+    model = Span(9, 12, "max", "PERSON", 0.9, SOURCE_GLINER)
+    backstop = Span(9, 20, "max@test.de", "EMAIL", 1.0, SOURCE_REGEX)
+
+    engine = PrivaParseEngine(
+        settings, detector=StaticDetector([model, backstop]), configure_logs=False
+    )
+    try:
+        result = engine.pseudonymize(text)
+    finally:
+        engine.close()
+
+    assert "@test.de" not in result.text
+    assert "[[EMAIL_" in result.text
 
 
 def test_sweep_mode_off_finds_no_repeats() -> None:

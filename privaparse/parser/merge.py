@@ -39,21 +39,23 @@ _TRAILING_TRIM = " \t\r\n.,;:!?)>]}\"'“«‘›*_"
 #: substring matching produces noise ("Li" inside "Lieferung").
 _MIN_SWEEP_LENGTH = 3
 
-#: Higher wins an overlap. The model decides: rules assist it, they do not
-#: outrank it. Regex keeps both of its jobs — recall backstop here, and the
-#: checksum veto in `_passes_rule_check` — and neither is "win a span the model
-#: also found".
+#: Breaks ties between overlapping spans of equal length (see the sort key in
+#: `merge_spans`, where length leads). Between equals, the model decides:
+#: rules assist it, they do not outrank it. Regex keeps both of its jobs —
+#: recall backstop here, and the checksum veto in `_passes_rule_check` — and
+#: neither is "win a span the model also found".
 #:
-#: This is a reversal. The old ranking put regex above the model, with a type
-#: rank on top so an EMAIL span beat a PERSON span that had swallowed the local
-#: part. That case is now handled by the `email_syntax` validator plus the
-#: longest-span tie-break, which is where it belonged: a syntax rule, not a
-#: standing claim that rules know better.
+#: Source rank alone cannot replace the old type rank. A GLiNER PERSON span
+#: over just the local part of an address is *shorter* than the REGEX EMAIL
+#: span over the whole thing — ranking by source first would let that shorter,
+#: wrong span win regardless, which is a live leak: "max" gets pseudonymised
+#: and "@test.de" ships in clear. Length has to lead the sort for the longer,
+#: correct span to win; source only speaks when two spans are tied on length.
 _SOURCE_RANK = {SOURCE_GLINER: 3, SOURCE_REGEX: 2, SOURCE_COREF: 1}
 
 
 def span_priority(span: Span) -> int:
-    """Higher wins an overlap."""
+    """Higher wins an overlap between spans of equal length."""
     return _SOURCE_RANK.get(span.source, 1)
 
 
@@ -87,7 +89,8 @@ def merge_spans(
     threshold: float = 0.5,
     catalogue: "Catalogue | None",
 ) -> list[Span]:
-    """Drop weak spans, trim edges, and resolve overlaps greedily by priority."""
+    """Drop weak spans, trim edges, and resolve overlaps greedily: longest span
+    first, source priority breaking ties between equal lengths."""
     candidates: list[Span] = []
     for span in spans:
         if span.score < threshold:
@@ -103,8 +106,13 @@ def merge_spans(
             continue
         candidates.append(trimmed)
 
-    # Best first, so a simple greedy pass is enough.
-    candidates.sort(key=lambda s: (-span_priority(s), -s.length, -s.score, s.start))
+    # Best first, so a simple greedy pass is enough. Length leads: the
+    # asymmetry this tool is built on means a shorter span must never pre-empt
+    # a longer, overlapping one, whatever the two disagree on for source or
+    # type — a shorter model span winning by source rank alone is exactly how
+    # "max" gets pseudonymised while "@test.de" ships in clear. Source only
+    # breaks a tie between spans of identical length.
+    candidates.sort(key=lambda s: (-s.length, -span_priority(s), -s.score, s.start))
 
     accepted: list[Span] = []
     for span in candidates:
