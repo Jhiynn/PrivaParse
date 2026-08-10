@@ -15,11 +15,18 @@ import unicodedata
 import phonenumbers
 
 from privaparse.app.logging import get_logger
+from privaparse.parser.registry import register_normalizer
 from privaparse.parser.types import EntityType
 
 log = get_logger("normalizer")
 
-__all__ = ["normalize", "normalize_person", "normalize_email", "normalize_phone"]
+__all__ = [
+    "normalize",
+    "normalize_person",
+    "normalize_email",
+    "normalize_phone",
+    "normalize_casefold",
+]
 
 _WHITESPACE_RE = re.compile(r"\s+")
 _NON_PHONE_RE = re.compile(r"[^\d+]")
@@ -74,10 +81,12 @@ def normalize(value: str, entity_type: EntityType) -> str:
     return normalize_person(value)
 
 
+@register_normalizer("email")
 def normalize_email(value: str) -> str:
     return _WHITESPACE_RE.sub("", value).strip().lower()
 
 
+@register_normalizer("phone")
 def normalize_phone(value: str, region: str = "DE") -> str:
     """E.164 where possible, digits otherwise.
 
@@ -104,6 +113,7 @@ def normalize_phone(value: str, region: str = "DE") -> str:
     return fallback or cleaned.casefold()
 
 
+@register_normalizer("person")
 def normalize_person(value: str) -> str:
     """NFKC, collapsed whitespace, leading titles removed, case-folded.
 
@@ -132,3 +142,15 @@ def _drop_leading_titles(tokens: list[str]) -> list[str]:
             continue
         break
     return tokens[index:]
+
+
+@register_normalizer("casefold")
+def normalize_casefold(value: str) -> str:
+    """NFKC, collapsed whitespace, case-folded.
+
+    The catalogue's default when a type names no normalizer, so it must be the
+    most conservative useful choice: it collapses spelling noise and nothing
+    else.
+    """
+    text = unicodedata.normalize("NFKC", value)
+    return _WHITESPACE_RE.sub(" ", text).strip().casefold()

@@ -17,6 +17,7 @@ dependencies = [
     "sqlalchemy>=2.0",
     "alembic>=1.13",
     "phonenumbers>=8.13",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
@@ -32,6 +33,9 @@ privaparse = "privaparse.app.main:app"
 
 [tool.setuptools.packages.find]
 include = ["privaparse*"]
+
+[tool.setuptools.package-data]
+privaparse = ["app/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
