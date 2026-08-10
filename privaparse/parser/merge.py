@@ -39,18 +39,19 @@ _TRAILING_TRIM = " \t\r\n.,;:!?)>]}\"'“«‘›*_"
 #: substring matching produces noise ("Li" inside "Lieferung").
 _MIN_SWEEP_LENGTH = 3
 
-#: Breaks ties between overlapping spans of equal length (see the sort key in
-#: `merge_spans`, where length leads). Between equals, the model decides:
-#: rules assist it, they do not outrank it. Regex keeps both of its jobs —
-#: recall backstop here, and the checksum veto in `_passes_rule_check` — and
-#: neither is "win a span the model also found".
-#:
-#: Source rank alone cannot replace the old type rank. A GLiNER PERSON span
-#: over just the local part of an address is *shorter* than the REGEX EMAIL
-#: span over the whole thing — ranking by source first would let that shorter,
-#: wrong span win regardless, which is a live leak: "max" gets pseudonymised
-#: and "@test.de" ships in clear. Length has to lead the sort for the longer,
-#: correct span to win; source only speaks when two spans are tied on length.
+#: Below this, a piece of a model span left over after trimming around an
+#: exact span is more likely leftover noise than a name — a stray word or
+#: two once the address or number it was wrapped around is cut away. A
+#: separate constant from _MIN_SWEEP_LENGTH on purpose: the two floors
+#: protect different steps and have no reason to move together.
+_MIN_TRIM_LENGTH = 3
+
+#: Breaks ties between overlapping spans of equal length, once length has
+#: already decided what it can. It does not decide model-versus-exact
+#: overlaps — `_trim_to_exact_spans` removes those before this ever runs —
+#: so in practice this now only ever settles a tie between two spans of the
+#: *same* source: two GLiNER guesses at a name's edges, or two regex spans
+#: from different backstops.
 _SOURCE_RANK = {SOURCE_GLINER: 3, SOURCE_REGEX: 2, SOURCE_COREF: 1}
 
 
@@ -89,8 +90,9 @@ def merge_spans(
     threshold: float = 0.5,
     catalogue: "Catalogue | None",
 ) -> list[Span]:
-    """Drop weak spans, trim edges, and resolve overlaps greedily: longest span
-    first, source priority breaking ties between equal lengths."""
+    """Drop weak spans, trim edges, cut model spans back from any exact span
+    they overlap, and resolve what overlap is left greedily: longest span
+    first, source breaking ties between equal lengths."""
     candidates: list[Span] = []
     for span in spans:
         if span.score < threshold:
@@ -106,12 +108,18 @@ def merge_spans(
             continue
         candidates.append(trimmed)
 
-    # Best first, so a simple greedy pass is enough. Length leads: the
-    # asymmetry this tool is built on means a shorter span must never pre-empt
-    # a longer, overlapping one, whatever the two disagree on for source or
-    # type — a shorter model span winning by source rank alone is exactly how
-    # "max" gets pseudonymised while "@test.de" ships in clear. Source only
-    # breaks a tie between spans of identical length.
+    candidates = _trim_to_exact_spans(candidates, protected, catalogue)
+
+    # Best first, so a simple greedy pass is enough. By this point every
+    # model/exact overlap has already been resolved above, so this sort only
+    # ever compares spans of the same source — two GLiNER guesses, or two
+    # regex spans. There, "longer wins" is safe: it is one entity read two
+    # ways, not a fuzzy guess sitting on top of a proven boundary, so nothing
+    # is lost by keeping the fuller reading. That is not true across
+    # sources — a longer model span can still bury a shorter, exact one
+    # entirely — which is exactly why that case is resolved separately,
+    # above, instead of by this key. Source only breaks a tie between spans
+    # of identical length.
     candidates.sort(key=lambda s: (-s.length, -span_priority(s), -s.score, s.start))
 
     accepted: list[Span] = []
@@ -151,9 +159,17 @@ def coreference_sweep(
         if len(surface) < _MIN_SWEEP_LENGTH:
             continue
 
-        mode = "word"
-        if catalogue is not None and span.type in catalogue.types:
+        if catalogue is None:
+            mode = "word"
+        elif span.type in catalogue.types:
             mode = catalogue.types[span.type].sweep
+        else:
+            # A real catalogue was given but does not recognise this type.
+            # EntityResolver fails closed on the identical condition
+            # (Catalogue.get raises for an unknown type) — guessing "word"
+            # here would be the one place left that quietly did not.
+            log.debug("skipping sweep for a type %r the catalogue does not know", span.type)
+            continue
         pattern = _sweep_pattern(surface, mode)
         if pattern is None:
             continue
@@ -200,6 +216,108 @@ def _passes_rule_check(span: Span, catalogue: "Catalogue | None") -> bool:
     if placeholder is None or placeholder.validator is None:
         return True
     return bool(registry.get_validator(placeholder.validator)(span.text))
+
+
+def _trim_to_exact_spans(
+    candidates: list[Span],
+    protected: ProtectedText | None,
+    catalogue: "Catalogue | None",
+) -> list[Span]:
+    """Cut model spans back from the boundary of any exact span they overlap.
+
+    A SOURCE_REGEX span is not an estimate — it is checksum-gated or an exact
+    syntax match (email, IBAN, card, IP) — so it is a proven boundary, not a
+    competing guess. A SOURCE_GLINER span overlapping one is trimmed to
+    whatever survives outside it: the model can be right about *what kind of
+    thing it found* while still being wrong about *where its own span ends*.
+    A PERSON tag that reaches into an address's local part is the model
+    mis-drawing a boundary, not a second entity sharing the text.
+
+    Runs once, before the greedy accept loop, not as part of it. A trimmed
+    model span no longer overlaps the exact span that trimmed it, so the
+    length-then-priority sort below never has to choose between a proven
+    boundary and an estimated one — it only ever resolves ties between spans
+    of the same source, where "longer wins" is actually safe (see the
+    comment on that sort).
+    """
+    exact = [c for c in candidates if c.source == SOURCE_REGEX]
+    if not exact:
+        return candidates
+
+    kept: list[Span] = []
+    for span in candidates:
+        if span.source != SOURCE_GLINER:
+            kept.append(span)
+            continue
+        overlapping = [e for e in exact if span.overlaps(e)]
+        if not overlapping:
+            kept.append(span)
+            continue
+
+        narrowed = _largest_remainder(span, overlapping)
+        if narrowed is None:
+            continue  # entirely inside an exact span: not a separate entity
+
+        if protected is not None and not narrowed.verify_against(protected.original):
+            # Should be unreachable — a slice of a valid span's own text is
+            # a valid span — but the boundary rule is new and a document is
+            # never worth guessing about. Refuse rather than trust it.
+            log.debug("dropping span with inconsistent offsets after trim at %d", span.start)
+            continue
+
+        # New territory the cut may have exposed (a trailing space where the
+        # address used to start) gets the same edge trim any candidate gets,
+        # and the same veto, in case narrowing changed whether the span
+        # still looks like what it claims to be.
+        narrowed = _trim(narrowed, protected.original if protected else None)
+        if narrowed is None:
+            continue
+        if not _passes_rule_check(narrowed, catalogue):
+            continue
+        kept.append(narrowed)
+    return kept
+
+
+def _largest_remainder(span: Span, exact_spans: Sequence[Span]) -> Span | None:
+    """The largest contiguous piece of ``span`` that lies outside every span
+    in ``exact_spans``, or None if nothing long enough survives.
+
+    "Largest" rather than "all pieces": a Span is one contiguous range, and
+    when an exact span sits in the middle of a longer model span, splitting
+    it in two, only one side can be kept without inventing a second span the
+    model never proposed.
+    """
+    pieces = [(span.start, span.end)]
+    for exact in exact_spans:
+        pieces = [
+            remainder
+            for start, end in pieces
+            for remainder in _subtract(start, end, exact.start, exact.end)
+        ]
+    if not pieces:
+        return None
+
+    # Longest wins; the leftmost of an exact tie breaks it, so the result
+    # never depends on the order exact_spans happened to be found in.
+    start, end = max(pieces, key=lambda piece: (piece[1] - piece[0], -piece[0]))
+    if end - start < _MIN_TRIM_LENGTH:
+        return None
+
+    offset = start - span.start
+    text = span.text[offset : offset + (end - start)]
+    return Span(
+        start=start, end=end, text=text, type=span.type, score=span.score, source=span.source
+    )
+
+
+def _subtract(start: int, end: int, cut_start: int, cut_end: int) -> list[tuple[int, int]]:
+    """``[start, end)`` with ``[cut_start, cut_end)`` removed, as 0-2 pieces."""
+    pieces = []
+    if start < cut_start:
+        pieces.append((start, min(end, cut_start)))
+    if end > cut_end:
+        pieces.append((max(start, cut_end), end))
+    return [piece for piece in pieces if piece[1] > piece[0]]
 
 
 def _unique_by_surface(spans: Sequence[Span]) -> list[Span]:

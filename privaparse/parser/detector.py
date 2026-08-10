@@ -102,8 +102,12 @@ class Detector(Protocol):
 class RegexDetector:
     """Runs the backstop of every enabled type that has one.
 
-    Recall insurance, not authority. Overlap resolution in ``merge`` gives the
-    model the final word; these spans survive where the model found nothing.
+    Recall insurance, and a proven boundary — not authority over what a span
+    *is*, which is still the model's call. Where one of these spans does not
+    overlap a model span it survives simply because the model found nothing;
+    where it does overlap, ``merge.py``'s ``_trim_to_exact_spans`` treats it
+    as a checksum- or syntax-proven edge and cuts the model span back to fit
+    around it, rather than letting the two compete on length or source.
     """
 
     def __init__(self, catalogue: "Catalogue") -> None:
