@@ -1850,18 +1850,45 @@ Replace `merge.py:39-50`:
 #:
 #: This is a reversal. The old ranking put regex above the model, with a type
 #: rank on top so an EMAIL span beat a PERSON span that had swallowed the local
-#: part. That case is now handled by the `email_syntax` validator plus the
-#: longest-span tie-break, which is where it belonged: a syntax rule, not a
-#: standing claim that rules know better.
+#: part. Source rank alone cannot replace that: see the sort key below.
 _SOURCE_RANK = {SOURCE_GLINER: 3, SOURCE_REGEX: 2, SOURCE_COREF: 1}
 
 
 def span_priority(span: Span) -> int:
-    """Higher wins an overlap."""
+    """Higher wins between spans of equal length."""
     return _SOURCE_RANK.get(span.source, 1)
 ```
 
 Delete `_TYPE_RANK`.
+
+**The sort key changes with it, and this part is not optional.** An earlier
+revision of this plan claimed the case `_TYPE_RANK` existed for — a PERSON span
+swallowing an email's local part — would now be covered by the `email_syntax`
+validator plus the existing longest-span tie-break. That is false on both
+counts. `email_syntax` only vetoes a model span *claiming* to be EMAIL; it says
+nothing about a PERSON claim sitting on top of a real address. And the
+tie-break never fires, because priority dominates length. Demonstrated against
+the shipped code:
+
+```
+Kontakt: max@test.de   ->   Kontakt: [[PERSON]]@test.de
+```
+
+The model tags the local part `max` as PERSON, the backstop finds the whole
+address, the model span wins on source rank, and the domain leaves in clear.
+
+So in `merge_spans`, length leads:
+
+```python
+    candidates.sort(key=lambda s: (-s.length, -span_priority(s), -s.score, s.start))
+```
+
+**On an overlap the span covering more text wins; source breaks the tie.** A
+longer span never lets through more than a shorter one, which is the asymmetry
+the whole tool is built on — a missed entity leaves the machine, a spurious one
+costs readability. The model still decides *what* a span is and still wins
+between equals; it is simply no longer preferred as a class over a rule that
+found more.
 
 - [ ] **Step 4: Make the sweep catalogue-driven**
 
