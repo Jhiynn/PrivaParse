@@ -1913,8 +1913,10 @@ def _sweep_pattern(surface: str, sweep: str) -> re.Pattern[str] | None:
     return re.compile(rf"(?<!\w){escaped}(?!\w)")
 ```
 
-Give `coreference_sweep` a keyword-only `catalogue: "Catalogue | None" = None`,
-and inside the loop:
+Give `coreference_sweep` a **required** keyword-only `catalogue:
+"Catalogue | None"` — required for the same reason `merge_spans` is: without
+one, every type falls back to `"word"` sweeping, and nothing reports it. Then,
+inside the loop:
 
 ```python
         mode = "word"
@@ -1956,8 +1958,11 @@ beat a PERSON span that had swallowed the local part. Both are gone. The
 model decides what a span is; the backstop fills gaps and the validator
 vetoes the impossible, and neither outranks it on a span both found.
 
-The local-part case is now the email_syntax validator plus the longest-span
-tie-break — a syntax rule rather than a standing claim that rules know better.
+The local-part case is handled where it belongs, at the boundary: a regex span
+is checksum- or syntax-proven, so a model span is trimmed at its edges rather
+than competing with it. A model span inside an exact one disappears; one that
+straddles keeps its outer part. Not a type rank restored — a proven boundary
+beating an estimated one.
 
 The coreference sweep pattern moves into the catalogue as `sweep`, with `off`
 for types whose values are ordinary words."
