@@ -37,7 +37,11 @@ def _main(
         None, "--detector", help="hybrid | gliner | regex."
     ),
     db: Optional[Path] = typer.Option(None, "--db", help="Path to the vault database."),
-    threshold: Optional[float] = typer.Option(None, "--threshold", min=0.0, max=1.0),
+    threshold: Optional[float] = typer.Option(
+        None, "--threshold", min=0.0, max=1.0,
+        help="Score floor for a type with no threshold: of its own in the "
+        "catalogue. Most types declare one and are unaffected by this.",
+    ),
     batch_size: Optional[int] = typer.Option(None, "--batch-size", min=1),
     scan_code: Optional[bool] = typer.Option(
         None, "--scan-code/--protect-code", help="Also scan code blocks and URLs."
@@ -215,7 +219,7 @@ def doctor(ctx: typer.Context) -> None:
     typer.echo(f"model      {settings.model_id}")
     typer.echo(f"detector   {settings.detector}")
     typer.echo(f"vault      {settings.db_path.resolve()}")
-    typer.echo(f"threshold  {settings.threshold}")
+    typer.echo(f"threshold  {settings.threshold}  (fallback; most types pin their own)")
     typer.echo(f"batch size {settings.batch_size}")
     typer.echo(f"scan code  {settings.scan_code}")
 

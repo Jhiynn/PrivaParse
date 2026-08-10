@@ -35,15 +35,16 @@ wie im Katalog (`privaparse catalog show`);
   `generate_decidable()` erzeugt hat** — von Konstruktion aus gültig gegen
   ihren jeweiligen Validator, damit das Gold-Set den Checksum-Mechanismus
   prüft statt zufällig eine falsche Nummer zurückzuweisen. Drei der vier
-  TAX_ID-Werte sind zusätzlich in Dreiergruppen umformatiert
-  (`08 170 772 018` statt `08170772018`), wie eine Finanzamt-Steuer-ID
-  amtlich gedruckt wird — der reine Zifferstring ist nicht mehr die exakte
-  Ausgabe von `generate_decidable()`, nur derselbe Wert anders geschrieben.
-  Ein TAX_ID (de-047) bleibt bewusst in der ungruppierten Rohform: das Modell
-  erkennt die gruppierte Schreibweise nicht zuverlässig als `tax_id`
-  (gemessene Recall 0.250), und ein Gold-Set, das nur die Schreibweise
-  enthält, die das Modell schon beherrscht, würde genau die Lücke verstecken,
-  die zu messen der Zweck dieses Typs ist.
+  TAX_ID-Werte sind zusätzlich in Dreiergruppen umformatiert, wie eine
+  Finanzamt-Steuer-ID amtlich gedruckt wird: `04826373520` — die exakte
+  Ausgabe von `generate_decidable()` — steht im Korpus (de-048) als
+  `04 826 373 520`; derselbe Wert, nur anders geschrieben. Die Gruppierung
+  selbst ist keine Ausgabe des Generators, nur eine Schreibweise davon.
+  Ein TAX_ID (de-047, `08170772018`) bleibt bewusst in dieser rohen,
+  ungruppierten Form: das Modell erkennt die gruppierte Schreibweise nicht
+  zuverlässig als `tax_id` (gemessene Recall 0.000), und ein Gold-Set, das
+  nur die Schreibweise enthält, die das Modell schon beherrscht, würde
+  genau die Lücke verstecken, die zu messen der Zweck dieses Typs ist.
 
 ## Aufbau des Korpus
 

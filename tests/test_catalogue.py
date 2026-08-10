@@ -236,9 +236,13 @@ def test_default_catalogue_defines_every_model_label():
 
 
 def test_four_low_value_types_are_disabled_and_their_labels_stay_unrouted():
-    """CITY, REGION, COUNTRY and DATE ship disabled: 0 true positives
-    against 27 false positives measured on the Task 12 gold set (91
-    documents) — see each type's own comment in entities.default.yaml.
+    """CITY, REGION, COUNTRY and DATE ship disabled. Each has its own
+    measured false-positive count on the Task 12 gold set (91 documents) —
+    DATE 19, CITY 13, REGION 4, COUNTRY 0 — not a single combined figure;
+    see each type's own comment in entities.default.yaml for why summing
+    them was wrong the first time this was written down. COUNTRY's 0 false
+    positives means its disabling rests on judgement, not this measurement
+    — its comment says so explicitly, unlike the other three.
     ``label_to_type()`` only walks ``catalogue.enabled``, so their 7 labels
     fall out of routing without being un-defined (previous test).
     """

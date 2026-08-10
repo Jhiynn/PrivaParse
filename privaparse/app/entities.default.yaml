@@ -19,11 +19,30 @@
 # Thresholds below are a mix of two things, and each type's own comment says
 # which: a conservative starting point never yet measured (most types with no
 # gold coverage — see eval/gold/de_gold_source.md), or a value read off the
-# Task 12 sweep against the extended gold set (PERSON, PHONE, DATE_OF_BIRTH,
-# ADDRESS, POSTAL_CODE, NATIONAL_ID, ACCOUNT_ID and TAX_ID — the types with a
-# comment citing a measured precision/recall number below). A type with no
-# such comment has not been measured — that silence is intentional, not an
+# Task 12 sweep against the extended gold set. Five types carry an explicit
+# value from that sweep (DATE_OF_BIRTH, ADDRESS, POSTAL_CODE, NATIONAL_ID,
+# ACCOUNT_ID). Three carry the sweep's evidence in a comment but no explicit
+# value, because the evidence itself argues against pinning one — PERSON and
+# PHONE because the value that would be pinned equals the code default
+# anyway, TAX_ID because no threshold changes its outcome at all. See each of
+# those three's own comment. A type with no comment citing a measured number
+# has not been measured at all — that silence is intentional, not an
 # oversight, so it is not restated on every type.
+#
+# The sweep has a real limitation, worth stating here rather than leaving a
+# reader to find it: it varies one shared, uniform threshold across every
+# type at once, while the values below give each type its own — those are
+# different experiments. POSTAL_CODE is the proof: the sweep itself reports
+# 0.750 precision at 0.5, but the shipped configuration (POSTAL_CODE at 0.6,
+# every other measured type at its own value) reports 0.600 at that same
+# nominal threshold — because whether a competing type's span survives or
+# dies at *its own* threshold changes what an overlap resolves to, and a
+# single-variable sweep cannot see that interaction. So every value below is
+# the best point found by moving one type's threshold while every other type
+# moved with it, not an optimum over the full vector of per-type thresholds
+# as they actually ship. Re-sweeping one type at a time against the other 20-
+# odd held fixed at what ships would measure the thing this file actually
+# needs; nothing here does that yet.
 #
 # Multi-word type names keep their underscore (NATIONAL_ID, not NATIONALID) so
 # they still read as words in a model prompt. PLACEHOLDER_RE's type group
@@ -44,14 +63,14 @@ placeholder_types:
       last_name: "Nachname einer Person"
     normalizer: person
     sweep: word
-    # Measured on the Task 12 gold set (91 documents, 21 enabled types):
-    # raising this to 0.6 drops both precision AND recall (0.973/0.961 ->
-    # 0.828/0.947) — the model's confident wrong guesses do not sit above
-    # its confident right ones, so there is no cut point up there worth
-    # taking. Written explicitly rather than left to the 0.5 code default,
-    # so a reader does not have to go find that default to know this was
-    # checked, not assumed.
-    threshold: 0.5
+    # Measured, not pinned: precision/recall hold flat at 0.973/0.961 from
+    # 0.3 to 0.5; at 0.6 precision drops to 0.800. That is evidence the code
+    # default (0.5, used when a type declares none) already sits at the
+    # knee of the curve — not a reason to write threshold: 0.5 here. A
+    # pinned value identical to the default would change nothing about what
+    # gets detected while silently blocking --threshold from ever reaching
+    # this type again; see --threshold's own help text and doctor's
+    # threshold line for what "fallback" means in practice.
     reversible: true
     enabled: true
     bar: { precision: 0.85, recall: 0.90 }
@@ -76,15 +95,17 @@ placeholder_types:
     validator: builtin:phone_shape
     backstop: builtin:phone
     sweep: exact
-    # Measured flat: precision holds at 0.857 across the whole 0.3-0.9 sweep.
-    # The false positives are not model spans a higher bar could filter out —
-    # they come from the phone backstop's own shape check colliding with an
-    # unrelated digit string (a Steuer-ID written without separators reads as
-    # an eleven-digit German mobile number; eval/gold/de_gold_source.md's
-    # de-047 keeps one on purpose so this stays visible). No threshold value
-    # touches a backstop span, so 0.5 is written explicitly to record that
-    # this was checked and rejected as a fix, not left unmeasured.
-    threshold: 0.5
+    # Measured precision 0.818 (not the 0.857 an earlier pass reported —
+    # that number predates de-047's bare Steuer-ID being restored to the
+    # gold set). Flat across the sweep regardless: the false positives are
+    # not model spans a threshold could filter out — they come from the
+    # phone backstop's own shape check colliding with an unrelated digit
+    # string (a Steuer-ID written without separators reads as an eleven-
+    # digit German mobile number; eval/gold/de_gold_source.md's de-047
+    # keeps one on purpose so this stays visible). No threshold value
+    # touches a backstop span, so none is pinned here — pinning one would
+    # only block --threshold from this type while fixing nothing; see
+    # --threshold's own help text and doctor's threshold line.
     reversible: true
     enabled: true
     bar: { precision: 0.95, recall: 0.95 }
@@ -94,9 +115,9 @@ placeholder_types:
     prompts: {date_of_birth: "Geburtsdatum einer Person"}
     normalizer: date_iso
     sweep: exact
-    # 0.6 -> 0.8: precision 0.750 -> 1.000 on the Task 12 gold set, recall
-    # unchanged at 1.000 — a clean win, not a trade-off.
-    threshold: 0.8
+    # 1.000/1.000 from 0.7 up. 0.7 is the cheapest point that reaches it —
+    # no reason to push higher and lose margin for nothing.
+    threshold: 0.7
 
   ADDRESS:
     labels: [address, street_address]
@@ -105,10 +126,10 @@ placeholder_types:
       street_address: "Strasse und Hausnummer"
     normalizer: casefold
     sweep: word
-    # 0.6 -> 0.9: precision 0.600 -> 0.750 on the Task 12 gold set, recall
-    # unchanged at 1.000. No validator exists for ADDRESS (no decidable rule
-    # for what a street address is), so the threshold is the only precision
-    # lever this type has.
+    # 0.750/1.000 at 0.9; 0.600 from 0.6 to 0.8; 0.429 below that. No
+    # validator exists for ADDRESS (no decidable rule for what a street
+    # address is), so the threshold is the only precision lever this type
+    # has.
     threshold: 0.9
 
   CITY:
@@ -132,12 +153,12 @@ placeholder_types:
     normalizer: casefold
     sweep: "off"
     threshold: 0.7
-    # Disabled alongside CITY and COUNTRY — project owner's call. Part of
-    # the same 27-false-positive, 0-true-positive block across the four
-    # place/date types this sweep measured; de-006 (a company's sales
-    # network across Bayern, Sachsen and Nordrhein-Westfalen) is the same
-    # worked example CITY's note points to. A region does not identify a
-    # person either.
+    # Disabled alongside CITY, COUNTRY and DATE — project owner's call, on
+    # this type's own evidence: 4 false positives (state_or_region), 0 true
+    # positives, on the Task 12 gold set. de-006 (a company's sales network
+    # across Bayern, Sachsen and Nordrhein-Westfalen) is the same worked
+    # example CITY's note points to. A region does not identify a person
+    # either.
     enabled: false
 
   POSTAL_CODE:
@@ -146,11 +167,11 @@ placeholder_types:
     normalizer: digits
     validator: builtin:postal_de
     sweep: exact
-    # 0.6 -> 0.5: higher is strictly worse here (precision 0.750 -> 0.600 at
-    # 0.6), because postal_de already vetoes anything that is not five
-    # digits — the validator is doing the precision work, so raising the
-    # score bar on top of it only trades away recall for nothing.
-    threshold: 0.5
+    # 0.750/1.000 flat from 0.3 to 0.6; 0.600 from 0.7 up. postal_de already
+    # vetoes anything that is not five digits, so the validator is doing
+    # the precision work here — 0.6 sits inside the flat stretch, not at a
+    # point that fixes anything on its own.
+    threshold: 0.6
 
   COUNTRY:
     labels: [country]
@@ -158,9 +179,14 @@ placeholder_types:
     normalizer: casefold
     sweep: "off"
     threshold: 0.8
-    # Disabled alongside CITY and REGION — project owner's call, same
-    # evidence and same reasoning: no true positives measured, and a
-    # country name does not identify a person.
+    # Disabled alongside CITY, REGION and DATE, but on different grounds:
+    # COUNTRY measured 0 false positives as well as 0 true positives on the
+    # Task 12 gold set, so disabling it is not something the measurement
+    # argues for — the corpus simply never gave the model a country name to
+    # get wrong. This rests on judgement instead: a country name on its own
+    # rarely identifies a person, unlike the other three, which each have
+    # an actual false-positive count behind the decision. Re-decide this
+    # one from that judgement, not from evidence this sweep does not have.
     enabled: false
 
   NATIONAL_ID:
@@ -170,9 +196,8 @@ placeholder_types:
       national_id_number: "Nationale Identifikationsnummer"
     normalizer: strip_upper
     sweep: exact
-    # 0.6 -> 0.7: precision/recall (0.750/1.000) holds all the way to 0.7;
-    # pushed to 0.8 recall collapses to 0.667. 0.7 is the last point on the
-    # curve before that cliff, not an arbitrary step up.
+    # 0.750/1.000 flat from 0.3 to 0.8; at 0.9 recall collapses to 0.333.
+    # 0.7 keeps the same operating point with margin below that cliff.
     threshold: 0.7
 
   PASSPORT:
@@ -205,18 +230,16 @@ placeholder_types:
     validator: builtin:tax_de
     backstop: builtin:vat_de
     sweep: exact
-    # Unchanged at 0.5 — checked, not skipped. Recall sits at 0.250 across
-    # the entire 0.3-0.9 sweep: three of the four gold Steuer-IDs are missed
-    # regardless of where the bar sits, because they are written in the
-    # official grouped form ("XX XXX XXX XXX") and the model does not
-    # reliably tag that shape as tax_id in the first place. That is a
-    # detection gap, not a confidence-calibration one — no threshold value
-    # recovers a span the model never proposed. See the note on
-    # is_valid_tax_de in validators.py: its Steuer-ID checksum branch is
-    # already inert (the Steuernummer branch accepts any 10-11 digit value
-    # regardless), and this recall split between renderings is the argument
-    # for splitting TAX_ID rather than tuning it further here.
-    threshold: 0.5
+    # Recall measures 0.000 at every threshold from 0.3 to 0.9 — a
+    # detection gap, not a knob. The model does not reliably tag the
+    # official grouped Steuer-ID presentation ("XX XXX XXX XXX") as tax_id
+    # in the first place, so no threshold recovers a span it never
+    # proposed. No value is pinned here for the same reason as PERSON and
+    # PHONE: it would block --threshold from reaching this type while
+    # fixing nothing. See the note on is_valid_tax_de in validators.py: its
+    # Steuer-ID checksum branch is already inert (the Steuernummer branch
+    # accepts any 10-11 digit value regardless), and this recall gap is the
+    # argument for splitting TAX_ID rather than tuning it further here.
 
   ACCOUNT_NUMBER:
     labels: [bank_account, account_number]
@@ -315,10 +338,10 @@ placeholder_types:
       sensitive_account_id: "Besonders schutzwuerdige Kontokennungen"
     normalizer: casefold
     sweep: exact
-    # 0.7 -> 0.8: precision 0.500 -> 0.750 on the Task 12 gold set, recall
-    # unchanged at 1.000. No validator exists for this type — a customer
-    # number has no decidable shape separate from an invoice or order
-    # number — so, like ADDRESS, the threshold is the only lever available.
+    # 0.750/1.000 at 0.8 and 0.9; 0.600 below that. No validator exists for
+    # this type — a customer number has no decidable shape separate from an
+    # invoice or order number — so, like ADDRESS, the threshold is the only
+    # lever available.
     threshold: 0.8
 
   SECRET:
@@ -344,10 +367,10 @@ placeholder_types:
     normalizer: date_iso
     sweep: exact
     threshold: 0.8
-    # Disabled — project owner's call, on evidence: this type alone
-    # accounts for most of the four-type, 27-false-positive block (the
-    # transaction_date label is the single worst offender measured, 14 FP /
-    # 0 TP; expiration_date adds 5 FP / 0 TP), and 0 true positives across
-    # all four of its labels. An invoice date does not identify a person —
-    # DATE_OF_BIRTH is the type that does, and it is unaffected by this.
+    # Disabled alongside CITY, REGION and COUNTRY — project owner's call,
+    # on this type's own evidence: 19 false positives across its four
+    # labels (transaction_date 14, expiration_date 5; sensitive_date and
+    # document_date measured 0 each), 0 true positives on any of them. An
+    # invoice date does not identify a person — DATE_OF_BIRTH is the type
+    # that does, and it is unaffected by this.
     enabled: false
