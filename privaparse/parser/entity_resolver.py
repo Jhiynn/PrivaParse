@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Iterable
 
@@ -16,7 +17,17 @@ if TYPE_CHECKING:  # pragma: no cover
 
 log = get_logger("resolver")
 
-__all__ = ["ResolvedSpan", "EntityUsage", "Resolution", "EntityResolver"]
+__all__ = [
+    "ResolvedSpan",
+    "EntityUsage",
+    "Resolution",
+    "EntityResolver",
+    "UnknownEntityTypeError",
+]
+
+
+class UnknownEntityTypeError(LookupError):
+    """A span carries a type the catalogue does not define."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,10 +75,19 @@ class EntityResolver:
         Order matters: the first spelling encountered in this document becomes
         the one ``reverse()`` puts back, so the restored text reads the way the
         author wrote it rather than the way some earlier document did.
+
+        This is also where a span's type is checked against the catalogue —
+        the last point before a value reaches the vault, and the first point
+        where an unknown type would have consequences.
         """
         result = Resolution()
 
         for span in sorted(spans, key=lambda s: s.start):
+            if span.type not in self.catalogue.types:
+                raise UnknownEntityTypeError(
+                    f"span at {span.start} claims type {span.type!r}, which the "
+                    f"catalogue does not define"
+                )
             placeholder_type = self.catalogue.get(span.type)
             normalized = normalize(span.text, placeholder_type.normalizer)
             if not normalized:
@@ -75,7 +95,12 @@ class EntityResolver:
                 continue
 
             register_secret(span.text)
-            entity = self.repo.get_or_create_entity(str(span.type), normalized)
+
+            if not placeholder_type.reversible:
+                self._resolve_irreversible(result, span, normalized)
+                continue
+
+            entity = self.repo.get_or_create_entity(span.type, normalized)
             value = self.repo.record_surface_form(entity, span.text)
 
             usage = result.usages.get(entity.id)
@@ -94,3 +119,18 @@ class EntityResolver:
             result.placeholder_count,
         )
         return result
+
+    def _resolve_irreversible(self, result: Resolution, span: Span, normalized: str) -> None:
+        """Placeholder without a way back.
+
+        The vault key is a digest, so the placeholder stays stable across
+        documents while the value itself never reaches disk. No surface form is
+        recorded and no usage is registered, so ``_persist`` writes no mapping
+        entry and ``reverse()`` finds nothing — the one-way door is a
+        consequence of what was written, not a flag someone can flip later.
+        """
+        digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+        entity = self.repo.get_or_create_entity(span.type, digest)
+        result.spans.append(
+            ResolvedSpan(span=span, placeholder=entity.placeholder, entity_id=entity.id)
+        )
