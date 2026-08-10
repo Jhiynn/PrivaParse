@@ -245,7 +245,10 @@ def test_eval_writes_a_report_and_prints_a_verdict(workspace: Path) -> None:
 
     text = report.read_text(encoding="utf-8")
     assert "| Run | Type | Support |" in text
-    assert "Threshold fixed in advance" in text
+    # Regex mode has no PERSON backstop, so it must miss every PERSON gold
+    # entity — proof the per-type verdict actually catches a type that misses
+    # its bar, not just one hand-fed a passing Counts in a unit test.
+    assert "PERSON [FAIL]" in text
     # Email and phone come from rules, so they are the control group and must
     # score perfectly even without a model.
     assert "| regex | EMAIL | 20 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 |" in text

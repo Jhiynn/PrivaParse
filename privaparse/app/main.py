@@ -286,7 +286,9 @@ def evaluate(
 
             engine = _engine_with(settings)
             try:
-                reports.append(run_eval(engine, documents, label=label))
+                reports.append(
+                    run_eval(engine, documents, label=label, catalogue=settings.catalogue)
+                )
             finally:
                 engine.close()
 

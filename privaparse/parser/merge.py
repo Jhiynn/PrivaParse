@@ -188,6 +188,9 @@ def coreference_sweep(
                     type=span.type,
                     score=span.score,
                     source=SOURCE_COREF,
+                    # No model label: this occurrence was never seen by the
+                    # model, only found by re-scanning for a surface form
+                    # accepted elsewhere. label stays None, same as a backstop.
                 )
             )
 
@@ -305,8 +308,18 @@ def _largest_remainder(span: Span, exact_spans: Sequence[Span]) -> Span | None:
 
     offset = start - span.start
     text = span.text[offset : offset + (end - start)]
+    # Same model detection, just narrowed to the part outside the exact span —
+    # not a new one, so it keeps the label that produced it. Without this, the
+    # PERSON/EMAIL "local part" overlap (the exact scenario this function
+    # exists for) would report every trimmed PERSON span as unlabelled.
     return Span(
-        start=start, end=end, text=text, type=span.type, score=span.score, source=span.source
+        start=start,
+        end=end,
+        text=text,
+        type=span.type,
+        score=span.score,
+        source=span.source,
+        label=span.label,
     )
 
 
@@ -399,4 +412,5 @@ def _trim(span: Span, text: str | None) -> Span | None:
         type=span.type,
         score=span.score,
         source=span.source,
+        label=span.label,
     )

@@ -40,6 +40,11 @@ class Span:
     type: str
     score: float = 1.0
     source: str = SOURCE_REGEX
+    #: The model label this span came from, when it came from the model. None
+    #: for backstop and sweep spans. Diagnostic only — nothing in the pipeline
+    #: branches on it. It exists so the evaluation can say *which* of the
+    #: labels feeding a type produced a false positive.
+    label: str | None = None
 
     def __post_init__(self) -> None:
         if self.start < 0:
@@ -69,4 +74,5 @@ class Span:
             type=self.type,
             score=self.score,
             source=self.source,
+            label=self.label,
         )

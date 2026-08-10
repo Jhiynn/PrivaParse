@@ -9,11 +9,11 @@ from __future__ import annotations
 
 import pytest
 
+from privaparse.app.catalogue import load_catalogue
 from privaparse.evaluation.build_gold import parse_source
 from privaparse.evaluation.harness import (
-    PERSON_PRECISION_FLOOR,
-    PERSON_RECALL_FLOOR,
     Counts,
+    EvalReport,
     GoldDocument,
     GoldEntity,
     evaluate,
@@ -68,7 +68,11 @@ def test_empty_counts_do_not_divide_by_zero() -> None:
 def test_perfect_detection_scores_one() -> None:
     text = "Max Mustermann kam."
     doc = _document(text, [(0, 14, "PERSON")])
-    report = evaluate(StaticDetector([_span(text, 0, 14, EntityType.PERSON)]), [doc])
+    report = evaluate(
+        StaticDetector([_span(text, 0, 14, EntityType.PERSON)]),
+        [doc],
+        catalogue=load_catalogue(),
+    )
 
     assert report.exact["PERSON"].precision == 1.0
     assert report.exact["PERSON"].recall == 1.0
@@ -79,7 +83,11 @@ def test_off_by_one_span_fails_exact_but_passes_partial() -> None:
     disagreement, not a miss."""
     text = "Dr. Max Mustermann kam."
     doc = _document(text, [(4, 18, "PERSON")])  # gold excludes "Dr. "
-    report = evaluate(StaticDetector([_span(text, 0, 18, EntityType.PERSON)]), [doc])
+    report = evaluate(
+        StaticDetector([_span(text, 0, 18, EntityType.PERSON)]),
+        [doc],
+        catalogue=load_catalogue(),
+    )
 
     assert report.exact["PERSON"].recall == 0.0
     assert report.partial["PERSON"].recall == 1.0
@@ -88,7 +96,7 @@ def test_off_by_one_span_fails_exact_but_passes_partial() -> None:
 def test_a_missed_entity_is_a_false_negative() -> None:
     text = "Max Mustermann kam."
     doc = _document(text, [(0, 14, "PERSON")])
-    report = evaluate(StaticDetector([]), [doc])
+    report = evaluate(StaticDetector([]), [doc], catalogue=load_catalogue())
 
     assert report.partial["PERSON"].recall == 0.0
     assert report.partial["PERSON"].fn == 1
@@ -98,7 +106,9 @@ def test_a_missed_entity_is_a_false_negative() -> None:
 def test_a_spurious_detection_is_a_false_positive() -> None:
     text = "Im Sommer war es warm."
     doc = _document(text, [])
-    report = evaluate(StaticDetector([_span(text, 3, 9, EntityType.PERSON)]), [doc])
+    report = evaluate(
+        StaticDetector([_span(text, 3, 9, EntityType.PERSON)]), [doc], catalogue=load_catalogue()
+    )
 
     assert report.partial["PERSON"].fp == 1
     assert [m.text for m in report.false_positives] == ["Sommer"]
@@ -114,6 +124,7 @@ def test_two_predictions_cannot_both_claim_one_gold_entity() -> None:
             [_span(text, 0, 14, EntityType.PERSON), _span(text, 0, 3, EntityType.PERSON)]
         ),
         [doc],
+        catalogue=load_catalogue(),
     )
 
     assert report.partial["PERSON"].tp == 1
@@ -124,7 +135,9 @@ def test_two_predictions_cannot_both_claim_one_gold_entity() -> None:
 def test_type_confusion_counts_as_both_a_miss_and_a_false_positive() -> None:
     text = "max@test.de steht da."
     doc = _document(text, [(0, 11, "EMAIL")])
-    report = evaluate(StaticDetector([_span(text, 0, 11, EntityType.PERSON)]), [doc])
+    report = evaluate(
+        StaticDetector([_span(text, 0, 11, EntityType.PERSON)]), [doc], catalogue=load_catalogue()
+    )
 
     assert report.partial["EMAIL"].fn == 1
     assert report.partial["PERSON"].fp == 1
@@ -136,18 +149,71 @@ def test_scores_accumulate_across_documents() -> None:
     miss = _document(text, [(0, 14, "PERSON")])
     detector = StaticDetector([_span(text, 0, 14, EntityType.PERSON)])
 
-    report = evaluate(detector, [hit, miss])
+    report = evaluate(detector, [hit, miss], catalogue=load_catalogue())
     assert report.partial["PERSON"].support == 2
     assert report.partial["PERSON"].recall == 1.0
     assert report.documents == 2
 
 
+# --- per catalogue type and per model label ---------------------------------
+
+
+def test_report_covers_every_enabled_type():
+    from privaparse.app.catalogue import load_catalogue
+    from privaparse.evaluation.harness import GoldDocument, evaluate
+    from privaparse.parser.detector import StaticDetector
+
+    catalogue = load_catalogue()
+    report = evaluate(
+        StaticDetector(), [GoldDocument("d1", "brief", "leer", ())],
+        label="empty", catalogue=catalogue,
+    )
+    assert set(report.partial) == {t.name for t in catalogue.enabled}
+
+
+def test_per_label_counts_attribute_false_positives():
+    from privaparse.app.catalogue import load_catalogue
+    from privaparse.evaluation.harness import GoldDocument, evaluate
+    from privaparse.parser.detector import StaticDetector
+    from privaparse.parser.types import SOURCE_GLINER, Span
+
+    text = "Der Vorgang laeuft."
+    spurious = Span(4, 11, "Vorgang", "PERSON", 0.9, SOURCE_GLINER, label="first_name")
+    report = evaluate(
+        StaticDetector([spurious]), [GoldDocument("d1", "notiz", text, ())],
+        label="one", catalogue=load_catalogue(),
+    )
+    assert report.by_label["first_name"].fp == 1
+    assert report.by_label["first_name"].precision == 0.0
+
+
 # --- the verdict -----------------------------------------------------------
 
 
-def _report_with(precision: float, recall: float):
+def test_verdict_uses_the_catalogue_bar():
+    from privaparse.app.catalogue import load_catalogue
+    from privaparse.evaluation.harness import Counts, EvalReport
+
+    report = EvalReport(label="x", documents=1, catalogue=load_catalogue())
+    report.partial["PERSON"] = Counts(tp=8, fp=0, fn=2)  # recall 0.80, bar 0.90
+    verdicts = dict((name, ok) for name, ok, _ in report.verdicts())
+    assert verdicts["PERSON"] is False
+
+
+def test_type_without_a_bar_gets_no_verdict():
+    from privaparse.app.catalogue import load_catalogue
+    from privaparse.evaluation.harness import Counts, EvalReport
+
+    report = EvalReport(label="x", documents=1, catalogue=load_catalogue())
+    report.partial["CITY"] = Counts(tp=1, fp=9, fn=0)
+    assert "CITY" not in {name for name, _, _ in report.verdicts()}
+
+
+def _report_with(precision: float, recall: float) -> EvalReport:
     text = "x"
-    report = evaluate(StaticDetector([]), [_document(text, [])], label="stub")
+    report = evaluate(
+        StaticDetector([]), [_document(text, [])], label="stub", catalogue=load_catalogue()
+    )
     support = 100
     tp = int(round(recall * support))
     report.partial["PERSON"] = Counts(
@@ -159,19 +225,22 @@ def _report_with(precision: float, recall: float):
 
 
 def test_verdict_passes_when_both_floors_are_met() -> None:
-    report = _report_with(precision=0.90, recall=0.95)
+    bar = load_catalogue().get("PERSON").bar
+    report = _report_with(precision=bar.precision + 0.05, recall=bar.recall + 0.05)
     assert report.needs_finetuning is False
     assert "not required" in report.verdict()
 
 
 def test_low_recall_alone_triggers_finetuning() -> None:
-    report = _report_with(precision=0.99, recall=PERSON_RECALL_FLOOR - 0.05)
+    bar = load_catalogue().get("PERSON").bar
+    report = _report_with(precision=0.99, recall=bar.recall - 0.05)
     assert report.needs_finetuning is True
     assert "recall" in report.verdict()
 
 
 def test_low_precision_alone_triggers_finetuning() -> None:
-    report = _report_with(precision=PERSON_PRECISION_FLOOR - 0.10, recall=0.99)
+    bar = load_catalogue().get("PERSON").bar
+    report = _report_with(precision=bar.precision - 0.10, recall=0.99)
     assert report.needs_finetuning is True
     assert "precision" in report.verdict()
 
@@ -179,12 +248,12 @@ def test_low_precision_alone_triggers_finetuning() -> None:
 def test_report_renders_a_table_and_a_verdict() -> None:
     text = "Max Mustermann kam."
     doc = _document(text, [(0, 14, "PERSON")])
-    report = evaluate(StaticDetector([]), [doc], label="stub")
+    report = evaluate(StaticDetector([]), [doc], label="stub", catalogue=load_catalogue())
 
     rendered = format_report([report])
     assert "| Run | Type | Support |" in rendered
     assert "stub" in rendered
-    assert "FINE-TUNING WARRANTED" in rendered
+    assert "PERSON [FAIL]" in rendered
     assert "Max Mustermann" in rendered
 
 

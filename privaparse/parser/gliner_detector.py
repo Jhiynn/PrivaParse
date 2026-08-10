@@ -188,7 +188,7 @@ class GlinerDetector:
                     continue
 
                 for item in items:
-                    span = self._build_span(item, chunk, text, entity_type)
+                    span = self._build_span(item, chunk, text, entity_type, label)
                     if span is None:
                         dropped += 1
                         continue
@@ -205,6 +205,7 @@ class GlinerDetector:
         chunk: Chunk,
         text: str,
         entity_type: str,
+        label: str,
     ) -> Span | None:
         surface, local_start, local_end, score = _unpack(item)
         if not surface:
@@ -232,6 +233,7 @@ class GlinerDetector:
             type=entity_type,
             score=score,
             source=SOURCE_GLINER,
+            label=label,
         )
 
 

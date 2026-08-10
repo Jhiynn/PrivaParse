@@ -2,9 +2,10 @@
 
 The question this exists to answer is "do we need to fine-tune GLiNER2 for
 German?", and the answer is only worth anything if the threshold was fixed
-*before* the numbers were seen. It is:
-
-    PERSON, partial match: recall >= 0.90 and precision >= 0.85
+*before* the numbers were seen. Each type's bar now lives in the catalogue
+(the `bar:` key in `privaparse/app/entities.default.yaml`), not here, so
+widening the catalogue never means widening this module to match — it already
+scores whatever the catalogue enables against whatever bar it declares.
 
 Recall carries more weight than precision on purpose. A missed name is sent to
 the LLM — an actual disclosure. A spurious one only costs readability.
@@ -19,18 +20,15 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Protocol, Sequence
+from typing import TYPE_CHECKING, Iterable, Protocol, Sequence
 
 from privaparse.evaluation import DEFAULT_GOLD_PATH
 from privaparse.parser.types import Span
 
+if TYPE_CHECKING:  # pragma: no cover
+    from privaparse.app.catalogue import Catalogue
+
 GOLD_PATH = DEFAULT_GOLD_PATH
-
-#: Fixed in advance. See the module docstring.
-PERSON_RECALL_FLOOR = 0.90
-PERSON_PRECISION_FLOOR = 0.85
-
-ENTITY_TYPES = ("PERSON", "EMAIL", "PHONE")
 
 
 class SupportsDetect(Protocol):
@@ -43,6 +41,10 @@ class GoldEntity:
     end: int
     type: str
     text: str
+    #: The model label the prediction this stands in for came from. Only ever
+    #: set on the predicted side of a match (see `_as_gold`) — an actual gold
+    #: annotation has no model label, since it was hand-written, not detected.
+    label: str | None = None
 
     def overlaps(self, other: "GoldEntity") -> bool:
         return self.start < other.end and other.start < self.end
@@ -104,6 +106,15 @@ class EvalReport:
     partial: dict[str, Counts] = field(default_factory=dict)
     false_positives: list[Mistake] = field(default_factory=list)
     false_negatives: list[Mistake] = field(default_factory=list)
+    #: The catalogue this run was scored against — where every type's bar
+    #: comes from. Optional only so a test can build a report by hand without
+    #: one; `evaluate()` always sets it.
+    catalogue: "Catalogue | None" = None
+    # Per-label recall is not computable and must not be reported: gold
+    # entities carry a placeholder type, not a model label, so a missed
+    # entity has no label to attribute it to, and there is no denominator to
+    # divide by. This table carries TP, FP and precision only.
+    by_label: dict[str, Counts] = field(default_factory=dict)
 
     @property
     def person_partial(self) -> Counts:
@@ -111,27 +122,56 @@ class EvalReport:
 
     @property
     def needs_finetuning(self) -> bool:
-        counts = self.person_partial
-        return (
-            counts.recall < PERSON_RECALL_FLOOR
-            or counts.precision < PERSON_PRECISION_FLOOR
-        )
+        """Thin wrapper over :meth:`verdicts`, kept because main.py's CLI
+        summary still asks this one question — the question this project
+        exists to answer — ahead of printing the full per-type table."""
+        for name, ok, _ in self.verdicts():
+            if name == "PERSON":
+                return not ok
+        return False
 
     def verdict(self) -> str:
-        counts = self.person_partial
-        if not counts.support:
-            return "no PERSON entities in the gold set — nothing to decide"
-        if self.needs_finetuning:
+        """PERSON's verdict, spelled out as one sentence. A thin wrapper over
+        :meth:`verdicts`, kept for the same reason as `needs_finetuning`."""
+        for name, ok, explanation in self.verdicts():
+            if name != "PERSON":
+                continue
+            if ok:
+                return f"PERSON {explanation} — fine-tuning not required"
+            return f"FINE-TUNING WARRANTED — PERSON {explanation}"
+        return "no PERSON bar in the catalogue — nothing to decide"
+
+    def verdicts(self) -> list[tuple[str, bool, str]]:
+        """(type, meets_bar, explanation) for every type that declares a bar.
+
+        Types without a bar are absent rather than reported as passing. A
+        silent pass on an unmeasured type is exactly the claim this project
+        exists not to make.
+        """
+        if self.catalogue is None:
+            return []
+        out: list[tuple[str, bool, str]] = []
+        for placeholder in self.catalogue.enabled:
+            bar = placeholder.bar
+            if bar is None:
+                continue
+            counts = self.partial.get(placeholder.name, Counts())
+            if not counts.support:
+                out.append((placeholder.name, True, "no gold entities — nothing measured"))
+                continue
             reasons = []
-            if counts.recall < PERSON_RECALL_FLOOR:
-                reasons.append(f"recall {counts.recall:.3f} < {PERSON_RECALL_FLOOR}")
-            if counts.precision < PERSON_PRECISION_FLOOR:
-                reasons.append(f"precision {counts.precision:.3f} < {PERSON_PRECISION_FLOOR}")
-            return "FINE-TUNING WARRANTED — PERSON " + " and ".join(reasons)
-        return (
-            f"threshold met — PERSON recall {counts.recall:.3f}, "
-            f"precision {counts.precision:.3f}; fine-tuning not required"
-        )
+            if bar.recall is not None and counts.recall < bar.recall:
+                reasons.append(f"recall {counts.recall:.3f} < {bar.recall}")
+            if bar.precision is not None and counts.precision < bar.precision:
+                reasons.append(f"precision {counts.precision:.3f} < {bar.precision}")
+            if reasons:
+                out.append((placeholder.name, False, "under bar — " + " and ".join(reasons)))
+            else:
+                out.append((
+                    placeholder.name, True,
+                    f"meets bar — recall {counts.recall:.3f}, precision {counts.precision:.3f}",
+                ))
+        return out
 
 
 # --- loading ---------------------------------------------------------------
@@ -170,15 +210,18 @@ def evaluate(
     documents: Sequence[GoldDocument],
     *,
     label: str = "detector",
+    catalogue: "Catalogue",
 ) -> EvalReport:
-    report = EvalReport(label=label, documents=len(documents))
-    for entity_type in ENTITY_TYPES:
+    report = EvalReport(label=label, documents=len(documents), catalogue=catalogue)
+    entity_types = [t.name for t in catalogue.enabled]
+    for entity_type in entity_types:
         report.exact[entity_type] = Counts()
         report.partial[entity_type] = Counts()
 
     for document in documents:
-        predicted = [_as_gold(span) for span in detector.detect(document.text)]
-        for entity_type in ENTITY_TYPES:
+        spans = detector.detect(document.text)
+        predicted = [_as_gold(span) for span in spans]
+        for entity_type in entity_types:
             gold_of_type = [e for e in document.entities if e.type == entity_type]
             pred_of_type = [e for e in predicted if e.type == entity_type]
 
@@ -188,7 +231,14 @@ def evaluate(
             )
 
             for index, entity in enumerate(pred_of_type):
-                if index not in matched_pred:
+                # "(rule)" covers backstop and coreference-sweep spans, which
+                # never carry a model label — grouping them under one key
+                # keeps the per-label table from growing a blank row.
+                counts = report.by_label.setdefault(entity.label or "(rule)", Counts())
+                if index in matched_pred:
+                    counts.tp += 1
+                else:
+                    counts.fp += 1
                     report.false_positives.append(_mistake(document, entity))
             for index, entity in enumerate(gold_of_type):
                 if index not in matched_gold:
@@ -237,7 +287,9 @@ def _score(
 
 
 def _as_gold(span: Span) -> GoldEntity:
-    return GoldEntity(start=span.start, end=span.end, type=str(span.type), text=span.text)
+    return GoldEntity(
+        start=span.start, end=span.end, type=str(span.type), text=span.text, label=span.label
+    )
 
 
 def _mistake(document: GoldDocument, entity: GoldEntity) -> Mistake:
@@ -265,7 +317,9 @@ def format_report(reports: Iterable[EvalReport], *, show_mistakes: int = 15) -> 
     lines.append("| Run | Type | Support | P (exact) | R (exact) | P (partial) | R (partial) | F1 (partial) |")
     lines.append("| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |")
     for report in reports:
-        for entity_type in ENTITY_TYPES:
+        placeholders = report.catalogue.enabled if report.catalogue is not None else ()
+        for placeholder in placeholders:
+            entity_type = placeholder.name
             exact = report.exact.get(entity_type, Counts())
             partial = report.partial.get(entity_type, Counts())
             lines.append(
@@ -278,12 +332,31 @@ def format_report(reports: Iterable[EvalReport], *, show_mistakes: int = 15) -> 
     lines.append("## Verdict")
     lines.append("")
     lines.append(
-        f"Threshold fixed in advance: PERSON partial-match recall >= "
-        f"{PERSON_RECALL_FLOOR}, precision >= {PERSON_PRECISION_FLOOR}."
+        "One line per catalogued type that declares a bar (the `bar:` key in "
+        "the catalogue). A type with no bar is measured in the table above "
+        "but has no line here — an unmeasured type is reported as absent, "
+        "never as passing."
     )
     lines.append("")
     for report in reports:
-        lines.append(f"- **{report.label}** — {report.verdict()}")
+        for name, ok, explanation in report.verdicts():
+            marker = "OK" if ok else "FAIL"
+            lines.append(f"- **{report.label}** {name} [{marker}] — {explanation}")
+    lines.append("")
+
+    lines.append("## Per model label")
+    lines.append("")
+    lines.append("Recall is not shown: gold entities carry a placeholder type, not a")
+    lines.append("model label, so a missed entity has no label to attribute it to.")
+    lines.append("")
+    lines.append("| Run | Label | TP | FP | Precision |")
+    lines.append("| --- | --- | ---: | ---: | ---: |")
+    for report in reports:
+        for name, counts in sorted(report.by_label.items(), key=lambda kv: -kv[1].fp):
+            lines.append(
+                f"| {report.label} | {name} | {counts.tp} | {counts.fp} | "
+                f"{counts.precision:.3f} |"
+            )
     lines.append("")
 
     for report in reports:

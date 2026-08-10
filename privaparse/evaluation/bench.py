@@ -19,16 +19,20 @@ from typing import Sequence
 
 from privaparse.app.logging import get_logger
 from privaparse.engine import PrivaParseEngine
-from privaparse.evaluation.harness import (
-    PERSON_PRECISION_FLOOR,
-    PERSON_RECALL_FLOOR,
-    GoldDocument,
-    evaluate,
-)
+from privaparse.evaluation.harness import GoldDocument, evaluate
 
 log = get_logger("bench")
 
 __all__ = ["BenchResult", "run_bench", "format_bench_report", "DEFAULT_MATRIX"]
+
+#: Mirrors the PERSON bar in the default catalogue (see
+#: `privaparse/app/entities.default.yaml`). Kept local rather than read from
+#: the catalogue: bench's pass/fail gate is deliberately narrower than
+#: harness.py's full per-type verdict machinery — quantization and batching
+#: only ever plausibly move the model's own type, so PERSON alone is enough
+#: of a gate here, and it does not need a catalogue instance to compute it.
+_PERSON_RECALL_FLOOR = 0.90
+_PERSON_PRECISION_FLOOR = 0.85
 
 #: (device, quantize, compile, batch_size). ``None`` means "leave as configured".
 DEFAULT_MATRIX: tuple[tuple[str, bool | None, bool | None, int], ...] = (
@@ -69,8 +73,8 @@ class BenchResult:
     @property
     def meets_quality_floor(self) -> bool:
         return (
-            self.person_recall >= PERSON_RECALL_FLOOR
-            and self.person_precision >= PERSON_PRECISION_FLOOR
+            self.person_recall >= _PERSON_RECALL_FLOOR
+            and self.person_precision >= _PERSON_PRECISION_FLOOR
         )
 
     @property
@@ -126,7 +130,7 @@ def run_bench(
     # Sampled at the end of the timed section, while the GPU is still hot.
     result.throttle_warning = _throttle_check(engine)
 
-    quality = evaluate(engine, documents, label=label)
+    quality = evaluate(engine, documents, label=label, catalogue=engine.settings.catalogue)
     result.person_precision = quality.partial["PERSON"].precision
     result.person_recall = quality.partial["PERSON"].recall
     result.email_recall = quality.partial["EMAIL"].recall
@@ -228,7 +232,7 @@ def format_bench_report(
     lines.append("")
     lines.append(
         f"Quality floor (fixed in advance): PERSON partial recall >= "
-        f"{PERSON_RECALL_FLOOR}, precision >= {PERSON_PRECISION_FLOOR}."
+        f"{_PERSON_RECALL_FLOOR}, precision >= {_PERSON_PRECISION_FLOOR}."
     )
     lines.append("")
 
