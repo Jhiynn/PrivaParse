@@ -970,7 +970,9 @@ from privaparse.parser.normalizer import normalize
         ("strip_upper", "de89-3704-0044", "DE89370400 44".replace(" ", "")),
         ("digits", "4111 1111-1111 1111", "4111111111111111"),
         ("digits", "CVV: 123", "123"),
-        ("casefold", "  Musterstraße   5 ", "musterstraße 5"),
+        # casefold() maps ß to ss — deliberate, and already documented in
+        # normalize_person. Weiß and Weiss are one name in German law.
+        ("casefold", "  Musterstraße   5 ", "musterstrasse 5"),
         ("identity", "  Sk-Live-XYZ ", "  Sk-Live-XYZ "),
         ("date_iso", "12.03.2026", "2026-03-12"),
         ("date_iso", "2026-03-12", "2026-03-12"),
@@ -1102,7 +1104,7 @@ git add privaparse/parser/normalizer.py privaparse/parser/entity_resolver.py pri
 git commit -m "feat: normalizers are named registry entries
 
 normalize() dispatched on three enum members, which made a fourth type a
-change to this module. It now takes a name the catalogue supplies. Five new
+change to this module. It now takes a name the catalogue supplies. Four new
 normalizers, each with the same tension the module docstring already names:
 too little fragments one value across placeholders, too much merges two
 values into one. date_iso stays shallow on purpose — a wrong month-name parse
