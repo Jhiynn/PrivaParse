@@ -126,10 +126,16 @@ def test_span_accepts_a_type_outside_the_builtin_three():
 
 
 def test_entity_type_constants_are_plain_strings():
+    from enum import Enum
+
     from privaparse.parser.types import EntityType
 
     assert EntityType.PERSON == "PERSON"
     assert f"{EntityType.EMAIL}" == "EMAIL"
+    # The old EntityType(str, Enum) also satisfied both assertions above -
+    # str-mixin equality and str.__format__ don't distinguish it from a plain
+    # string. This is the assertion only the refactor makes true.
+    assert not issubclass(EntityType, Enum)
 
 
 def test_settings_entity_schema_comes_from_the_catalogue(tmp_path, monkeypatch):
@@ -137,10 +143,17 @@ def test_settings_entity_schema_comes_from_the_catalogue(tmp_path, monkeypatch):
 
     override = tmp_path / "privaparse.entities.yaml"
     override.write_text(
-        "version: 1\nplaceholder_types:\n  PHONE:\n    enabled: false\n", encoding="utf-8"
+        "version: 1\nplaceholder_types:\n"
+        "  PHONE:\n    enabled: false\n"
+        "  IBAN:\n    labels: [iban]\n",
+        encoding="utf-8",
     )
     monkeypatch.setenv("PRIVAPARSE_ENTITIES", str(override))
 
     schema = load_settings().entity_schema
     assert "person" in schema
     assert "phone_number" not in schema
+    # The hardcoded dict this used to return could never produce this key
+    # under any input - only a real catalogue read can. This is what makes
+    # the test discriminate the new behaviour from the old.
+    assert "iban" in schema
