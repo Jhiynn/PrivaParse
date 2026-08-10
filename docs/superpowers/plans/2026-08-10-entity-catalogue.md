@@ -1375,15 +1375,26 @@ def _passes_rule_check(span: Span, catalogue: "Catalogue | None") -> bool:
     return bool(registry.get_validator(placeholder.validator)(span.text))
 ```
 
-Thread the catalogue through: add `catalogue: "Catalogue | None" = None` as a
-keyword-only parameter to `merge_spans` and `resolve_spans`, pass it from
-`resolve_spans` into both `merge_spans` calls, and pass it at the two call
-sites — `engine.py:107` and `pseudonymizer.py:82` — as
+Thread the catalogue through: add `catalogue: "Catalogue | None"` as a
+**required** keyword-only parameter to `merge_spans` and `resolve_spans`, pass
+it from `resolve_spans` into both `merge_spans` calls, and pass it at the two
+call sites — `engine.py:107` and `pseudonymizer.py:82` — as
 `catalogue=self.settings.catalogue` / `catalogue=settings.catalogue`.
 
-The default of `None` keeps every existing test that calls `merge_spans`
-directly working without an argument, and means "no vetoes", which is the
-pre-existing behaviour for types that had none.
+Required, not defaulted to `None`. `None` still means "no vetoes", but a
+caller has to write it and thereby say so. Both functions are in `__all__`, so
+a future caller — an eval harness, a CLI path, the gateway in spec 2 — that
+omitted the argument would get zero vetoes with no error, no warning and a
+green suite: silently degraded precision is indistinguishable from correct
+operation. A `TypeError` at the call site is the cheap version of that
+discovery.
+
+Every existing test that calls `merge_spans` or `resolve_spans` directly must
+therefore be visited and given an explicit argument. That is the point rather
+than the cost: an earlier revision of this plan defaulted the parameter to
+`None`, and three tests in `tests/test_merge.py` — including the regression
+guard for a phone number the model returned at confidence 1.00 and the
+pipeline discarded — went silently vacuous rather than red, and were missed.
 
 Add the imports: `from privaparse.parser import registry` and a
 `TYPE_CHECKING`-guarded `from privaparse.app.catalogue import Catalogue`.

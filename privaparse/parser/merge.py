@@ -59,7 +59,7 @@ def resolve_spans(
     *,
     threshold: float = 0.5,
     sweep: bool = True,
-    catalogue: "Catalogue | None" = None,
+    catalogue: "Catalogue | None",
 ) -> list[Span]:
     """Full cleanup: merge, then optionally sweep, then merge again."""
     merged = merge_spans(spans, protected=protected, threshold=threshold, catalogue=catalogue)
@@ -81,7 +81,7 @@ def merge_spans(
     *,
     protected: ProtectedText | None = None,
     threshold: float = 0.5,
-    catalogue: "Catalogue | None" = None,
+    catalogue: "Catalogue | None",
 ) -> list[Span]:
     """Drop weak spans, trim edges, and resolve overlaps greedily by priority."""
     candidates: list[Span] = []

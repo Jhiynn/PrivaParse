@@ -12,6 +12,14 @@ VECTORS = [
     # rule would wave through.
     ("iban_mod97", "DE90370400440532013000", False),
     ("iban_mod97", "DE8937040044053201300", False),
+    # Superscript "2" is Unicode-digit-like (str.isdigit() is True) but not an
+    # ASCII digit, so int() rejects it. Must return False, not raise.
+    ("iban_mod97", "DE8937040044053201300²", False),
+    # "Ä" is Unicode-alpha-like (str.isalpha() is True). Folded the old way
+    # (ord("Ä") - ord("A") + 10 = 141) it still lands on remainder 1 mod 97 by
+    # coincidence, so the old character-class dispatch wrongly accepted this —
+    # a false accept, not a crash, and the more dangerous of the two.
+    ("iban_mod97", "DE893Ä0400440532013000", False),
     ("luhn", "4111111111111111", True),
     ("luhn", "4111 1111 1111 1111", True),
     ("luhn", "4111111111111112", False),

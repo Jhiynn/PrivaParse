@@ -34,6 +34,19 @@ def _compact(value: str) -> str:
     return _SEPARATORS_RE.sub("", value).upper()
 
 
+def _is_ascii_digit(character: str) -> bool:
+    """``str.isdigit()`` also accepts non-ASCII digits — Arabic-Indic, super/
+    subscript — which either crash ``int()`` or, worse, parse to a real value
+    and let a look-alike character through the checksum unnoticed."""
+    return "0" <= character <= "9"
+
+
+def _is_ascii_upper(character: str) -> bool:
+    """``str.isalpha()`` accepts letters far outside A-Z; folding one through
+    ``ord(character) - ord("A")`` produces a number with no ISO 7064 meaning."""
+    return "A" <= character <= "Z"
+
+
 @register_validator("iban_mod97")
 def is_valid_iban(value: str) -> bool:
     """ISO 7064 mod-97-10.
@@ -41,16 +54,28 @@ def is_valid_iban(value: str) -> bool:
     Length alone is not enough: a transposed pair of digits keeps the length
     and fails the checksum, and that is exactly the kind of near-miss a model
     produces when it grabs one character too many.
+
+    Character class is decided by explicit ASCII range, not ``str.isdigit()``
+    / ``str.isalpha()``. Those are Unicode-aware: a superscript "²" reads as a
+    digit and crashes the ``int()`` call below, and a letter like "Ä" reads as
+    alphabetic and folds into the checksum as if it carried ISO 7064 meaning —
+    which does not crash, and is worse, because a folded value can land back
+    on a valid remainder by coincidence and wave through a string that was
+    never a real IBAN.
     """
     compact = _compact(value)
-    if not 15 <= len(compact) <= 34 or not compact[:2].isalpha() or not compact[2:4].isdigit():
+    if (
+        not 15 <= len(compact) <= 34
+        or not all(_is_ascii_upper(c) for c in compact[:2])
+        or not all(_is_ascii_digit(c) for c in compact[2:4])
+    ):
         return False
     rearranged = compact[4:] + compact[:4]
     digits = ""
     for character in rearranged:
-        if character.isdigit():
+        if _is_ascii_digit(character):
             digits += character
-        elif character.isalpha():
+        elif _is_ascii_upper(character):
             digits += str(ord(character) - ord("A") + 10)
         else:
             return False
