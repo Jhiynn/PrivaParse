@@ -20,13 +20,14 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterable, Protocol, Sequence
+from typing import TYPE_CHECKING, Any, Iterable, Protocol, Sequence
 
 from privaparse.evaluation import DEFAULT_GOLD_PATH
 from privaparse.parser.types import Span
 
 if TYPE_CHECKING:  # pragma: no cover
     from privaparse.app.catalogue import Catalogue
+    from privaparse.parser.markdown import ProtectedText
 
 GOLD_PATH = DEFAULT_GOLD_PATH
 
@@ -405,3 +406,151 @@ def _mistake_section(title: str, mistakes: list[Mistake], limit: int) -> list[st
         lines.append(f"- …and {len(mistakes) - limit} more")
     lines.append("")
     return lines
+
+
+# --- threshold sweep ---------------------------------------------------------
+
+#: Coarse enough to show the curve's shape, fine enough to read a value off it.
+DEFAULT_SWEEP: tuple[float, ...] = (0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
+
+
+class SupportsDetectRaw(Protocol):
+    """Duck type for the engine `sweep_thresholds` drives — real or fake.
+
+    A `Protocol`, not `PrivaParseEngine` itself: tests exercise this against
+    a fake that stands in for the engine without inheriting from it, and this
+    module has no reason to import the concrete class just to spell out the
+    two things it actually touches.
+    """
+
+    settings: Any
+
+    def detect_raw(self, text: str) -> "tuple[ProtectedText, list[Span]]": ...
+
+
+class _ReplayDetector:
+    """Serves one document's pre-computed spans per `detect()` call, in the
+    order `sweep_thresholds` built them, so the merge can be redone without
+    the model.
+
+    Positional, not keyed by text. A cache keyed by `text` looks like the
+    obvious choice, since `detect(text)` is all `evaluate()` ever calls it
+    with — but two gold documents can legitimately carry identical text, and
+    a dict keyed by text would let the second document's precomputed spans
+    silently overwrite the first's before either was read back. (The gold set
+    has no such duplicate today — checked directly against `eval/gold/
+    de_gold.jsonl` — but nothing enforces that, and a measurement instrument
+    should not depend on the input happening to stay clean.)
+
+    `evaluate()` visits `documents` in order and calls `detect()` exactly
+    once per document, so a position counter that advances on every call
+    recovers the right entry regardless of whether the text is unique. That
+    only holds because `sweep_thresholds` builds a fresh `_ReplayDetector`
+    per threshold — each one walks `documents` from position zero exactly
+    once, never reused across two passes.
+    """
+
+    def __init__(
+        self,
+        protected: "list[ProtectedText]",
+        raw: "list[list[Span]]",
+        *,
+        threshold: float,
+        catalogue: "Catalogue | None",
+        sweep: bool,
+    ) -> None:
+        self._protected = protected
+        self._raw = raw
+        self._threshold = threshold
+        self._catalogue = catalogue
+        self._sweep = sweep
+        self._position = 0
+
+    def detect(self, text: str) -> list[Span]:
+        from privaparse.parser.merge import resolve_spans
+
+        index = self._position
+        self._position += 1
+        protected = self._protected[index]
+        if protected.original != text:
+            # Only reachable if evaluate() stopped visiting documents in the
+            # order this replay was built from — the one invariant positional
+            # lookup depends on. Scoring one document's spans against
+            # another's gold entities silently would be worse than refusing.
+            raise RuntimeError("threshold sweep replay is out of sync with the document order")
+        return resolve_spans(
+            protected,
+            self._raw[index],
+            threshold=self._threshold,
+            sweep=self._sweep,
+            catalogue=self._catalogue,
+        )
+
+
+def sweep_thresholds(
+    engine: SupportsDetectRaw,
+    documents: Sequence[GoldDocument],
+    *,
+    thresholds: Sequence[float] = DEFAULT_SWEEP,
+    catalogue: "Catalogue",
+) -> dict[float, EvalReport]:
+    """Score the gold set at several thresholds from one model pass.
+
+    The model is the expensive part and its scores do not depend on the
+    threshold — merging does. So detection runs once per document, and every
+    point on the curve is a re-merge, which is cheap. Filtering the *merged*
+    spans instead would be wrong: the threshold changes which candidates
+    compete for an overlap, not only which survive it — a span that loses an
+    overlap at 0.5 can win it at 0.7 if its rival fell below the new cut.
+    """
+    protected: list["ProtectedText"] = []
+    raw: list[list[Span]] = []
+    for document in documents:
+        document_protected, document_raw = engine.detect_raw(document.text)
+        protected.append(document_protected)
+        raw.append(document_raw)
+
+    sweep_enabled = bool(getattr(engine.settings, "coreference_sweep", True))
+    return {
+        threshold: evaluate(
+            _ReplayDetector(
+                protected, raw, threshold=threshold, catalogue=catalogue, sweep=sweep_enabled
+            ),
+            documents,
+            label=f"t={threshold:.2f}",
+            catalogue=catalogue,
+        )
+        for threshold in thresholds
+    }
+
+
+def format_sweep(results: dict[float, EvalReport]) -> str:
+    """Precision/recall per type across the swept thresholds.
+
+    Counts only — no entity text. This is meant to be pasted into a plan or a
+    PR to justify a threshold choice, not a mistakes report.
+    """
+    if not results:
+        return ""
+    first = next(iter(results.values()))
+    types = [t.name for t in first.catalogue.enabled] if first.catalogue else []
+
+    lines = [
+        "## Threshold sweep",
+        "",
+        "One model pass per document; each row re-merges the same scored spans.",
+        "",
+        "| Type | Threshold | Support | Precision | Recall | F1 |",
+        "| --- | ---: | ---: | ---: | ---: | ---: |",
+    ]
+    for entity_type in types:
+        for threshold in sorted(results):
+            counts = results[threshold].partial.get(entity_type, Counts())
+            if not counts.support and not counts.fp:
+                continue
+            lines.append(
+                f"| {entity_type} | {threshold:.2f} | {counts.support} | "
+                f"{counts.precision:.3f} | {counts.recall:.3f} | {counts.f1:.3f} |"
+            )
+    lines.append("")
+    return "\n".join(lines)

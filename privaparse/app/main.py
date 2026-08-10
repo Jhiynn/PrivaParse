@@ -259,6 +259,10 @@ def evaluate(
         None, "--report", help="Write a markdown report here (default docs/eval-report.md)."
     ),
     show: int = typer.Option(15, "--show", help="Mistakes to list per category."),
+    sweep_threshold: bool = typer.Option(
+        False, "--sweep-threshold",
+        help="Score the gold set at 0.3–0.9 from one model pass and write the curve.",
+    ),
 ) -> None:
     """Score detection against the German gold set and decide the fine-tuning question."""
     from privaparse.evaluation import DEFAULT_REPORT_DIR
@@ -267,6 +271,22 @@ def evaluate(
 
     base = load_settings(**ctx.obj[_OVERRIDES])
     documents = _run(lambda: load_gold(gold or _default_gold()))
+
+    if sweep_threshold:
+        from privaparse.evaluation.harness import format_sweep, sweep_thresholds
+
+        engine = _engine_with(base)
+        try:
+            results = sweep_thresholds(engine, documents, catalogue=base.catalogue)
+        finally:
+            engine.close()
+
+        text = format_sweep(results)
+        target = report or (DEFAULT_REPORT_DIR / "sweep-report.md")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+        typer.echo(f"sweep written to {target}")
+        return
 
     models = model or [base.model_id]
     modes = mode or [base.detector]
