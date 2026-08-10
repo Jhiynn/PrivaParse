@@ -37,8 +37,22 @@ _PHONE_LENIENCY = phonenumbers.Leniency.STRICT_GROUPING
 
 
 def _matches(text: str, pattern: re.Pattern[str], check=None) -> list[tuple[int, int]]:
+    """Find every accepted candidate, peeling back what the gate rejects.
+
+    Uses an explicit cursor rather than ``finditer``. A truncated candidate's
+    accepted end can fall well short of the raw greedy match's end, and a
+    second genuine value can sit in that swallowed gap — two IBANs back to
+    back, where the raw match reaches from the first into the second.
+    ``finditer`` resumes past its own raw match regardless of how much of it
+    we kept, which would consume the second value's prefix and lose it;
+    resuming at what was actually accepted lets it be found on its own terms.
+    """
     out: list[tuple[int, int]] = []
-    for match in pattern.finditer(text):
+    pos = 0
+    while True:
+        match = pattern.search(text, pos)
+        if match is None:
+            break
         start, end = match.start(), match.end()
         # A greedy pattern can overreach into a following token — an IBAN
         # swallowing "BIC", a card swallowing an expiry digit or two. The gate
@@ -52,6 +66,13 @@ def _matches(text: str, pattern: re.Pattern[str], check=None) -> list[tuple[int,
             end = cut
         if end > start:
             out.append((start, end))
+            pos = end
+        else:
+            # Nothing validated at any truncation. Advance past this match's
+            # start, not its swallowed end, so a genuine value beginning right
+            # where this attempt did still gets a search of its own — and so
+            # the cursor still moves even when nothing here was ever real.
+            pos = start + 1
     return out
 
 

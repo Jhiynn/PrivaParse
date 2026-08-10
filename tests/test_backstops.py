@@ -33,6 +33,30 @@ def test_iban_backstop_is_not_lost_before_the_word_sepa():
     assert _texts("iban", text) == ["DE89 3704 0044 0532 0130 00"]
 
 
+def test_iban_backstop_finds_two_identical_ibans_back_to_back():
+    # The raw greedy match used to reach from the first IBAN into the second
+    # — "DE89" is itself a valid [A-Z0-9]{2,4} repeat group, so the pattern
+    # kept going. Peeling back correctly narrowed the *emitted* candidate to
+    # the first IBAN, but finditer still resumed past the raw match's end,
+    # which sat inside the second IBAN — consuming its prefix and losing it.
+    # A test that only checked the first value would not catch this.
+    text = "DE89 3704 0044 0532 0130 00 DE89 3704 0044 0532 0130 00"
+    assert _texts("iban", text) == ["DE89 3704 0044 0532 0130 00"] * 2
+
+
+def test_iban_backstop_finds_two_different_ibans_back_to_back():
+    text = "DE89 3704 0044 0532 0130 00 GB29 NWBK 6016 1331 9268 19"
+    assert _texts("iban", text) == [
+        "DE89 3704 0044 0532 0130 00",
+        "GB29 NWBK 6016 1331 9268 19",
+    ]
+
+
+def test_iban_backstop_finds_three_ibans_in_a_row():
+    text = "DE89 3704 0044 0532 0130 00 " * 3
+    assert _texts("iban", text) == ["DE89 3704 0044 0532 0130 00"] * 3
+
+
 def test_card_backstop_finds_the_card_and_not_the_order_number():
     found = _texts("card")
     assert "4111 1111 1111 1111" in found
@@ -50,6 +74,22 @@ def test_card_backstop_is_not_lost_to_an_adjacent_expiry_date():
 def test_card_backstop_is_not_lost_to_trailing_digits():
     text = "Karte 4111 1111 1111 1111 99 Euro."
     assert _texts("card", text) == ["4111 1111 1111 1111"]
+
+
+def test_card_backstop_finds_two_adjacent_cards_of_different_length():
+    # Same cursor-resume bug as the IBAN case, reproduced for card — but two
+    # identical 16-digit, evenly-grouped cards do not trigger it: the pattern's
+    # 19-digit cap forces only a 3-digit overreach past a 16-digit card, which
+    # never lands on a \b boundary inside a 4-4-4-4 grouped second card, so the
+    # regex backtracks itself back to the first card's own edge with no help
+    # from the peel-back. A 15-digit card followed by a 4-grouped 16-digit one
+    # does trigger it: the cap's 4-digit overreach lands exactly on the second
+    # card's first group boundary, the gate rejects the 19-digit whole,
+    # peel-back correctly narrows to the first card — and finditer used to
+    # resume past the raw match anyway, consuming the second card's leading
+    # "4111" and losing it.
+    text = "378282246310005 4111 1111 1111 1111"
+    assert _texts("card", text) == ["378282246310005", "4111 1111 1111 1111"]
 
 
 def test_ip_backstop_finds_the_address_and_not_the_date():
