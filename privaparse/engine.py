@@ -15,7 +15,7 @@ from __future__ import annotations
 import os
 import threading
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Sequence
 
 from privaparse.app.config import Settings, load_settings
 from privaparse.app.device import ResolvedDevice, resolve_device
@@ -25,7 +25,8 @@ from privaparse.database.repository import Database, VaultRepository
 
 if TYPE_CHECKING:  # pragma: no cover
     from privaparse.parser.detector import Detector
-    from privaparse.parser.pseudonymizer import PseudonymizationResult
+    from privaparse.parser.markdown import ProtectedText
+    from privaparse.parser.pseudonymizer import BatchResult, PseudonymizationResult
     from privaparse.parser.reverse_mapper import ReverseResult
     from privaparse.parser.types import Span
 
@@ -112,6 +113,17 @@ class PrivaParseEngine:
             catalogue=self.settings.catalogue,
         )
 
+    def detect_raw(self, text: str) -> "tuple[ProtectedText, list[Span]]":
+        """Masked text plus unfiltered detector output.
+
+        The threshold sweep needs the model's scores before merging drops
+        anything, so one expensive pass can produce every point on the curve.
+        """
+        from privaparse.parser.markdown import protect
+
+        protected = protect(text, scan_code=self.settings.scan_code)
+        return protected, self.detector.detect(protected.view)
+
     def pseudonymize(
         self, text: str, *, source_name: str | None = None
     ) -> "PseudonymizationResult":
@@ -121,6 +133,21 @@ class PrivaParseEngine:
         with self.database.session() as session:
             return pseudonymize_text(
                 text,
+                detector=self.detector,
+                repo=self.repository(session),
+                settings=self.settings,
+                source_name=source_name,
+            )
+
+    def pseudonymize_batch(
+        self, texts: "Sequence[str]", *, source_name: str | None = None
+    ) -> "BatchResult":
+        """Pseudonymise several texts under one mapping."""
+        from privaparse.parser.pseudonymizer import pseudonymize_batch
+
+        with self.database.session() as session:
+            return pseudonymize_batch(
+                texts,
                 detector=self.detector,
                 repo=self.repository(session),
                 settings=self.settings,
@@ -151,6 +178,10 @@ class PrivaParseEngine:
         """Recent sessions and their mapping ids. Reveals no stored values."""
         with self.database.session() as session:
             return self.repository(session).recent_mappings(limit=limit, match=match)
+
+    @property
+    def catalogue(self):
+        return self.settings.catalogue
 
     @property
     def detector(self) -> "Detector":

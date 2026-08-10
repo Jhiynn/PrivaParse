@@ -4,27 +4,35 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Sequence
 
 from privaparse.app.logging import get_logger
 from privaparse.database.placeholder import contains_placeholder
 from privaparse.database.repository import VaultRepository
 from privaparse.parser.detector import Detector
-from privaparse.parser.entity_resolver import EntityResolver, Resolution, ResolvedSpan
+from privaparse.parser.entity_resolver import (
+    EntityResolver,
+    EntityUsage,
+    ResolvedSpan,
+    UnknownEntityTypeError,
+)
 from privaparse.parser.markdown import protect
 from privaparse.parser.merge import resolve_spans
 from privaparse.parser.types import Span
 
 if TYPE_CHECKING:  # pragma: no cover
+    from privaparse.app.catalogue import Catalogue
     from privaparse.app.config import Settings
 
 log = get_logger("pseudonymizer")
 
 __all__ = [
     "PseudonymizationResult",
+    "BatchResult",
     "AlreadyPseudonymizedError",
     "SpanIntegrityError",
     "pseudonymize_text",
+    "pseudonymize_batch",
     "apply_replacements",
 ]
 
@@ -56,6 +64,33 @@ class PseudonymizationResult:
         return list(seen)
 
 
+@dataclass(frozen=True)
+class BatchResult:
+    """Several texts, one mapping.
+
+    The gateway in spec 2 sends one HTTP request carrying dozens of text nodes.
+    They must share a mapping: the model's answer mixes placeholders from all
+    of them, and ``reverse()`` resolves against exactly one session.
+    """
+
+    mapping_id: str
+    texts: list[str] = field(default_factory=list)
+    spans: list[list[ResolvedSpan]] = field(default_factory=list)
+    detected: list[list[Span]] = field(default_factory=list)
+
+    @property
+    def replacements(self) -> int:
+        return sum(len(group) for group in self.spans)
+
+    @property
+    def placeholders(self) -> list[str]:
+        seen: dict[str, None] = {}
+        for group in self.spans:
+            for resolved in group:
+                seen.setdefault(resolved.placeholder, None)
+        return list(seen)
+
+
 def pseudonymize_text(
     text: str,
     *,
@@ -66,46 +101,110 @@ def pseudonymize_text(
 ) -> PseudonymizationResult:
     """Detect, replace and persist, as one transaction.
 
-    Refuses text that already contains placeholders: pseudonymising twice
-    produces a document that cannot be reversed cleanly, and silently doing it
-    would hand back something that looks right and is not.
+    Delegates to :func:`pseudonymize_batch` with a single-element list, so
+    there is one code path from detection through to the mapping row rather
+    than two that can quietly drift apart.
     """
-    if contains_placeholder(text):
-        raise AlreadyPseudonymizedError(
-            "This text already contains PrivaParse placeholders. Pseudonymising it "
-            "again would nest placeholders and make the result irreversible. Reverse "
-            "it first, or pass the original document."
-        )
-
-    protected = protect(text, scan_code=settings.scan_code)
-    raw_spans = detector.detect(protected.view)
-    spans = resolve_spans(
-        protected,
-        raw_spans,
-        threshold=settings.threshold,
-        sweep=settings.coreference_sweep,
-        catalogue=settings.catalogue,
+    batch = pseudonymize_batch(
+        [text], detector=detector, repo=repo, settings=settings, source_name=source_name
     )
-    _verify_spans(text, spans)
+    return PseudonymizationResult(
+        text=batch.texts[0],
+        mapping_id=batch.mapping_id,
+        spans=batch.spans[0],
+        detected=batch.detected[0],
+    )
 
-    resolution = EntityResolver(repo, settings.catalogue).resolve(spans)
-    new_text = apply_replacements(text, resolution.spans)
 
-    mapping = _persist(repo, resolution, text=text, source_name=source_name)
+def pseudonymize_batch(
+    texts: Sequence[str],
+    *,
+    detector: Detector,
+    repo: VaultRepository,
+    settings: "Settings",
+    source_name: str | None = None,
+) -> BatchResult:
+    """Pseudonymise several texts under one mapping, in one transaction.
+
+    Detection runs across all of them in a single call so the model batches;
+    resolution runs in text order so the first spelling seen still wins, the
+    same rule single-text pseudonymisation follows.
+
+    Every text's spans are checked against the catalogue before *any* of them
+    are written, not just within one text. ``EntityResolver.resolve()`` only
+    promises that ordering within a single call, and this calls it once per
+    text — so without a batch-wide check first, a bad type in text 3 would
+    still leave text 1 and text 2 already written by the time text 3's own
+    call raised. The fix cannot be "let the exception unwind and roll it
+    back": the vault's nested-SAVEPOINT writes have a known pre-existing
+    rollback defect (see the reasoning in ``EntityResolver.resolve()``), so a
+    rejected batch must not depend on rollback to leave nothing behind — it
+    must never write in the first place.
+    """
+    for index, text in enumerate(texts):
+        if contains_placeholder(text):
+            raise AlreadyPseudonymizedError(
+                f"text {index} already contains PrivaParse placeholders. "
+                f"Pseudonymising it again would nest placeholders and make the "
+                f"result irreversible. Reverse it first, or pass the original "
+                f"document."
+            )
+
+    if not texts:
+        return BatchResult(mapping_id="")
+
+    protected = [protect(text, scan_code=settings.scan_code) for text in texts]
+    raw = detector.detect_many([p.view for p in protected])
+
+    per_text_spans = [
+        resolve_spans(
+            protected[index],
+            raw[index],
+            threshold=settings.threshold,
+            sweep=settings.coreference_sweep,
+            catalogue=settings.catalogue,
+        )
+        for index in range(len(texts))
+    ]
+    for text, spans in zip(texts, per_text_spans):
+        _verify_spans(text, spans)
+    _ensure_known_types(per_text_spans, settings.catalogue)
+
+    resolver = EntityResolver(repo, settings.catalogue)
+    resolutions = [resolver.resolve(spans) for spans in per_text_spans]
+    new_texts = [
+        apply_replacements(text, resolution.spans)
+        for text, resolution in zip(texts, resolutions)
+    ]
+
+    digest = hashlib.sha256("\u0000".join(texts).encode("utf-8")).hexdigest()
+    mapping = repo.create_mapping(text_sha256=digest, source_name=source_name)
+    merged: dict[str, EntityUsage] = {}
+    for resolution in resolutions:
+        for entity_id, usage in resolution.usages.items():
+            existing = merged.get(entity_id)
+            if existing is None:
+                merged[entity_id] = usage
+            else:
+                existing.occurrences += usage.occurrences
+    for usage in merged.values():
+        repo.add_mapping_entry(
+            mapping, usage.entity, usage.restore_value, occurrences=usage.occurrences
+        )
     repo.session.commit()
 
     log.info(
-        "pseudonymised %s: %d replacement(s), %d placeholder(s), mapping=%s",
-        source_name or "<text>",
-        len(resolution.spans),
-        resolution.placeholder_count,
-        mapping,
+        "pseudonymised %d text(s) as %s: %d replacement(s), %d placeholder(s)",
+        len(texts),
+        source_name or "<batch>",
+        sum(len(r.spans) for r in resolutions),
+        len(merged),
     )
-    return PseudonymizationResult(
-        text=new_text,
-        mapping_id=mapping,
-        spans=resolution.spans,
-        detected=spans,
+    return BatchResult(
+        mapping_id=mapping.id,
+        texts=new_texts,
+        spans=[r.spans for r in resolutions],
+        detected=per_text_spans,
     )
 
 
@@ -133,22 +232,23 @@ def _verify_spans(text: str, spans: list[Span]) -> None:
             )
 
 
-def _persist(
-    repo: VaultRepository,
-    resolution: Resolution,
-    *,
-    text: str,
-    source_name: str | None,
-) -> str:
-    mapping = repo.create_mapping(
-        text_sha256=hashlib.sha256(text.encode("utf-8")).hexdigest(),
-        source_name=source_name,
-    )
-    for usage in resolution.usages.values():
-        repo.add_mapping_entry(
-            mapping,
-            usage.entity,
-            usage.restore_value,
-            occurrences=usage.occurrences,
-        )
-    return mapping.id
+def _ensure_known_types(per_text_spans: Sequence[list[Span]], catalogue: "Catalogue") -> None:
+    """Raise before any text in the batch is resolved, if any span names a
+    type the catalogue does not define.
+
+    ``EntityResolver.resolve()`` already validates every span it is given
+    before writing any of them — but that promise is scoped to a single call,
+    and ``pseudonymize_batch`` calls it once per text. Left to ``resolve()``
+    alone, a bad type in text 3 would only surface when its own call ran, by
+    which point text 1 and text 2 had already gone through *their* calls and
+    written their entities. One pass over every text's spans here, before the
+    first ``resolve()`` call, is what extends "nothing is written before
+    every span is confirmed" from one document to the whole batch.
+    """
+    for index, spans in enumerate(per_text_spans):
+        for span in spans:
+            if span.type not in catalogue.types:
+                raise UnknownEntityTypeError(
+                    f"text {index}: span at {span.start} claims type "
+                    f"{span.type!r}, which the catalogue does not define"
+                )

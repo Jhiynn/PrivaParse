@@ -236,6 +236,45 @@ def test_duplicate_hits_from_overlapping_chunks_collapse(settings: Settings) -> 
     assert len(detector.detect(text)) == 1
 
 
+# --- detect_many -------------------------------------------------------
+
+
+def test_detect_many_keeps_each_texts_spans_in_the_right_slot(settings: Settings) -> None:
+    """Chunks from every text are flattened into one model submission and must
+    be split back out by text afterward. An off-by-one in that split would
+    silently attribute one document's entities to another — a cross-document
+    leak, not just a wrong answer, which is why the grouping is checked
+    directly instead of trusting that per-text behaviour generalises.
+
+    The three texts have deliberately different chunk counts — one, zero, and
+    more than one — with the empty text in the middle, so a cursor that
+    forgets to skip it misaligns every text that follows.
+    """
+    short_text = "Anna Krueger kam."
+    filler = "Ein Satz ohne Namen. " * 15
+    long_text = filler + "Am Ende kam Erika Musterfrau."
+    texts = [short_text, "   \n  ", long_text]
+
+    long_chunks = chunk_text(long_text, settings.chunk_chars)
+    assert len(long_chunks) > 1  # the bug only shows up once a text needs >1 chunk
+
+    results = [
+        _entities(person=[{"text": "Anna Krueger", "start": 0, "confidence": 0.9}]),
+        *[_entities() for _ in long_chunks],
+    ]
+    results[-1] = _entities(person=[{"text": "Erika Musterfrau", "start": 0, "confidence": 0.9}])
+    detector = _detector(settings, results)
+
+    per_text = detector.detect_many(texts)
+
+    assert len(per_text) == 3
+    assert [s.text for s in per_text[0]] == ["Anna Krueger"]
+    assert per_text[1] == []
+    assert [s.text for s in per_text[2]] == ["Erika Musterfrau"]
+    for spans, source in zip(per_text, texts):
+        assert all(span.verify_against(source) for span in spans)
+
+
 def test_chunks_cover_the_whole_document() -> None:
     text = "Absatz eins.\n\nAbsatz zwei.\n\n" * 30
     chunks = chunk_text(text, 100)

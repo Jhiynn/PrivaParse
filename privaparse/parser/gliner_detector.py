@@ -106,12 +106,36 @@ class GlinerDetector:
     # --- detection ---------------------------------------------------------
 
     def detect(self, text: str) -> list[Span]:
-        if not text.strip():
-            return []
+        """Convenience wrapper: one text through the batched path."""
+        return self.detect_many([text])[0]
 
-        chunks = chunk_text(text, self.settings.chunk_chars)
-        raw = self._extract(chunks)
-        return self._to_spans(raw, chunks, text)
+    def detect_many(self, texts: Sequence[str]) -> list[list[Span]]:
+        """One model batch across every text.
+
+        Chunking already happens per text; this flattens all the chunks into
+        one submission so a request carrying fifty short strings costs one
+        batched pass rather than fifty single-chunk ones.
+        """
+        chunk_groups = [
+            chunk_text(text, self.settings.chunk_chars) if text.strip() else []
+            for text in texts
+        ]
+        flat: list[Chunk] = [chunk for group in chunk_groups for chunk in group]
+        if not flat:
+            return [[] for _ in texts]
+
+        results = self._extract(flat)
+
+        out: list[list[Span]] = []
+        cursor = 0
+        for text, group in zip(texts, chunk_groups):
+            if not group:
+                out.append([])
+                continue
+            slice_ = results[cursor : cursor + len(group)]
+            cursor += len(group)
+            out.append(self._to_spans(slice_, group, text))
+        return out
 
     def _extract(self, chunks: Sequence[Chunk]) -> list[dict[str, Any]]:
         """Run the model over every chunk, reporting progress on long documents.
