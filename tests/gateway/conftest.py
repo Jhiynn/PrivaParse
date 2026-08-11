@@ -11,6 +11,9 @@ class FakeUpstream:
     def __init__(self) -> None:
         self.requests: list[dict] = []
         self.headers: list[dict] = []
+        #: Set by a test that wants to see how the gateway handles a provider
+        #: error -- a rate limit, an auth failure -- rather than a completion.
+        self.status: int = 200
         self.reply: dict = {
             "id": "chatcmpl-1",
             "object": "chat.completion",
@@ -25,13 +28,13 @@ class FakeUpstream:
     async def post_json(self, path, body, headers):
         self.requests.append(json.loads(json.dumps(body)))
         self.headers.append(dict(headers))
-        return 200, self.reply, {"content-type": "application/json"}
+        return self.status, self.reply, {"content-type": "application/json"}
 
     async def get_json(self, path, headers):
         # No request body on a GET, so nothing is appended to `requests` --
         # `.last` stays meaningful for the POST endpoints later tasks add.
         self.headers.append(dict(headers))
-        return 200, self.reply, {"content-type": "application/json"}
+        return self.status, self.reply, {"content-type": "application/json"}
 
     async def stream(self, path, body, headers):
         self.requests.append(json.loads(json.dumps(body)))
