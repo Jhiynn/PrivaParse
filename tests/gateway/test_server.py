@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import re
 
 from starlette.testclient import TestClient
@@ -182,6 +183,126 @@ def test_an_upstream_status_is_passed_through(settings, fake_detector, upstream)
     )
     assert response.status_code == 429
     assert response.json()["error"]["type"] == "rate_limit_error"
+
+
+def test_the_answer_comes_back_restored(settings, fake_detector, upstream):
+    """The round trip: the provider sees a placeholder, the caller sees a name."""
+    from privaparse.engine import PrivaParseEngine
+
+    engine = PrivaParseEngine(settings, detector=fake_detector, configure_logs=False)
+    upstream.echo = True
+    client = TestClient(create_app(settings, engine=engine, upstream=upstream))
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "Hallo Max Mustermann"}],
+        },
+    )
+    assert response.json()["choices"][0]["message"]["content"] == "Hallo Max Mustermann"
+    # Both halves, in one test: restoring the answer is only worth anything if
+    # the name never left in the first place.
+    assert "Max Mustermann" not in upstream.last["messages"][0]["content"]
+
+
+def test_a_restored_tool_call_is_reserialised_as_json(settings, fake_detector, upstream):
+    from privaparse.engine import PrivaParseEngine
+
+    engine = PrivaParseEngine(settings, detector=fake_detector, configure_logs=False)
+
+    def reply_for(body):
+        # The placeholder this very request issued, put where a model puts it
+        # when it decides to call a function. Reversing resolves against one
+        # session, so it has to come from this request and no other.
+        placeholder = re.search(r"\[\[PERSON_[^\]]+\]\]", json.dumps(body)).group(0)
+        return {"id": "chatcmpl-2", "choices": [{
+            "index": 0, "finish_reason": "tool_calls", "message": {
+                "role": "assistant", "content": None, "tool_calls": [
+                    {"id": "1", "type": "function", "function": {
+                        "name": "send",
+                        "arguments": json.dumps({"to": placeholder, "count": 1})}}]}}]}
+
+    upstream.reply_for = reply_for
+    client = TestClient(create_app(settings, engine=engine, upstream=upstream))
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "Schreib an Max Mustermann"}],
+        },
+    )
+    arguments = json.loads(
+        response.json()["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"]
+    )
+    assert arguments["to"] == "Max Mustermann"
+    assert arguments["count"] == 1
+
+
+def test_a_restoration_failure_does_not_fail_the_request(settings, fake_detector, upstream):
+    """The response path never aborts.
+
+    A failure outbound risks disclosure and must stop the request. A failure
+    inbound costs the caller nothing but readability -- the answer is already
+    paid for, and a placeholder is a worse answer, not a leak.
+    """
+    from privaparse.engine import PrivaParseEngine
+
+    engine = PrivaParseEngine(settings, detector=fake_detector, configure_logs=False)
+    upstream.echo = True
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("the vault is unreachable")
+
+    engine.reverse = boom
+    client = TestClient(create_app(settings, engine=engine, upstream=upstream))
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "Hallo Max Mustermann"}],
+        },
+    )
+    assert response.status_code == 200
+    assert "[[PERSON_" in response.json()["choices"][0]["message"]["content"]
+
+
+def test_usage_is_passed_through_untouched(settings, fake_detector, upstream):
+    """The counts describe the pseudonymised text, which is the text that was
+    billed. Recomputing them against the restored answer would produce a
+    number the provider's invoice disagrees with."""
+    from privaparse.engine import PrivaParseEngine
+
+    engine = PrivaParseEngine(settings, detector=fake_detector, configure_logs=False)
+    upstream.echo = True
+    upstream.reply["usage"] = {"prompt_tokens": 17, "completion_tokens": 4, "total_tokens": 21}
+    client = TestClient(create_app(settings, engine=engine, upstream=upstream))
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "Hallo Max Mustermann"}],
+        },
+    )
+    assert response.json()["usage"] == {
+        "prompt_tokens": 17, "completion_tokens": 4, "total_tokens": 21
+    }
+
+
+def test_an_error_body_is_not_mangled_by_the_restore(settings, fake_detector, upstream):
+    """A provider error has no `choices`, so the response walk finds nothing
+    and hands it back exactly as it came."""
+    from privaparse.engine import PrivaParseEngine
+
+    engine = PrivaParseEngine(settings, detector=fake_detector, configure_logs=False)
+    upstream.status = 400
+    upstream.reply = {"error": {"message": "bad model", "type": "invalid_request_error"}}
+    client = TestClient(create_app(settings, engine=engine, upstream=upstream))
+    response = client.post(
+        "/v1/chat/completions",
+        json={"model": "nope", "messages": [{"role": "user", "content": "Hallo Max Mustermann"}]},
+    )
+    assert response.status_code == 400
+    assert response.json() == {"error": {"message": "bad model", "type": "invalid_request_error"}}
 
 
 def test_the_request_body_is_never_logged(settings, fake_detector, upstream):

@@ -23,7 +23,12 @@ from starlette.routing import Route
 from privaparse.app.config import Settings
 from privaparse.app.logging import get_logger
 from privaparse.engine import PrivaParseEngine
-from privaparse.gateway.extract import UnscannableField, extract, write_back
+from privaparse.gateway.extract import (
+    UnscannableField,
+    extract,
+    extract_response,
+    write_back,
+)
 from privaparse.gateway.upstream import Upstream
 
 logger = get_logger(__name__)
@@ -36,6 +41,36 @@ _CHAT_PATH = "/v1/chat/completions"
 # production `Upstream`. Every test injects its own fake, so this default is
 # only ever reached by a real deployment.
 _DEFAULT_UPSTREAM_BASE_URL = "https://api.openai.com"
+
+
+async def _restore(engine: PrivaParseEngine, mapping_id: str, reply: dict) -> dict:
+    """Put the real values back into the provider's answer.
+
+    Never raises. The request path fails closed because a failure there risks
+    disclosure; here the answer already exists and has already been paid for,
+    so a failure costs readability and nothing else. The caller gets the
+    answer with its placeholders standing, and the reason goes to the log.
+
+    `usage` is deliberately untouched. The counts describe the pseudonymised
+    text, which is the text the provider billed for; recomputing them against
+    the restored answer would produce a number the invoice disagrees with.
+    """
+    try:
+        nodes = extract_response(reply)
+        if not nodes:
+            return reply
+        restored = await run_in_threadpool(
+            lambda: [engine.reverse(mapping_id, node.text).text for node in nodes]
+        )
+        return write_back(reply, nodes, restored)
+    except Exception:  # noqa: BLE001 - see the docstring: nothing here may abort
+        # No payload in the message. What failed to restore is by definition
+        # the part of the answer that concerns a person.
+        logger.warning(
+            "could not restore an answer; returning it with placeholders standing",
+            exc_info=False,
+        )
+        return reply
 
 
 def _error(status: int, message: str, kind: str) -> JSONResponse:
@@ -101,6 +136,7 @@ def create_app(
             )
 
         outbound = body
+        mapping_id: str | None = None
         if nodes:
             # One batch, one mapping. Node by node would open a session per
             # node, and the answer -- which mixes placeholders from all of
@@ -112,12 +148,13 @@ def create_app(
                 engine.pseudonymize_batch, [node.text for node in nodes]
             )
             outbound = write_back(body, nodes, batch.texts)
+            mapping_id = batch.mapping_id
 
         status, reply, _headers = await upstream.post_json(
             _CHAT_PATH, outbound, request.headers
         )
-        # Restoration lands in the next task; until then the answer goes back
-        # exactly as the provider sent it, placeholders visible.
+        if mapping_id is not None:
+            reply = await _restore(engine, mapping_id, reply)
         return JSONResponse(reply, status_code=status)
 
     app = Starlette(
