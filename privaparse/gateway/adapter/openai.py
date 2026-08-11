@@ -1,0 +1,80 @@
+"""Everything the gateway knows about OpenAI's request and response shape.
+
+`extract.py` holds the walking; this module holds the knowledge of where text
+sits. Keeping the two apart is what makes a second protocol a new file rather
+than a new branch inside the walker.
+
+Two lists and one rule. `IGNORED_REQUEST_FIELDS` names the top-level fields
+that carry no scannable text; the message fields below name what is walked.
+Anything not named here that carries a string is refused by `extract` -- see
+`UnscannableField` for why that trade is worth making.
+"""
+
+from __future__ import annotations
+
+# Top-level request fields skipped whole. Several of them are strings or nest
+# strings, which is the point of listing them: `model` and `user` are
+# identifiers the provider needs verbatim, `stop` holds client-chosen
+# sequences, and `response_format` nests a JSON schema whose strings describe
+# a shape rather than a person. Pseudonymising any of them would corrupt the
+# request without protecting anyone.
+IGNORED_REQUEST_FIELDS = frozenset(
+    {
+        "model",
+        "temperature",
+        "stream",
+        "max_tokens",
+        "max_completion_tokens",
+        "top_p",
+        "n",
+        "stop",
+        "presence_penalty",
+        "frequency_penalty",
+        "logit_bias",
+        "seed",
+        "user",
+        "logprobs",
+        "top_logprobs",
+        "response_format",
+        "tool_choice",
+        "parallel_tool_calls",
+        "stream_options",
+    }
+)
+
+MESSAGES_FIELD = "messages"
+
+# Message fields holding free text. `name` is here rather than in the ignored
+# set because it is client-supplied and names a participant; a placeholder in
+# it can violate the provider's charset for that field, but that only happens
+# when the field actually held a person, which is exactly the case where
+# forwarding it would have been the worse outcome.
+TEXT_MESSAGE_FIELDS = frozenset({"content", "name", "refusal"})
+
+# Structural message fields: identifiers and routing, never free text.
+IGNORED_MESSAGE_FIELDS = frozenset({"role", "tool_call_id"})
+
+TOOL_CALLS_FIELD = "tool_calls"
+IGNORED_TOOL_CALL_FIELDS = frozenset({"id", "type", "index"})
+FUNCTION_FIELD = "function"
+
+# The function name is chosen by the client's own code, not by a user typing.
+IGNORED_FUNCTION_FIELDS = frozenset({"name"})
+
+# Serialised JSON: parsed, walked to its leaves, and re-serialised on the way
+# back out.
+FUNCTION_ARGUMENTS_FIELD = "arguments"
+JSON_FUNCTION_FIELDS = frozenset({FUNCTION_ARGUMENTS_FIELD})
+
+# Multimodal content parts. Only a text part can be scanned; anything else --
+# an image, audio, a file reference -- is data the detector cannot read, so
+# `extract` refuses it rather than forwarding it unexamined.
+PART_TYPE_FIELD = "type"
+TEXT_PART_TYPE = "text"
+TEXT_PART_FIELD = "text"
+
+# Response shape. The response walk is deliberately lenient (see
+# `extract_response`), so these are the places it looks rather than the only
+# places it tolerates.
+RESPONSE_CHOICES_FIELD = "choices"
+RESPONSE_MESSAGE_FIELD = "message"
