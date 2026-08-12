@@ -349,11 +349,11 @@ result = engine.pseudonymize(text)   # reuses it on every call
 
 ## Gateway
 
-One command, and any client that accepts a base URL is going through
+One command, and a client that speaks Chat Completions is going through
 PrivaParse:
 
 ```bash
-privaparse run -- claude
+privaparse run -- aider
 ```
 
 `run` starts a gateway if none is listening, sets `OPENAI_BASE_URL` in the
@@ -371,10 +371,24 @@ privaparse serve
 OPENAI_BASE_URL=http://127.0.0.1:8787/v1 aider
 ```
 
-Anything that reads `OPENAI_BASE_URL` or takes a `base_url` works: the OpenAI
-Python and Node SDKs, Aider, Continue, Cline, LangChain, LlamaIndex, `curl`.
-Endpoints are `/v1/chat/completions` (streaming and non-streaming, tool calls
-included) and `/v1/models`.
+### Which clients this actually works with
+
+The gateway speaks **one wire protocol**: OpenAI Chat Completions. It serves
+`/v1/chat/completions` (streaming and non-streaming, tool calls included) and
+`/v1/models`. That is the whole surface, and it decides the list below.
+
+| Client | Works | Why |
+| --- | --- | --- |
+| `curl`, OpenAI Python/Node SDK | **yes**, exercised in the test suite and against a live vLLM | Chat Completions |
+| Aider, Continue, Cline, LangChain, LlamaIndex | expected — **not yet tested here** | all speak Chat Completions against a `base_url` |
+| Open WebUI, LibreChat | protocol yes — **but read the warning below first** | server-side clients put restored PII on that host |
+| **Codex CLI** | **no** | speaks the Responses API. `wire_api = "chat"` was removed in February 2026, so no configuration bridges it |
+| **Claude Code** | **no** | speaks the Anthropic Messages API and reads `ANTHROPIC_BASE_URL`, not `OPENAI_BASE_URL` |
+
+The last two need their own protocol adapters, which `extract.py` exists to
+make separate files rather than branches. Neither is written. Until they are,
+the honest summary is that this gateway covers OpenAI-compatible Chat
+Completions clients and nothing else.
 
 ### What it does to a request
 
