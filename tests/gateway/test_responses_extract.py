@@ -7,8 +7,8 @@ top-level `instructions` string; and the answer arrives as `output[]` items
 rather than `choices[]`.
 
 The fail-closed rule is unchanged and matters more here, because that union
-keeps growing. Four item types are walked -- the ones a coding agent actually
-sends -- and anything else carrying a string stops the request.
+keeps growing. Content-bearing items are walked, declarations and markers are
+passed over, and anything else carrying a string stops the request.
 """
 
 from __future__ import annotations
@@ -74,6 +74,25 @@ def test_a_function_call_output_is_walked():
     body = {"input": [{"type": "function_call_output", "call_id": "c1",
                        "output": "Kontakt: max@test.de"}]}
     assert [n.text for n in extract_input(body)] == ["Kontakt: max@test.de"]
+
+
+def test_a_custom_tool_call_input_is_scanned():
+    """A custom tool takes free-form text where a function tool takes JSON, so
+    this is content, not schema. For a coding agent it is the shell command
+    the model wrote -- the item that carries a working tree's contents."""
+    body = {"input": [
+        {"type": "custom_tool_call", "call_id": "c1", "name": "exec_command",
+         "id": "ctc_1", "input": "grep -r max@test.de /srv/app"},
+    ]}
+    assert [n.text for n in extract_input(body)] == ["grep -r max@test.de /srv/app"]
+
+
+def test_a_custom_tool_call_output_is_scanned():
+    body = {"input": [
+        {"type": "custom_tool_call_output", "call_id": "c1",
+         "output": "kunde.txt:Kontakt Max Mustermann"},
+    ]}
+    assert [n.text for n in extract_input(body)] == ["kunde.txt:Kontakt Max Mustermann"]
 
 
 def test_a_reasoning_item_is_passed_over_without_complaint():
@@ -144,6 +163,28 @@ def test_the_fields_a_real_codex_turn_sends_are_all_accounted_for():
     assert [n.text for n in extract_input(body)] == ["Du bist Codex.", "Max Mustermann"]
 
 
+def test_a_replayed_assistant_message_carries_structural_fields():
+    """Turn two hands back turn one's own output as input, and those items
+    carry fields a first turn never shows -- `phase` is the one a real Codex
+    session hit."""
+    body = {"input": [
+        {"type": "message", "role": "assistant", "id": "msg_1",
+         "status": "completed", "phase": "final_answer",
+         "content": [{"type": "output_text", "text": "Max Mustermann"}]},
+    ]}
+    assert [n.text for n in extract_input(body)] == ["Max Mustermann"]
+
+
+def test_a_replayed_tool_call_carries_caller_and_namespace():
+    body = {"input": [
+        {"type": "function_call", "call_id": "c1", "name": "send", "id": "fc_1",
+         "status": "completed", "namespace": "mail",
+         "caller": {"type": "program", "caller_id": "prog_1"},
+         "arguments": '{"to": "max@test.de"}'},
+    ]}
+    assert [n.text for n in extract_input(body)] == ["max@test.de"]
+
+
 def test_an_unknown_top_level_field_carrying_text_is_refused():
     with pytest.raises(UnscannableField) as excinfo:
         extract_input({"input": "hallo", "some_new_field": "Max Mustermann"})
@@ -212,3 +253,84 @@ def test_the_response_walk_never_raises():
     inbound is at worst a visible placeholder."""
     for junk in [None, [], {"output": "not a list"}, {"output": [{"type": "???"}]}]:
         assert extract_output(junk) == []
+
+
+# --- the rest of the input union, classified in one pass -------------------
+
+
+def test_a_shell_call_has_its_command_scanned():
+    """How a coding agent runs things, and how a working tree's contents reach
+    the model."""
+    body = {"input": [
+        {"type": "shell_call", "call_id": "c1", "status": "completed",
+         "action": {"type": "exec", "command": ["grep", "-r", "max@test.de", "/srv"],
+                    "timeout_ms": 5000}},
+    ]}
+    assert "max@test.de" in [n.text for n in extract_input(body)]
+
+
+def test_a_shell_call_output_is_scanned():
+    body = {"input": [
+        {"type": "shell_call_output", "call_id": "c1", "max_output_length": 1000,
+         "output": [{"type": "text", "text": "kunde.txt: Max Mustermann"}]},
+    ]}
+    assert "kunde.txt: Max Mustermann" in [n.text for n in extract_input(body)]
+
+
+def test_an_apply_patch_operation_is_scanned():
+    """A patch is a file's contents. Missing this would send a whole edited
+    file to the provider in the clear."""
+    body = {"input": [
+        {"type": "apply_patch_call", "call_id": "c1", "status": "completed",
+         "operation": {"type": "update_file", "path": "kunde.txt",
+                       "diff": "-alt\n+Kontakt: Max Mustermann"}},
+    ]}
+    assert "-alt\n+Kontakt: Max Mustermann" in [n.text for n in extract_input(body)]
+
+
+def test_a_local_shell_call_output_is_scanned():
+    body = {"input": [
+        {"type": "local_shell_call_output", "id": "lsc_1",
+         "output": "Kontakt: max@test.de"},
+    ]}
+    assert [n.text for n in extract_input(body)] == ["Kontakt: max@test.de"]
+
+
+def test_an_mcp_call_has_arguments_and_output_scanned():
+    body = {"input": [
+        {"type": "mcp_call", "id": "m1", "name": "send", "server_label": "mail",
+         "arguments": '{"to": "max@test.de"}', "output": "sent to Max Mustermann"},
+    ]}
+    found = [n.text for n in extract_input(body)]
+    assert '{"to": "max@test.de"}' in found
+    assert "sent to Max Mustermann" in found
+
+
+def test_identifiers_inside_a_tool_item_are_left_alone():
+    """A call_id substituted for a placeholder would break the client's own
+    bookkeeping."""
+    body = {"input": [
+        {"type": "shell_call", "call_id": "call_abc", "id": "sc_1",
+         "status": "completed", "action": {"type": "exec", "command": ["ls"]}},
+    ]}
+    assert [n.text for n in extract_input(body)] == ["ls"]
+
+
+def test_declarations_and_markers_are_passed_over():
+    body = {"input": [
+        {"type": "mcp_list_tools", "id": "m1", "server_label": "mail",
+         "tools": [{"name": "send", "description": "Send a mail"}]},
+        {"type": "item_reference", "id": "msg_1"},
+        {"type": "compaction_trigger"},
+        {"type": "message", "role": "user", "content": "hallo"},
+    ]}
+    assert [n.text for n in extract_input(body)] == ["hallo"]
+
+
+def test_an_image_generation_call_is_still_refused():
+    """Not everything gets waved through: an image is data the detector cannot
+    read, so it stops the request rather than being forwarded unexamined."""
+    body = {"input": [{"type": "image_generation_call", "id": "i1",
+                       "result": "iVBORw0KGgo=", "revised_prompt": "Max Mustermann"}]}
+    with pytest.raises(UnscannableField):
+        extract_input(body)

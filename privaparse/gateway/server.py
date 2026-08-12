@@ -189,7 +189,13 @@ def create_app(
             # every other request on the loop.
             batch = await run_in_threadpool(
                 lambda: engine.pseudonymize_batch(
-                    [node.text for node in nodes], detector=detector
+                    [node.text for node in nodes],
+                    detector=detector,
+                    # A chat client replays its history, so a placeholder that
+                    # survived unrestored comes back in. Refusing it would turn
+                    # one restoration miss into a conversation that can never
+                    # recover -- see pseudonymize_batch.
+                    adopt_placeholders=True,
                 )
             )
             outbound = write_back(body, nodes, batch.texts)
@@ -262,7 +268,13 @@ def create_app(
         if nodes:
             batch = await run_in_threadpool(
                 lambda: engine.pseudonymize_batch(
-                    [node.text for node in nodes], detector=detector
+                    [node.text for node in nodes],
+                    detector=detector,
+                    # A chat client replays its history, so a placeholder that
+                    # survived unrestored comes back in. Refusing it would turn
+                    # one restoration miss into a conversation that can never
+                    # recover -- see pseudonymize_batch.
+                    adopt_placeholders=True,
                 )
             )
             outbound = write_back(body, nodes, batch.texts)

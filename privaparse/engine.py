@@ -145,6 +145,7 @@ class PrivaParseEngine:
         *,
         source_name: str | None = None,
         detector: "Detector | None" = None,
+        adopt_placeholders: bool = False,
     ) -> "BatchResult":
         """Pseudonymise several texts under one mapping.
 
@@ -163,6 +164,7 @@ class PrivaParseEngine:
                 repo=self.repository(session),
                 settings=self.settings,
                 source_name=source_name,
+                adopt_placeholders=adopt_placeholders,
             )
 
     def reverse(

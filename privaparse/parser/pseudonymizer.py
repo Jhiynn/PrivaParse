@@ -123,6 +123,7 @@ def pseudonymize_batch(
     repo: VaultRepository,
     settings: "Settings",
     source_name: str | None = None,
+    adopt_placeholders: bool = False,
 ) -> BatchResult:
     """Pseudonymise several texts under one mapping, in one transaction.
 
@@ -158,14 +159,15 @@ def pseudonymize_batch(
     other mapping id instead: ``reverse()`` against it correctly resolves
     nothing.
     """
-    for index, text in enumerate(texts):
-        if contains_placeholder(text):
-            raise AlreadyPseudonymizedError(
-                f"text {index} already contains PrivaParse placeholders. "
-                "Pseudonymising it again would nest placeholders and make the "
-                "result irreversible. Reverse it first, or pass the original "
-                "document."
-            )
+    if not adopt_placeholders:
+        for index, text in enumerate(texts):
+            if contains_placeholder(text):
+                raise AlreadyPseudonymizedError(
+                    f"text {index} already contains PrivaParse placeholders. "
+                    "Pseudonymising it again would nest placeholders and make the "
+                    "result irreversible. Reverse it first, or pass the original "
+                    "document."
+                )
 
     protected = [protect(text, scan_code=settings.scan_code) for text in texts]
     raw = detector.detect_many([p.view for p in protected])
@@ -180,6 +182,15 @@ def pseudonymize_batch(
         )
         for index in range(len(texts))
     ]
+    if adopt_placeholders:
+        # A detector shown `[[PERSON_A1]]` can decide that is a name. Wrapping
+        # it in a second placeholder is the nesting the refusal above exists to
+        # prevent, so anything overlapping an existing one is dropped.
+        per_text_spans = [
+            _drop_spans_over_placeholders(text, spans)
+            for text, spans in zip(texts, per_text_spans)
+        ]
+
     for text, spans in zip(texts, per_text_spans):
         _verify_spans(text, spans)
     _ensure_known_types(per_text_spans, settings.catalogue)
@@ -205,6 +216,11 @@ def pseudonymize_batch(
         repo.add_mapping_entry(
             mapping, usage.entity, usage.restore_value, occurrences=usage.occurrences
         )
+
+    adopted = 0
+    if adopt_placeholders:
+        adopted = _adopt_existing(texts, mapping, repo, already={u.entity.id for u in
+                                                                 merged.values()})
     repo.session.commit()
 
     log.info(
@@ -230,6 +246,64 @@ def apply_replacements(text: str, spans: list[ResolvedSpan]) -> str:
         span = resolved.span
         out = f"{out[: span.start]}{resolved.placeholder}{out[span.end :]}"
     return out
+
+
+def _drop_spans_over_placeholders(text: str, spans: list[Span]) -> list[Span]:
+    """Remove detections that land on a placeholder already in the text."""
+    from privaparse.database.placeholder import find_placeholders
+
+    taken = [(m.start(), m.end()) for m in find_placeholders(text)]
+    if not taken:
+        return spans
+    return [
+        span
+        for span in spans
+        if not any(span.start < end and start < span.end for start, end in taken)
+    ]
+
+
+def _adopt_existing(
+    texts: Sequence[str],
+    mapping,  # type: ignore[no-untyped-def]
+    repo: VaultRepository,
+    *,
+    already: set,
+) -> int:
+    """Join placeholders already in the text to this request's mapping.
+
+    Without this the answer to a replayed turn comes back holding a
+    placeholder that only an *earlier* mapping could resolve, and ``reverse``
+    scopes to exactly one. The value is not re-detected and the text is not
+    touched -- only the vault entry that lets this mapping restore it.
+
+    A placeholder the vault never issued is skipped: invented downstream, or
+    left over from a vault that no longer exists. There is nothing to adopt
+    and nothing worth failing over.
+    """
+    from privaparse.database.placeholder import find_placeholders
+
+    seen: set[str] = set()
+    adopted = 0
+    for text in texts:
+        for match in find_placeholders(text):
+            placeholder = match.group(0)
+            if placeholder in seen:
+                continue
+            seen.add(placeholder)
+
+            entity = repo.entity_by_placeholder(placeholder)
+            if entity is None or entity.id in already:
+                continue
+            restore_value = entity.values[0] if entity.values else None
+            if restore_value is None:  # pragma: no cover - an entity always has one
+                continue
+            repo.add_mapping_entry(mapping, entity, restore_value, occurrences=1)
+            already.add(entity.id)
+            adopted += 1
+
+    if adopted:
+        log.info("adopted %d placeholder(s) already present into this mapping", adopted)
+    return adopted
 
 
 def _verify_spans(text: str, spans: list[Span]) -> None:

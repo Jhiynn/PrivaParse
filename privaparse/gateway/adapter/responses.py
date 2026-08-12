@@ -13,11 +13,22 @@ seam was built for. It is not a renamed Chat Completions:
 Codex CLI speaks only this protocol: `wire_api = "chat"` was removed in
 February 2026, so Chat Completions cannot serve it at all.
 
-**Four item types are walked.** `message`, `function_call`,
-`function_call_output` and `reasoning` are what a coding agent sends;
-everything else in that union stops the request. The union is long and still
-growing, and a walk that guessed at members it had never seen would be
-guessing about what leaves the machine.
+The input union has two dozen discriminators, and they fall into three
+groups rather than one:
+
+* **content** -- messages, tool calls and their outputs, shell actions, patch
+  operations. Walked. These are how a working tree reaches the model, and the
+  free-form ones are walked to their string leaves rather than field by field,
+  because their shapes vary too much to spell out and erring toward scanning
+  more is the right direction.
+* **declarations and markers** -- tool schemas, `item_reference`,
+  `compaction_trigger`, `reasoning`. Passed over: a schema is the client's own
+  code and a marker carries nothing.
+* **everything else** -- still stops the request. An image or a screenshot is
+  data the detector cannot read, and forwarding it would send it unexamined.
+
+The groups were settled by reading the openai package's typed models in one
+pass, after a real Codex session found four of them one 502 at a time.
 """
 
 from __future__ import annotations
@@ -80,8 +91,63 @@ REASONING_ITEM = "reasoning"
 #: same residual too: a person written into a tool description is forwarded.
 ADDITIONAL_TOOLS_ITEM = "additional_tools"
 
+#: A custom tool takes **free-form text** where a function tool takes JSON, so
+#: `input` here is content and not a schema: for a coding agent it is the
+#: shell command the model wrote, and the output is what that command printed.
+#: Both are walked. This is the item that carries a working tree's contents,
+#: and waving it through the way `tools` is waved through would forward
+#: exactly the material the tool exists to protect.
+CUSTOM_TOOL_CALL_ITEM = "custom_tool_call"
+CUSTOM_TOOL_CALL_OUTPUT_ITEM = "custom_tool_call_output"
+
+#: Items whose payload is free text in a shape too varied to spell out: a
+#: shell action holds a command list and an environment, an apply-patch
+#: operation holds a diff or a whole new file, an MCP call holds serialised
+#: arguments and whatever the server said back. Every one of them is how a
+#: working tree's contents reach the model, so they are walked to their string
+#: leaves rather than named field by field. Enumerating each nested shape
+#: would be a new patch per item type and a 502 for the user each time one
+#: appeared; walking the leaves scans more rather than less, which is the
+#: direction to err.
+FREEFORM_ITEMS = frozenset({
+    "shell_call", "shell_call_output",
+    "local_shell_call", "local_shell_call_output",
+    "apply_patch_call", "apply_patch_call_output",
+    "mcp_call", "mcp_approval_request", "mcp_approval_response",
+    "program", "program_output", "exec",
+})
+
+#: Structural keys skipped inside those items. Identifiers that must reach the
+#: provider unchanged, and opaque blobs there is no point scanning.
+FREEFORM_SKIP_KEYS = frozenset({
+    "type", "id", "call_id", "status", "caller", "namespace", "name",
+    "server_label", "approval_request_id", "max_output_length", "role",
+    "encrypted_content", "reason", "phase", "index", "output_index",
+    "content_index", "sequence_number", "annotations", "logprobs",
+})
+
+#: Declarations rather than content -- the `tools` argument again, in item
+#: form -- and markers carrying nothing at all.
+PASS_OVER_ITEMS = frozenset({
+    REASONING_ITEM, ADDITIONAL_TOOLS_ITEM,
+    "mcp_list_tools", "item_reference", "compaction_trigger",
+})
+
 # Structural item fields: identifiers and routing, never free text.
-IGNORED_ITEM_FIELDS = frozenset({"type", "role", "id", "call_id", "status", "name"})
+#
+# The last three arrive on *replayed* items -- an assistant message or a tool
+# call from an earlier turn, handed back as input on the next one -- which is
+# why a first turn never shows them:
+#   `phase`     Literal["commentary", "final_answer"], which the API asks
+#               clients to preserve and resend on assistant messages.
+#   `namespace` the namespace of the function to run; the same kind of
+#               client-side naming as `name`, which is already here.
+#   `caller`    {"type": "direct"} or {"caller_id": ..., "type": "program"} --
+#               identifiers for the item that produced a tool call.
+IGNORED_ITEM_FIELDS = frozenset({
+    "type", "role", "id", "call_id", "status", "name",
+    "phase", "namespace", "caller",
+})
 
 # Content parts. Only text can be scanned; an image or a file reference is
 # data the detector cannot read, so forwarding it would send it unexamined.
@@ -134,7 +200,11 @@ def _walk_item(item: dict, pointer: tuple[Any, ...], nodes: list[TextNode]) -> N
     if kind is None and "role" in item and "content" in item:
         kind = MESSAGE_ITEM
 
-    if kind == ADDITIONAL_TOOLS_ITEM:
+    if kind in PASS_OVER_ITEMS and kind != REASONING_ITEM:
+        return
+
+    if kind in FREEFORM_ITEMS:
+        _walk_freeform(item, pointer, nodes)
         return
 
     if kind == REASONING_ITEM:
@@ -165,7 +235,21 @@ def _walk_item(item: dict, pointer: tuple[Any, ...], nodes: list[TextNode]) -> N
                 _refuse_if_text(value, field, "unknown function call field")
         return
 
-    if kind == FUNCTION_CALL_OUTPUT_ITEM:
+    if kind == CUSTOM_TOOL_CALL_ITEM:
+        for key, value in item.items():
+            field = pointer + (key,)
+            if key in IGNORED_ITEM_FIELDS:
+                continue
+            if key == "input":
+                if isinstance(value, str):
+                    nodes.append(TextNode(field, value))
+                elif value is not None:
+                    raise UnscannableField(field, "expected custom tool input to be a string")
+            else:
+                _refuse_if_text(value, field, "unknown custom tool call field")
+        return
+
+    if kind in (FUNCTION_CALL_OUTPUT_ITEM, CUSTOM_TOOL_CALL_OUTPUT_ITEM):
         for key, value in item.items():
             field = pointer + (key,)
             if key in IGNORED_ITEM_FIELDS:
@@ -184,6 +268,28 @@ def _walk_item(item: dict, pointer: tuple[Any, ...], nodes: list[TextNode]) -> N
         return
 
     raise UnscannableField(pointer, f"input item of type {kind!r} cannot be scanned")
+
+
+def _walk_freeform(value: Any, pointer: tuple[Any, ...], nodes: list[TextNode]) -> None:
+    """Every string leaf of a tool item, skipping the structural keys.
+
+    Keys are never collected -- they are field names from a schema, not
+    anything a person typed -- and neither are numbers, which in a shell
+    action are exit codes and timeouts.
+    """
+    if isinstance(value, str):
+        if value:
+            nodes.append(TextNode(pointer, value))
+        return
+    if isinstance(value, dict):
+        for key, sub in value.items():
+            if key in FREEFORM_SKIP_KEYS:
+                continue
+            _walk_freeform(sub, pointer + (key,), nodes)
+        return
+    if isinstance(value, list):
+        for index, sub in enumerate(value):
+            _walk_freeform(sub, pointer + (index,), nodes)
 
 
 def _walk_content(value: Any, pointer: tuple[Any, ...], nodes: list[TextNode]) -> None:
