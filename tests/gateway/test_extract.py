@@ -99,6 +99,40 @@ def test_known_non_text_fields_are_ignored_without_complaint():
     assert [n.text for n in extract(body)] == ["hallo"]
 
 
+def test_a_tools_declaration_is_forwarded_without_being_scanned():
+    """A tool declaration is the client's own schema -- a function name, a
+    description of what it does, a parameter shape. None of it is anything a
+    user typed, and pseudonymising a tool's description would degrade the
+    model's choice of tool without protecting a person. Same rule, and the
+    same reason, as `response_format`.
+
+    Refusing it instead is not the safe option it looks like: it makes the
+    gateway unusable with every agent and IDE that declares tools, which sends
+    those users back to talking to the provider directly.
+    """
+    body = {
+        "model": "gpt-4o",
+        "messages": [{"role": "user", "content": "hallo"}],
+        "tools": [
+            {"type": "function", "function": {
+                "name": "send_mail",
+                "description": "Send a mail to a recipient",
+                "parameters": {"type": "object", "properties": {"to": {"type": "string"}}},
+            }}
+        ],
+    }
+    assert [n.text for n in extract(body)] == ["hallo"]
+
+
+def test_write_back_leaves_a_tools_declaration_exactly_as_it_arrived():
+    body = {
+        "messages": [{"role": "user", "content": "Max Mustermann"}],
+        "tools": [{"type": "function", "function": {"name": "send", "description": "Send"}}],
+    }
+    out = write_back(body, extract(body), ["[[PERSON_A1]]"])
+    assert out["tools"] == body["tools"]
+
+
 def test_write_back_round_trips_and_reserialises_tool_arguments():
     body = {"messages": [{"role": "assistant", "tool_calls": [
         {"id": "1", "type": "function", "function": {
@@ -137,20 +171,34 @@ def test_the_pointer_of_a_refusal_locates_the_field():
     assert excinfo.value.pointer == ("messages", 1, "surprise")
 
 
-def test_tool_definitions_are_refused_until_a_later_task_decides_the_rule():
-    """`tools` is neither walked nor ignored, so the fail-closed rule catches it.
+def test_a_person_written_into_a_tool_description_is_forwarded():
+    """The cost of waving `tools` through, stated rather than discovered.
 
-    Every coding agent sends tool definitions, so this refusal is load-bearing
-    and temporary: the question of whether a function description should be
-    scanned or waved through is a decision the plan does not make, and
-    refusing is the only answer that cannot leak while it is open.
+    A tool description is client-authored boilerplate in every case this
+    gateway is built for, so it is not scanned -- but a client that writes a
+    person into one sends that person to the provider. The alternative was
+    refusing every request that declares a tool, which is every coding agent
+    there is.
     """
     body = {"messages": [{"role": "user", "content": "hallo"}],
             "tools": [{"type": "function", "function": {
                 "name": "send_mail", "description": "Send mail to Max Mustermann"}}]}
-    with pytest.raises(UnscannableField) as excinfo:
+
+    nodes = extract(body)
+
+    assert [n.text for n in nodes] == ["hallo"]
+    assert "Max Mustermann" in write_back(body, nodes, ["hallo"])["tools"][0]["function"][
+        "description"
+    ]
+
+
+def test_the_deprecated_functions_field_is_still_refused():
+    """Same shape, same argument, but untested -- so it keeps the refusal a
+    caller can see rather than an allowance nobody checked."""
+    body = {"messages": [{"role": "user", "content": "hallo"}],
+            "functions": [{"name": "send_mail", "description": "Send mail"}]}
+    with pytest.raises(UnscannableField):
         extract(body)
-    assert "tools" in str(excinfo.value)
 
 
 def test_a_string_hidden_under_an_ignored_field_is_still_ignored():

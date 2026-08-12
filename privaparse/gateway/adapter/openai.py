@@ -18,9 +18,24 @@ from __future__ import annotations
 # sequences, and `response_format` nests a JSON schema whose strings describe
 # a shape rather than a person. Pseudonymising any of them would corrupt the
 # request without protecting anyone.
+#
+# `tools` belongs to the same group and is the largest of them: a function
+# name, a description of what it does, a JSON Schema for its parameters. All
+# of it is written by the client's own code rather than typed by a user, and
+# replacing a name or a description with a placeholder would degrade the
+# model's choice of tool while protecting nobody. Refusing it is not the safer
+# reading it appears to be -- it makes the gateway unusable with every agent
+# and IDE that declares tools, which sends exactly those users back to the
+# provider directly. What it does leave open is a client that writes a person
+# into a tool description; that text is forwarded.
+#
+# The deprecated `functions` / `function_call` pair is deliberately absent. It
+# is the same shape and the same argument, but nothing here is tested against
+# it, and a refusal a caller can see beats an allowance nobody checked.
 IGNORED_REQUEST_FIELDS = frozenset(
     {
         "model",
+        "tools",
         "temperature",
         "stream",
         "max_tokens",
