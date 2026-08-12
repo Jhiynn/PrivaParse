@@ -140,15 +140,26 @@ class PrivaParseEngine:
             )
 
     def pseudonymize_batch(
-        self, texts: "Sequence[str]", *, source_name: str | None = None
+        self,
+        texts: "Sequence[str]",
+        *,
+        source_name: str | None = None,
+        detector: "Detector | None" = None,
     ) -> "BatchResult":
-        """Pseudonymise several texts under one mapping."""
+        """Pseudonymise several texts under one mapping.
+
+        ``detector`` overrides the engine's own for this call, the same
+        injection the constructor offers. The gateway uses it to put a caching
+        wrapper in front of detection without owning the detector itself —
+        and the default is read lazily, so a caller that passes one never
+        triggers the model load.
+        """
         from privaparse.parser.pseudonymizer import pseudonymize_batch
 
         with self.database.session() as session:
             return pseudonymize_batch(
                 texts,
-                detector=self.detector,
+                detector=detector if detector is not None else self.detector,
                 repo=self.repository(session),
                 settings=self.settings,
                 source_name=source_name,

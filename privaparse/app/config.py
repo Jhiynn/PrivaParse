@@ -105,6 +105,17 @@ class Settings(BaseSettings):
         "also faster on GPU. Below ~384 precision starts to suffer.",
     )
 
+    # --- gateway -------------------------------------------------------------
+    gateway_cache: int = Field(
+        default=2048,
+        ge=0,
+        description="How many text blocks the gateway keeps detection results for. "
+        "A chat client resends its whole history every turn, so most blocks of a "
+        "request were already detected on the previous one. 0 turns the cache off; "
+        "the entries hold entity values in memory, and an operator may prefer that "
+        "they not outlive the request that produced them.",
+    )
+
     # --- logging -----------------------------------------------------------
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 

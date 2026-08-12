@@ -8,8 +8,12 @@ The route fails closed. Anything the extraction seam cannot place stops the
 request where it stands, before a byte reaches the provider -- a 502 returned
 after forwarding would satisfy a status-code check and leak regardless.
 
-Restoration of the answer is the next task; today the upstream body is
-returned as it arrived, placeholders and all.
+The answer is restored on the way back, and that half never aborts: a failure
+outbound risks disclosure, a failure inbound costs readability.
+
+Detection results are cached per text block for the life of the process, which
+is what keeps a twentieth chat turn from re-detecting nineteen unchanged
+messages. Nothing else about a request is reused -- see `cache.py`.
 """
 
 from __future__ import annotations
@@ -23,6 +27,7 @@ from starlette.routing import Route
 from privaparse.app.config import Settings
 from privaparse.app.logging import get_logger
 from privaparse.engine import PrivaParseEngine
+from privaparse.gateway.cache import CachingDetector, DetectionCache
 from privaparse.gateway.extract import (
     UnscannableField,
     extract,
@@ -92,6 +97,11 @@ def create_app(
     """
     engine = engine if engine is not None else PrivaParseEngine(settings)
     upstream = upstream if upstream is not None else Upstream(_DEFAULT_UPSTREAM_BASE_URL)
+    # One cache for the process. Detection is the expensive half of the
+    # request path and a chat client resends its whole history every turn, so
+    # most blocks of any request but the first were detected already.
+    cache = DetectionCache(settings.gateway_cache)
+    detector = CachingDetector(engine, cache)
 
     async def healthz(request: Request) -> JSONResponse:
         # "ready" means the engine exists: settings validated, vault database
@@ -145,7 +155,9 @@ def create_app(
             # blocking, so it goes to a worker thread rather than stalling
             # every other request on the loop.
             batch = await run_in_threadpool(
-                engine.pseudonymize_batch, [node.text for node in nodes]
+                lambda: engine.pseudonymize_batch(
+                    [node.text for node in nodes], detector=detector
+                )
             )
             outbound = write_back(body, nodes, batch.texts)
             mapping_id = batch.mapping_id
@@ -169,4 +181,7 @@ def create_app(
     # is ever stored here -- see test_the_gateway_stores_no_credential.
     app.state.engine = engine
     app.state.upstream = upstream
+    # `privaparse gateway stats` reports the hit rate off this. It holds
+    # digests and spans, never a request body.
+    app.state.cache = cache
     return app
