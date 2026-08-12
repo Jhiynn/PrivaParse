@@ -11,6 +11,7 @@ module scope.
 
 from __future__ import annotations
 
+import threading
 from typing import Callable, TypeVar
 
 __all__ = [
@@ -84,19 +85,32 @@ def known_backstops() -> frozenset[str]:
 
 _loaded = False
 
+#: Re-entrant on purpose. Two different callers have to be kept apart here and
+#: they need opposite treatment: a *concurrent* caller must wait until the
+#: import has finished, while the *importing thread itself* must be let
+#: straight back in, because the modules being imported call back into this
+#: one to register. A plain Lock would serve the first and deadlock the second.
+_import_lock = threading.RLock()
+
 
 def load_builtins() -> None:
     """Import the modules that populate the registries. Idempotent.
 
-    Tasks 4 and 5 add ``validators`` and ``backstops`` to the import list when
-    those modules exist. Importing a module that has not been written yet would
-    mean shipping a stub, and a stub that returns nothing is indistinguishable
-    from a finder that found nothing.
+    The flag is set *after* the imports, not before. Setting it first also
+    keeps a re-entrant call from recursing -- but it hands every thread that
+    arrives mid-import a registry that is still empty, and the caller has no
+    way to tell that from a registry with nothing in it. Downstream it surfaces
+    as ``CatalogueError: EMAIL: unknown backstop 'email' (known: )`` on a
+    request whose only mistake was arriving at the same moment as another one.
+    The gateway made that ordinary: every request detects in a worker thread,
+    so a cold process gets a dozen threads here at once.
     """
     global _loaded
     if _loaded:
         return
-    # Set first: the import below reaches back into this module to register, and
-    # a re-entrant call must not recurse.
-    _loaded = True
-    from privaparse.parser import backstops, normalizer, validators  # noqa: F401
+    with _import_lock:
+        if _loaded:
+            return
+        from privaparse.parser import backstops, normalizer, validators  # noqa: F401
+
+        _loaded = True

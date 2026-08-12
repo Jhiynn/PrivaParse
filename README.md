@@ -487,6 +487,13 @@ binding `0.0.0.0` inside the container, and the image has no way to ask for
 that. Mount `/data` — the vault must outlive the container, or every past
 answer becomes unrestorable.
 
+Both targets are built and run under podman as part of testing; `full` was
+verified to detect with `--network none`, which is the whole point of baking
+the weights. One podman quirk: its default OCI image format silently drops
+`HEALTHCHECK`, so `podman build --format docker` is needed if you want the
+container healthcheck. Docker's builder keeps it either way. The image is
+large — 5.3 GB slim, 6.6 GB full — and that is torch, not PrivaParse.
+
 ## Configuration
 
 Every setting is an environment variable with the `PRIVAPARSE_` prefix, or a
