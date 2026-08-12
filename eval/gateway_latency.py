@@ -122,9 +122,14 @@ def main() -> None:
     engine = PrivaParseEngine(settings)
     print(f"device: {engine.device.describe()}")
     print(f"model:  {settings.model_id}")
-    # Load the weights before the clock starts. The first-turn number is about
-    # a running gateway, not about starting one.
-    engine.detector.detect("Aufwärmen mit Max Mustermann.")
+    # Warm up at full size, not with a short string. On CUDA `compile` defaults
+    # to on, and torch.compile fires on the first batch of a given shape -- so a
+    # one-sentence warmup leaves the whole compilation in the first measured
+    # request and produces the tell-tale result of a 50 KB payload timing slower
+    # than a 200 KB one. `detect` is read-only: it touches neither the vault nor
+    # the gateway's cache, so the measured runs still start cold.
+    print("warming up at full payload size ...")
+    engine.detect(_message(max(args.sizes) * 1024))
 
     rows = []
     for kilobytes in args.sizes:
@@ -148,6 +153,9 @@ def main() -> None:
         })
         print(json.dumps(rows[-1]))
 
+    print()
+    print("Cold = detection cache empty, model already warm: the first turn of a")
+    print("conversation against a gateway that has been up for a while.")
     print()
     print("| Payload | Cold (first turn) | Warm median | Warm range | Entities | Cache hits |")
     print("| ---: | ---: | ---: | ---: | ---: | ---: |")

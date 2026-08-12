@@ -36,8 +36,15 @@ ever built to answer (see `EvalReport.verdict()` in
 `privaparse/evaluation/harness.py`). Measured on the German gold set in
 `eval/gold/` — **91 documents, 33 with no PII at all** (a gold set with only
 positives cannot see a false positive, which turns out to be exactly where
-this configuration struggles) — scored against the catalogue PrivaParse
-ships today: **21 enabled types, 35 labels**.
+this configuration struggles) — scored at **21 enabled types, 35 labels**.
+
+The catalogue ships **31** labels today, not 35. The four that went are the
+four the per-label sweep found zero gold entities for
+([docs/label-report.md](docs/label-report.md)), so their removal cannot move
+any number in this section — a label that detected nothing contributed nothing
+to detect. The scores below are still the scores of what ships; only the label
+count differs, and it is stated here rather than quietly corrected because the
+run itself was scored at 35.
 
 An earlier note in this README quoted PERSON at P 0.967 / R 0.983 / F1
 0.975, measured under 3 labels on 38 documents, 10 of them negatives. That
@@ -392,6 +399,27 @@ otherwise produce arguments the client cannot parse.
 Detection is cached per text block, keyed by the catalogue as well as the
 text. A chat client resends its whole history every turn, so most blocks of
 any request but the first were detected already.
+
+### What it costs
+
+Measured on an RTX 3060 against a coding-agent payload, with the provider
+stubbed out — the provider's own latency is not PrivaParse's to report and
+dwarfs these numbers anyway:
+
+| Payload | First turn (cache empty) | Later turns (median) |
+| ---: | ---: | ---: |
+| 52 KB | 3.40 s | 0.27 s |
+| 209 KB | 12.32 s | 1.07 s |
+
+65 ms per KB cold, 5.2 ms per KB warm; the detection cache takes about 92 % off
+a repeated turn. Both scale linearly with payload size, so they extrapolate.
+
+The warm second is not detection — that is cached — it is span resolution and
+the vault writes behind it, which every request does because a mapping is what
+scopes an answer to one session. Full method, environment and caveats in
+[docs/gateway-latency-report.md](docs/gateway-latency-report.md); the most
+important caveat is that the measurement ran on four cores, so the warm figure
+should improve on a workstation.
 
 ### Restoration puts real PII into the client
 
