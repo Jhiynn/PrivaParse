@@ -14,8 +14,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 
 import httpx
+
+
+def _headers() -> dict[str, str]:
+    key = os.environ.get("OPENAI_API_KEY")
+    return {"Authorization": f"Bearer {key}"} if key else {}
+
 
 ADDRESS = "beate.sonderzeichen@musterfirma-testxyz.de"
 PROMPT = f"Wiederhole die folgende Zeile exakt, ohne Kommentar:\nKontakt: {ADDRESS}"
@@ -28,8 +35,8 @@ def report(name: str, ok: bool, detail: str = "") -> None:
 def non_streaming(base: str, model: str) -> None:
     body = {"model": model, "messages": [{"role": "user", "content": PROMPT}],
             "temperature": 0, "max_tokens": 80}
-    text = httpx.post(f"{base}/chat/completions", json=body, timeout=120) \
-        .json()["choices"][0]["message"]["content"]
+    text = httpx.post(f"{base}/chat/completions", json=body, headers=_headers(),
+                      timeout=120).json()["choices"][0]["message"]["content"]
     report("non-streaming restores the address", ADDRESS in text, text.strip()[:120])
 
 
@@ -37,7 +44,8 @@ def streaming(base: str, model: str) -> None:
     body = {"model": model, "messages": [{"role": "user", "content": PROMPT}],
             "temperature": 0, "max_tokens": 80, "stream": True}
     pieces, events = [], 0
-    with httpx.stream("POST", f"{base}/chat/completions", json=body, timeout=120) as response:
+    with httpx.stream("POST", f"{base}/chat/completions", json=body,
+                      headers=_headers(), timeout=120) as response:
         for line in response.iter_lines():
             line = line.strip()
             if not line.startswith("data: ") or line == "data: [DONE]":
@@ -66,7 +74,8 @@ def tool_call(base: str, model: str) -> None:
         "tool_choice": "auto", "temperature": 0, "max_tokens": 120, "stream": True,
     }
     calls, events = [], 0
-    with httpx.stream("POST", f"{base}/chat/completions", json=body, timeout=120) as response:
+    with httpx.stream("POST", f"{base}/chat/completions", json=body,
+                      headers=_headers(), timeout=120) as response:
         if response.status_code != 200:
             response.read()
             report("streamed tool call", False,

@@ -18,8 +18,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 
 import httpx
+
+
+def _headers() -> dict[str, str]:
+    key = os.environ.get("OPENAI_API_KEY")
+    return {"Authorization": f"Bearer {key}"} if key else {}
 
 CASES = [
     ("echo, email", "Wiederhole exakt, ohne Kommentar:\nKontakt: [[EMAIL_A1]]", "[[EMAIL_A1]]"),
@@ -47,7 +53,7 @@ def main() -> None:
         body = {"model": args.model, "temperature": 0, "max_tokens": 90,
                 "messages": [{"role": "user", "content": prompt}]}
         answer = httpx.post(
-            f"{args.url}/chat/completions", json=body, timeout=120
+            f"{args.url}/chat/completions", json=body, headers=_headers(), timeout=120
         ).json()["choices"][0]["message"]["content"]
         ok = placeholder in answer
         intact += ok

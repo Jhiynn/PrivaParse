@@ -16,8 +16,20 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 
 import httpx
+
+
+def _headers() -> dict[str, str]:
+    """Forward the caller's own key, if they set one.
+
+    The gateway keeps no credential and passes this straight through, so a
+    real provider needs it and a stub ignores it. Read from the environment
+    and never printed -- it appears in no output of this script.
+    """
+    key = os.environ.get("OPENAI_API_KEY")
+    return {"Authorization": f"Bearer {key}"} if key else {}
 
 # Values the regex backstops catch on their own, so the measurement is about
 # restoration rather than about detection quality.
@@ -58,10 +70,16 @@ def run_case(base: str, model: str, prompt: str, stream: bool) -> str:
     if stream:
         body["stream"] = True
         with httpx.stream("POST", f"{base}/chat/completions", json=body,
-                          timeout=180) as response:
+                          headers=_headers(), timeout=180) as response:
             return _sse_content("\n\n".join(response.iter_lines()))
-    response = httpx.post(f"{base}/chat/completions", json=body, timeout=180)
-    return response.json()["choices"][0]["message"]["content"]
+    response = httpx.post(f"{base}/chat/completions", json=body,
+                          headers=_headers(), timeout=180)
+    payload = response.json()
+    if "choices" not in payload:
+        # A provider error -- an auth failure or an unknown model -- is far
+        # more useful surfaced than swallowed as a KeyError.
+        raise RuntimeError(f"HTTP {response.status_code}: {json.dumps(payload)[:300]}")
+    return payload["choices"][0]["message"]["content"]
 
 
 def main() -> None:
@@ -77,7 +95,9 @@ def main() -> None:
         try:
             answer = run_case(args.url, args.model, prompt, stream)
         except Exception as error:  # noqa: BLE001 - a run reports, never raises
-            rows.append({"case": name, "ok": False, "error": f"{type(error).__name__}"})
+            rows.append({"case": name, "ok": False, "error": str(error)[:200]})
+            if args.verbose:
+                print(f"  [ERR ] {name}: {error}")
             continue
         ok = expected in answer
         restored += ok
@@ -85,12 +105,16 @@ def main() -> None:
         if args.verbose:
             print(f"  [{'ok ' if ok else 'MISS'}] {name}: {json.dumps(answer.strip()[:90])}")
 
+    errors = [row for row in rows if row.get("error")]
     print(json.dumps({
         "label": args.label,
         "restored": restored,
         "total": len(CASES),
+        "errors": len(errors),
         "cases": {row["case"]: bool(row.get("ok")) for row in rows},
     }))
+    for row in errors[:2]:
+        print(f"  ! {row['case']}: {row['error']}")
 
 
 if __name__ == "__main__":
