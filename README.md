@@ -442,6 +442,23 @@ not by binding a wider address.
 
 ### Known gaps
 
+**Restoration needs the model to hand the placeholder back unchanged, and a
+small model does not.** `reverse` matches exactly, so an answer containing
+`[EMAIL_A1]` — one bracket pair short — restores nothing. Measured against
+Qwen2.5-1.5B through vLLM: **0 of 6 placeholders came back byte-exact** in free
+prose, mangled four different ways (bracket dropped, prose-ified to "Person
+A1", omitted, quotes injected). Streamed *tool calls* were perfect across three
+runs, because a schema field gets transcribed rather than composed.
+
+Nothing leaks — the provider only ever saw the placeholder, and the user sees a
+placeholder instead of their data, which is the safe direction. But it is
+silent and it is total, and it hits hardest in exactly the configuration
+`PRIVAPARSE_GATEWAY_UPSTREAM` exists to enable. Large models are far better at
+verbatim reproduction; that has not been measured here. Full account in
+[docs/gateway-model-fidelity-report.md](docs/gateway-model-fidelity-report.md),
+reproduce with `eval/placeholder_fidelity.py` against your own model before
+trusting a deployment.
+
 **`TAX_ID` recall is 0.000 on the gold set, and the gateway inherits that
 exactly.** Four German Steuer-IDs in the gold set are detected as PHONE
 instead — the bare form is matched by the phone backstop, the grouped form is
