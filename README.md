@@ -373,22 +373,41 @@ OPENAI_BASE_URL=http://127.0.0.1:8787/v1 aider
 
 ### Which clients this actually works with
 
-The gateway speaks **one wire protocol**: OpenAI Chat Completions. It serves
-`/v1/chat/completions` (streaming and non-streaming, tool calls included) and
-`/v1/models`. That is the whole surface, and it decides the list below.
+The gateway speaks **two wire protocols**: OpenAI Chat Completions and the
+OpenAI Responses API. It serves `/v1/chat/completions`, `/v1/responses` (both
+streaming and non-streaming, tool calls included) and `/v1/models`.
 
 | Client | Works | Why |
 | --- | --- | --- |
-| `curl`, OpenAI Python/Node SDK | **yes**, exercised in the test suite and against a live vLLM | Chat Completions |
-| Aider, Continue, Cline, LangChain, LlamaIndex | expected — **not yet tested here** | all speak Chat Completions against a `base_url` |
+| `curl`, OpenAI Python/Node SDK | **yes**, exercised in the suite and against a live vLLM | Chat Completions |
+| **Codex CLI** | **implemented, not yet run against the real thing** | Responses API — see below |
+| Aider, Continue, Cline, LangChain, LlamaIndex | expected — **not tested here** | Chat Completions against a `base_url` |
 | Open WebUI, LibreChat | protocol yes — **but read the warning below first** | server-side clients put restored PII on that host |
-| **Codex CLI** | **no** | speaks the Responses API. `wire_api = "chat"` was removed in February 2026, so no configuration bridges it |
 | **Claude Code** | **no** | speaks the Anthropic Messages API and reads `ANTHROPIC_BASE_URL`, not `OPENAI_BASE_URL` |
 
-The last two need their own protocol adapters, which `extract.py` exists to
-make separate files rather than branches. Neither is written. Until they are,
-the honest summary is that this gateway covers OpenAI-compatible Chat
-Completions clients and nothing else.
+### Codex CLI
+
+Codex speaks only the Responses API — `wire_api = "chat"` was removed in
+February 2026 — which is why the second adapter exists. Point it at the
+gateway in `~/.codex/config.toml`:
+
+```toml
+model_provider = "privaparse"
+
+[model_providers.privaparse]
+name = "PrivaParse"
+base_url = "http://127.0.0.1:8787/v1"
+env_key = "OPENAI_API_KEY"
+wire_api = "responses"
+```
+
+**This has passed its tests but has never been run against the real Codex
+CLI.** The input item union has 32 members and the walk covers the four a
+coding agent is expected to send (`message`, `function_call`,
+`function_call_output`, `reasoning`); anything else stops the request with a
+502 naming the field. That is the designed failure rather than a leak, but
+expect a first run to turn up an item type or two worth adding. The 502 body
+tells you which.
 
 ### What it does to a request
 

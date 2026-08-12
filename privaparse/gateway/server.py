@@ -40,6 +40,7 @@ from privaparse.gateway.extract import (
 )
 from privaparse.gateway.metrics import Metrics
 from privaparse.gateway.stream import max_placeholder_length, restore_sse
+from privaparse.gateway.stream_responses import restore_responses_sse
 from privaparse.gateway.upstream import Upstream
 
 logger = get_logger(__name__)
@@ -242,17 +243,7 @@ def create_app(
         except ValueError:
             return _error(400, "the request body is not valid JSON", "invalid_request_error")
 
-        if bool(body.get("stream")) if isinstance(body, dict) else False:
-            # Typed SSE events (`response.output_text.delta`) need their own
-            # hold-back, which is not written. Forwarding now would
-            # pseudonymise correctly and hand back an answer full of
-            # placeholders: a partial success that reads as a working gateway.
-            return _error(
-                501,
-                "streaming is not restored on /v1/responses yet, so this gateway "
-                "will not forward a streaming request",
-                "not_implemented",
-            )
+        streaming = bool(body.get("stream")) if isinstance(body, dict) else False
 
         try:
             nodes = responses_shape.extract_input(body)
@@ -281,6 +272,19 @@ def create_app(
                 outbound = responses_shape.with_placeholder_hint(outbound)
 
         metrics.record(entities=entities, seconds=time.perf_counter() - started)
+
+        if streaming:
+            relay = upstream.stream(RESPONSES_PATH, outbound, request.headers)
+            if mapping_id is not None:
+                relay = restore_responses_sse(
+                    relay,
+                    restore=_stream_restorer(
+                        engine, mapping_id, fuzzy=settings.gateway_fuzzy
+                    ),
+                    max_hold=max_placeholder_length(engine.catalogue),
+                    lenient=settings.gateway_fuzzy,
+                )
+            return StreamingResponse(relay, media_type="text/event-stream")
 
         status, reply, _headers = await upstream.post_json(
             RESPONSES_PATH, outbound, request.headers

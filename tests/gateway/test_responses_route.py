@@ -98,15 +98,44 @@ def test_the_hint_is_prepended_as_an_input_item(settings, fake_detector, upstrea
     assert "[[" in first["content"]
 
 
-def test_a_streaming_request_is_refused_while_restoration_is_missing(
-    settings, fake_detector, upstream
-):
-    """Codex streams by default, so this is the gap that still blocks it. A
-    forwarded stream would pseudonymise correctly and hand back an answer full
-    of placeholders -- worse than a refusal, because it looks like it worked."""
+def test_a_streamed_answer_is_restored(settings, fake_detector, upstream):
+    """Codex streams by default, so this is the path that matters for it."""
+    import json as _json
+
+    def chunks_for(body):
+        sent = body["input"][-1]["content"]
+        placeholder = sent[sent.index("[["):sent.index("]]") + 2]
+        out = []
+        for character in f"Hallo {placeholder}":
+            out.append(
+                b"data: " + _json.dumps({
+                    "type": "response.output_text.delta", "delta": character,
+                    "item_id": "msg_1", "output_index": 0, "content_index": 0,
+                    "sequence_number": 1,
+                }).encode() + b"\n\n"
+            )
+        out.append(
+            b"data: " + _json.dumps({
+                "type": "response.output_text.done", "item_id": "msg_1",
+                "output_index": 0, "content_index": 0, "sequence_number": 9,
+                "text": f"Hallo {placeholder}",
+            }).encode() + b"\n\n"
+        )
+        return out
+
+    upstream.chunks_for = chunks_for
     client = _client(settings, fake_detector, upstream)
 
     response = client.post(RESPONSES_PATH, json={**_ASK, "stream": True})
 
-    assert response.status_code == 501
-    assert upstream.requests == []
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    text = "".join(
+        _json.loads(line[6:]).get("delta", "")
+        for block in response.text.split("\n\n")
+        for line in [block.strip()]
+        if line.startswith("data: ")
+        and _json.loads(line[6:]).get("type") == "response.output_text.delta"
+    )
+    assert text == "Hallo Max Mustermann"
+    assert "Max Mustermann" not in upstream.last["input"][0]["content"]
