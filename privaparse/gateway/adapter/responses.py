@@ -72,6 +72,13 @@ MESSAGE_ITEM = "message"
 FUNCTION_CALL_ITEM = "function_call"
 FUNCTION_CALL_OUTPUT_ITEM = "function_call_output"
 REASONING_ITEM = "reasoning"
+#: Tool definitions handed over mid-conversation: `{role, tools[], type, id}`.
+#: The same content as the top-level `tools` field and waved through for the
+#: same reason -- a function name, a description and a JSON Schema are the
+#: client's own code, not anything a user typed, and replacing them would
+#: degrade the model's choice of tool while protecting nobody. It carries the
+#: same residual too: a person written into a tool description is forwarded.
+ADDITIONAL_TOOLS_ITEM = "additional_tools"
 
 # Structural item fields: identifiers and routing, never free text.
 IGNORED_ITEM_FIELDS = frozenset({"type", "role", "id", "call_id", "status", "name"})
@@ -126,6 +133,9 @@ def _walk_item(item: dict, pointer: tuple[Any, ...], nodes: list[TextNode]) -> N
     kind = item.get("type")
     if kind is None and "role" in item and "content" in item:
         kind = MESSAGE_ITEM
+
+    if kind == ADDITIONAL_TOOLS_ITEM:
+        return
 
     if kind == REASONING_ITEM:
         # Encrypted content is opaque, and a summary is the model's own words

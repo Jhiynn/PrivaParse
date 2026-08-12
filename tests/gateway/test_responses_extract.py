@@ -86,6 +86,21 @@ def test_a_reasoning_item_is_passed_over_without_complaint():
     assert [n.text for n in extract_input(body)] == ["hallo"]
 
 
+def test_an_additional_tools_item_is_passed_over():
+    """Tool definitions handed over mid-conversation, which a real Codex turn
+    against a live model sends. Same content as the top-level `tools` field,
+    so the same rule -- and the same cost: a person written into a tool
+    description is forwarded.
+    """
+    body = {"input": [
+        {"type": "additional_tools", "role": "developer", "id": "at_1", "tools": [
+            {"type": "function", "name": "apply_patch", "description": "Edit a file"},
+        ]},
+        {"type": "message", "role": "user", "content": "Max Mustermann"},
+    ]}
+    assert [n.text for n in extract_input(body)] == ["Max Mustermann"]
+
+
 def test_known_non_text_fields_are_ignored():
     body = {
         "model": "gpt-5-codex", "temperature": 0.2, "stream": True, "store": False,
