@@ -11,6 +11,13 @@ knows nothing about HTTP; :func:`restore_sse` frames the events and calls the
 vault. The first is where the hard reasoning lives and it is testable with
 plain strings.
 
+Tool calls are held back for a different reason and for longer. Their
+arguments arrive as JSON fragments -- `{"to": "`, then `[[EMAIL`, then
+`_A2]]"}` -- which cannot be parsed, and therefore cannot be restored, until
+the last one lands. So the fragments are collected and the call is emitted
+once, complete, on the chunk that finishes the choice. Nothing is lost by not
+streaming them: a partial tool call is not executable.
+
 Like the non-streaming response path, nothing here aborts an answer. A
 restoration that fails shows a placeholder; an exception would truncate an
 answer the caller has already paid for.
@@ -114,6 +121,10 @@ async def restore_sse(
     """
     decoder = codecs.getincrementaldecoder("utf-8")()
     holds: dict[Any, HoldBack] = {}
+    # choice index -> tool-call index -> the call being assembled. Arguments
+    # arrive as JSON fragments that cannot be parsed until the last one lands,
+    # so they are collected rather than relayed.
+    calls: dict[Any, dict[Any, dict[str, Any]]] = {}
     skeleton: dict[str, Any] | None = None
     pending = ""
 
@@ -148,25 +159,39 @@ async def restore_sse(
             hold = holds.setdefault(index, HoldBack(max_hold))
             content = delta.get("content")
             released = hold.feed(content) if isinstance(content, str) else ""
+
+            _collect_tool_calls(delta.pop("tool_calls", None), calls.setdefault(index, {}))
+
             if choice.get("finish_reason") is not None:
                 # Last word on this choice. Whatever is still held will never
                 # be completed by a later delta, so it goes out here.
                 released += hold.flush()
+                buffered = calls.pop(index, None)
+                if buffered:
+                    delta["tool_calls"] = await _assemble(buffered, restored)
             if isinstance(content, str) or released:
                 delta["content"] = await restored(released)
         return payload
 
     async def tail() -> AsyncIterator[bytes]:
-        """Anything still held when the stream stops, as its own chunk."""
-        for index, hold in holds.items():
-            left = hold.flush()
-            if not left or skeleton is None:
+        """Anything still held when the stream stops, as its own chunk.
+
+        Reached when a provider ends without a `finish_reason` -- a dropped
+        connection, a proxy that closes early. The held text and any tool call
+        assembled so far are still the caller's.
+        """
+        for index in list(dict.fromkeys([*holds, *calls])):
+            left = holds[index].flush() if index in holds else ""
+            buffered = calls.pop(index, None)
+            if skeleton is None or (not left and not buffered):
                 continue
+            delta: dict[str, Any] = {}
+            if left:
+                delta["content"] = await restored(left)
+            if buffered:
+                delta["tool_calls"] = await _assemble(buffered, restored)
             payload = dict(skeleton)
-            payload["choices"] = [
-                {"index": index, "delta": {"content": await restored(left)},
-                 "finish_reason": None}
-            ]
+            payload["choices"] = [{"index": index, "delta": delta, "finish_reason": None}]
             yield _encode(payload)
 
     async for raw in chunks:
@@ -211,6 +236,86 @@ async def restore_sse(
         yield pending.encode("utf-8")
     async for event in tail():
         yield event
+
+
+def _collect_tool_calls(fragments: Any, buffered: dict[Any, dict[str, Any]]) -> None:
+    """Merge a delta's tool-call fragments into what is being assembled.
+
+    A provider sends the id, the type and the function name with the first
+    fragment of each call and only argument text after that. The name is
+    appended rather than assigned because a provider that splits it would
+    otherwise lose everything but the last piece.
+    """
+    if not isinstance(fragments, list):
+        return
+
+    for fragment in fragments:
+        if not isinstance(fragment, dict):
+            continue
+        slot = buffered.setdefault(fragment.get("index", 0), {"arguments": ""})
+        for key in ("id", "type"):
+            if fragment.get(key) is not None:
+                slot[key] = fragment[key]
+        function = fragment.get("function")
+        if not isinstance(function, dict):
+            continue
+        name = function.get("name")
+        if isinstance(name, str):
+            slot["name"] = slot.get("name", "") + name
+        arguments = function.get("arguments")
+        if isinstance(arguments, str):
+            slot["arguments"] += arguments
+
+
+async def _assemble(
+    buffered: dict[Any, dict[str, Any]], restored: Callable[[str], Awaitable[str]]
+) -> list[dict[str, Any]]:
+    """One complete tool call per index, arguments restored."""
+    out: list[dict[str, Any]] = []
+    for index in sorted(buffered, key=lambda value: (isinstance(value, str), value)):
+        slot = buffered[index]
+        entry: dict[str, Any] = {"index": index}
+        if "id" in slot:
+            entry["id"] = slot["id"]
+        entry["type"] = slot.get("type", "function")
+        function: dict[str, Any] = {}
+        if "name" in slot:
+            function["name"] = slot["name"]
+        function["arguments"] = await _restore_arguments(slot["arguments"], restored)
+        entry["function"] = function
+        out.append(entry)
+    return out
+
+
+async def _restore_arguments(raw: str, restored: Callable[[str], Awaitable[str]]) -> str:
+    """Parse, restore each string leaf, re-serialise.
+
+    Not a string substitution over the serialised form: a restored value
+    holding a quote or a backslash would produce arguments the client cannot
+    parse, and it is about to execute them. Keys are left alone -- they are
+    parameter names from the client's own schema, the same rule the
+    non-streaming walk follows.
+    """
+    if not raw:
+        return raw
+    try:
+        parsed = json.loads(raw)
+    except ValueError:
+        # Never completed, so there is nothing to re-serialise. The caller
+        # gets a broken tool call either way; it should not also get one with
+        # a placeholder in it.
+        return await restored(raw)
+    return json.dumps(await _restore_leaves(parsed, restored), ensure_ascii=False)
+
+
+async def _restore_leaves(value: Any, restored: Callable[[str], Awaitable[str]]) -> Any:
+    if isinstance(value, str):
+        return await restored(value)
+    if isinstance(value, dict):
+        return {key: await _restore_leaves(sub, restored) for key, sub in value.items()}
+    if isinstance(value, list):
+        return [await _restore_leaves(sub, restored) for sub in value]
+    return value
 
 
 def _raw(block: str) -> bytes:

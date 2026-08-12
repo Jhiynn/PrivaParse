@@ -25,6 +25,19 @@ from privaparse.gateway.stream import HoldBack, max_placeholder_length, restore_
 
 PLACEHOLDER = "[[PERSON_A1]]"
 REAL = "Max Mustermann"
+EMAIL_PLACEHOLDER = "[[EMAIL_A2]]"
+EMAIL = "max@test.de"
+#: A value that cannot survive being pasted into serialised JSON. Restoring a
+#: tool call by string substitution would produce `"Max "Maxi" Mustermann"`
+#: and break the arguments the client is about to execute.
+QUOTED_PLACEHOLDER = "[[PERSON_A3]]"
+QUOTED = 'Max "Maxi" Mustermann'
+
+_MAPPING = {
+    PLACEHOLDER: REAL,
+    EMAIL_PLACEHOLDER: EMAIL,
+    QUOTED_PLACEHOLDER: QUOTED,
+}
 
 
 # --- helpers ---------------------------------------------------------------
@@ -52,7 +65,9 @@ async def _feed(pieces):
 
 
 async def _swap(text: str) -> str:
-    return text.replace(PLACEHOLDER, REAL)
+    for placeholder, real in _MAPPING.items():
+        text = text.replace(placeholder, real)
+    return text
 
 
 def _run(pieces, restore=_swap, max_hold: int = 40) -> bytes:
@@ -258,6 +273,169 @@ def test_a_restore_failure_leaves_the_placeholder_standing_and_the_stream_alive(
                restore=exploding)
 
     assert _content(raw) == f"Hallo {PLACEHOLDER}"
+
+
+# --- tool calls ------------------------------------------------------------
+
+
+def _call(index: int = 0, *, id: str | None = None, name: str | None = None,
+          arguments: str | None = None) -> dict:
+    """One tool-call fragment, shaped the way a provider streams them: the id
+    and the name arrive with the first, the arguments dribble in after."""
+    fragment: dict = {"index": index}
+    if id is not None:
+        fragment["id"] = id
+        fragment["type"] = "function"
+    function: dict = {}
+    if name is not None:
+        function["name"] = name
+    if arguments is not None:
+        function["arguments"] = arguments
+    if function:
+        fragment["function"] = function
+    return fragment
+
+
+def _tools(*calls: dict, index: int = 0, finish: str | None = None) -> dict:
+    return {
+        "id": "chatcmpl-1",
+        "object": "chat.completion.chunk",
+        "choices": [
+            {"index": index, "delta": {"tool_calls": list(calls)}, "finish_reason": finish}
+        ],
+    }
+
+
+def _tool_calls(raw: bytes) -> list[dict]:
+    out: list[dict] = []
+    for choice in _choices(raw):
+        out.extend(choice.get("delta", {}).get("tool_calls") or [])
+    return out
+
+
+def test_a_tool_call_split_across_five_events_arrives_as_one():
+    raw = _run([
+        _event(_tools(_call(id="call_1", name="send", arguments='{"to": "'))),
+        _event(_tools(_call(arguments="[[EMAIL"))),
+        _event(_tools(_call(arguments="_A2]]"))),
+        _event(_tools(_call(arguments='", "cop'))),
+        _event(_tools(_call(arguments='ies": 3}'))),
+        _event(_chunk(None, finish="tool_calls")),
+    ])
+
+    calls = _tool_calls(raw)
+    assert len(calls) == 1
+    assert calls[0]["id"] == "call_1"
+    assert calls[0]["function"]["name"] == "send"
+    assert json.loads(calls[0]["function"]["arguments"]) == {"to": EMAIL, "copies": 3}
+
+
+def test_nothing_of_a_tool_call_is_relayed_before_it_is_complete():
+    """A fragment on its own is unparseable, so restoring it is impossible and
+    forwarding it is pointless -- a partial tool call is not executable."""
+    raw = _run([
+        _event(_tools(_call(id="call_1", name="send", arguments='{"to": "[[EMA'))),
+        _event(_tools(_call(arguments='IL_A2]]"}'))),
+        _event(_chunk(None, finish="tool_calls")),
+    ])
+
+    carried = [bool(choice.get("delta", {}).get("tool_calls")) for choice in _choices(raw)]
+    assert carried == [False, False, True]
+
+
+def test_two_tool_calls_at_different_indices_do_not_interleave():
+    raw = _run([
+        _event(_tools(
+            _call(0, id="a", name="first", arguments='{"x": "'),
+            _call(1, id="b", name="second", arguments='{"y": "'),
+        )),
+        _event(_tools(
+            _call(0, arguments='[[EMAIL_A2]]"}'),
+            _call(1, arguments='[[PERSON_A1]]"}'),
+        )),
+        _event(_chunk(None, finish="tool_calls")),
+    ])
+
+    calls = _tool_calls(raw)
+    assert [call["index"] for call in calls] == [0, 1]
+    assert json.loads(calls[0]["function"]["arguments"]) == {"x": EMAIL}
+    assert json.loads(calls[1]["function"]["arguments"]) == {"y": REAL}
+
+
+def test_a_restored_value_is_re_serialised_rather_than_pasted_in():
+    """The reason the arguments are parsed instead of string-replaced. A name
+    holding a quote would otherwise produce JSON the client cannot parse."""
+    raw = _run([
+        _event(_tools(_call(id="a", name="send", arguments='{"name": "[[PERSON_A3]]"}'))),
+        _event(_chunk(None, finish="tool_calls")),
+    ])
+
+    arguments = _tool_calls(raw)[0]["function"]["arguments"]
+    assert json.loads(arguments) == {"name": QUOTED}
+
+
+def test_an_argument_key_is_left_alone():
+    """Keys are parameter names from the client's own schema, never anything a
+    user typed -- the same rule the non-streaming walk follows."""
+    raw = _run([
+        _event(_tools(_call(id="a", name="send", arguments='{"[[PERSON_A1]]": 1}'))),
+        _event(_chunk(None, finish="tool_calls")),
+    ])
+
+    assert json.loads(_tool_calls(raw)[0]["function"]["arguments"]) == {PLACEHOLDER: 1}
+
+
+def test_a_tool_call_rides_on_the_chunk_that_finishes_the_choice():
+    raw = _run([
+        _event(_tools(_call(id="a", name="send", arguments='{"to": "[[EMAIL_A2]]"}'))),
+        _event(_chunk(None, finish="tool_calls")),
+    ])
+
+    finished = False
+    for choice in _choices(raw):
+        assert not (finished and choice.get("delta", {}).get("tool_calls"))
+        finished = finished or choice.get("finish_reason") is not None
+
+
+def test_a_stream_that_stops_before_finishing_still_delivers_the_tool_call():
+    raw = _run([_event(_tools(_call(id="a", name="send", arguments='{"to": "[[EMAIL_A2]]"}')))])
+
+    assert json.loads(_tool_calls(raw)[0]["function"]["arguments"]) == {"to": EMAIL}
+
+
+def test_a_truncated_tool_call_still_gets_its_placeholders_back():
+    """Arguments that never became valid JSON are restored as plain text. The
+    client gets a broken tool call either way; it should not also get one with
+    a placeholder in it."""
+    raw = _run([
+        _event(_tools(_call(id="a", name="send", arguments='{"to": "[[EMAIL_A2]]'))),
+        _event(_chunk(None, finish="tool_calls")),
+    ])
+
+    assert _tool_calls(raw)[0]["function"]["arguments"] == '{"to": "' + EMAIL
+
+
+def test_content_and_a_tool_call_in_one_stream_both_come_through():
+    raw = _run([
+        _event(_chunk(f"Ich schreibe {PLACEHOLDER}")),
+        _event(_tools(_call(id="a", name="send", arguments='{"to": "[[EMAIL_A2]]"}'))),
+        _event(_chunk(None, finish="tool_calls")),
+    ])
+
+    assert _content(raw) == f"Ich schreibe {REAL}"
+    assert json.loads(_tool_calls(raw)[0]["function"]["arguments"]) == {"to": EMAIL}
+
+
+def test_a_restore_failure_still_delivers_the_tool_call():
+    async def exploding(text: str) -> str:
+        raise RuntimeError("the vault is unavailable")
+
+    raw = _run([
+        _event(_tools(_call(id="a", name="send", arguments='{"to": "[[EMAIL_A2]]"}'))),
+        _event(_chunk(None, finish="tool_calls")),
+    ], restore=exploding)
+
+    assert json.loads(_tool_calls(raw)[0]["function"]["arguments"]) == {"to": EMAIL_PLACEHOLDER}
 
 
 # --- through the gateway ---------------------------------------------------
