@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import shutil
+import sys
 from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
+from privaparse.app import main
 from privaparse.app.main import app
 from privaparse.engine import PrivaParseEngine
 from tests.conftest import DATA_DIR, NameListDetector
@@ -316,3 +318,104 @@ def test_catalog_validate_reports_a_bad_file(runner, tmp_path):
 def test_doctor_shows_the_catalogue(runner):
     result = runner.invoke(app, ["doctor"])
     assert "catalogue" in result.stdout
+
+
+# --- the gateway commands ---------------------------------------------------
+
+
+def _said(result) -> str:
+    """Everything the command printed, whichever stream it chose."""
+    return result.output + result.stderr
+
+
+def test_serve_refuses_a_host_that_is_not_loopback(workspace: Path, monkeypatch) -> None:
+    """The vault beside the gateway is plaintext and has no per-user access
+    control, so a reachable port is a readable vault."""
+    started: list[dict] = []
+    monkeypatch.setattr(main, "_serve", lambda application, **kw: started.append(kw))
+
+    result = _run(workspace, "serve", "--host", "0.0.0.0")
+
+    assert result.exit_code == 1
+    assert "plaintext" in _said(result)
+    assert started == []
+
+
+def test_serve_binds_loopback_on_the_port_it_was_given(workspace: Path, monkeypatch) -> None:
+    started: list[dict] = []
+    monkeypatch.setattr(main, "_serve", lambda application, **kw: started.append(kw))
+
+    result = _run(workspace, "serve", "--port", "8123")
+
+    assert result.exit_code == 0, _said(result)
+    assert started == [{"host": "127.0.0.1", "port": 8123}]
+
+
+def test_serve_accepts_localhost_by_name(workspace: Path, monkeypatch) -> None:
+    started: list[dict] = []
+    monkeypatch.setattr(main, "_serve", lambda application, **kw: started.append(kw))
+
+    result = _run(workspace, "serve", "--host", "localhost")
+
+    assert result.exit_code == 0, _said(result)
+    assert started
+
+
+def test_run_injects_the_base_url_and_propagates_the_exit_code(
+    workspace: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(main, "_gateway_ready", lambda port: True)
+    probe = (
+        "import os, sys; "
+        "sys.exit(3 if os.environ.get('OPENAI_BASE_URL') == 'http://127.0.0.1:8791/v1' else 1)"
+    )
+
+    result = _run(workspace, "run", "--port", "8791", "--", sys.executable, "-c", probe)
+
+    assert result.exit_code == 3, _said(result)
+
+
+def test_run_leaves_the_api_key_exactly_as_it_found_it(workspace: Path, monkeypatch) -> None:
+    """The key belongs to the caller and reaches the provider unchanged; the
+    gateway stores no credential of its own."""
+    monkeypatch.setattr(main, "_gateway_ready", lambda port: True)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-child")
+    probe = (
+        "import os, sys; "
+        "sys.exit(0 if os.environ.get('OPENAI_API_KEY') == 'sk-child' else 1)"
+    )
+
+    result = _run(workspace, "run", "--", sys.executable, "-c", probe)
+
+    assert result.exit_code == 0, _said(result)
+
+
+def test_run_with_no_command_says_so(workspace: Path, monkeypatch) -> None:
+    monkeypatch.setattr(main, "_gateway_ready", lambda port: True)
+
+    result = _run(workspace, "run")
+
+    assert result.exit_code == 2
+    assert "privaparse run --" in _said(result)
+
+
+def test_gateway_stats_prints_the_counters(workspace: Path, monkeypatch) -> None:
+    monkeypatch.setattr(main, "_fetch_stats", lambda port: {
+        "requests": 2,
+        "entities_per_request": 1.5,
+        "pseudonymize_p50_ms": 12.3,
+        "cache": {"hits": 1, "misses": 1, "hit_rate": 0.5, "blocks": 1, "capacity": 2048},
+    })
+
+    result = _run(workspace, "gateway", "stats")
+
+    assert result.exit_code == 0, _said(result)
+    assert "12.3" in result.stdout
+    assert "1.5" in result.stdout
+
+
+def test_gateway_stats_says_when_nothing_is_listening(workspace: Path) -> None:
+    result = _run(workspace, "gateway", "stats", "--port", "1")
+
+    assert result.exit_code == 1
+    assert "no privaparse gateway" in _said(result).lower()

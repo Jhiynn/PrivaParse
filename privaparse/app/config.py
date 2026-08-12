@@ -106,6 +106,12 @@ class Settings(BaseSettings):
     )
 
     # --- gateway -------------------------------------------------------------
+    gateway_upstream: str = Field(
+        default="https://api.openai.com",
+        description="Where the gateway forwards to. Point it at Azure, a local "
+        "vLLM server, or any other OpenAI-compatible endpoint. The path is added "
+        "by the gateway, so this is an origin: https://host, no /v1.",
+    )
     gateway_cache: int = Field(
         default=2048,
         ge=0,

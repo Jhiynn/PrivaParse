@@ -18,6 +18,8 @@ messages. Nothing else about a request is reused -- see `cache.py`.
 
 from __future__ import annotations
 
+import time
+
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
@@ -34,6 +36,7 @@ from privaparse.gateway.extract import (
     extract_response,
     write_back,
 )
+from privaparse.gateway.metrics import Metrics
 from privaparse.gateway.stream import max_placeholder_length, restore_sse
 from privaparse.gateway.upstream import Upstream
 
@@ -41,12 +44,9 @@ logger = get_logger(__name__)
 
 _CHAT_PATH = "/v1/chat/completions"
 
-# OpenAI's own endpoint. `Settings` has no field yet for pointing the gateway
-# at a different provider (Azure, a local vLLM server, ...); that operator
-# knob belongs with `privaparse serve`, which is what actually constructs a
-# production `Upstream`. Every test injects its own fake, so this default is
-# only ever reached by a real deployment.
-_DEFAULT_UPSTREAM_BASE_URL = "https://api.openai.com"
+#: Namespaced so it can never collide with a path the provider defines.
+STATS_PATH = "/privaparse/stats"
+
 
 
 async def _restore(engine: PrivaParseEngine, mapping_id: str, reply: dict) -> dict:
@@ -112,12 +112,16 @@ def create_app(
     are built for real.
     """
     engine = engine if engine is not None else PrivaParseEngine(settings)
-    upstream = upstream if upstream is not None else Upstream(_DEFAULT_UPSTREAM_BASE_URL)
+    # `settings.gateway_upstream` is the operator's knob for pointing at Azure
+    # or a local vLLM server. Every test injects its own fake, so the real
+    # client here is only ever built by a real deployment.
+    upstream = upstream if upstream is not None else Upstream(settings.gateway_upstream)
     # One cache for the process. Detection is the expensive half of the
     # request path and a chat client resends its whole history every turn, so
     # most blocks of any request but the first were detected already.
     cache = DetectionCache(settings.gateway_cache)
     detector = CachingDetector(engine, cache)
+    metrics = Metrics()
 
     async def healthz(request: Request) -> JSONResponse:
         # "ready" means the engine exists: settings validated, vault database
@@ -125,6 +129,10 @@ def create_app(
         # load is lazy (PrivaParseEngine.detector), and forcing it here would
         # turn a liveness probe into a 1.2 GB download on the first check.
         return JSONResponse({"status": "ready"})
+
+    async def stats(request: Request) -> JSONResponse:
+        # Numbers only. See metrics.py for why there is no per-type breakdown.
+        return JSONResponse(metrics.snapshot(cache))
 
     async def list_models(request: Request) -> JSONResponse:
         status, body, _headers = await upstream.get_json("/v1/models", request.headers)
@@ -151,8 +159,10 @@ def create_app(
                 "privaparse_unscannable_field",
             )
 
+        started = time.perf_counter()
         outbound = body
         mapping_id: str | None = None
+        entities = 0
         if nodes:
             # One batch, one mapping. Node by node would open a session per
             # node, and the answer -- which mixes placeholders from all of
@@ -167,6 +177,13 @@ def create_app(
             )
             outbound = write_back(body, nodes, batch.texts)
             mapping_id = batch.mapping_id
+            entities = len(batch.placeholders)
+
+        # Recorded here rather than when the answer lands: this is PrivaParse's
+        # own share of the request, which is the part an operator can act on.
+        # A refusal above never reaches this line, so a 502 does not enter the
+        # average as a request that carried no entities.
+        metrics.record(entities=entities, seconds=time.perf_counter() - started)
 
         if streaming:
             relay = upstream.stream(_CHAT_PATH, outbound, request.headers)
@@ -188,6 +205,7 @@ def create_app(
     app = Starlette(
         routes=[
             Route("/healthz", healthz, methods=["GET"]),
+            Route(STATS_PATH, stats, methods=["GET"]),
             Route("/v1/models", list_models, methods=["GET"]),
             Route("/v1/chat/completions", chat_completions, methods=["POST"]),
         ],

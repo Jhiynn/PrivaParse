@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
+import os
+import signal
+import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -23,8 +28,16 @@ vault_app = typer.Typer(help="Inspect the local vault.", no_args_is_help=True)
 app.add_typer(vault_app, name="vault")
 catalog_app = typer.Typer(help="Inspect and check the entity catalogue.", no_args_is_help=True)
 app.add_typer(catalog_app, name="catalog")
+gateway_app = typer.Typer(help="Inspect the running gateway.", no_args_is_help=True)
+app.add_typer(gateway_app, name="gateway")
 
 _OVERRIDES = "privaparse_overrides"
+
+#: Where `serve` listens and `run` looks, unless told otherwise.
+DEFAULT_PORT = 8787
+
+#: Host names that resolve to this machine and nowhere else.
+_LOOPBACK_NAMES = frozenset({"localhost"})
 
 
 @app.callback()
@@ -456,6 +469,104 @@ def vault_stats(ctx: typer.Context) -> None:
         typer.echo(f"  {entity_type:<8} {count}")
 
 
+@app.command()
+def serve(
+    ctx: typer.Context,
+    host: str = typer.Option("127.0.0.1", "--host", help="Loopback only. See below."),
+    port: int = typer.Option(DEFAULT_PORT, "--port"),
+    upstream: Optional[str] = typer.Option(
+        None, "--upstream", help="Origin to forward to, e.g. https://api.openai.com. "
+        "Overrides PRIVAPARSE_GATEWAY_UPSTREAM.",
+    ),
+) -> None:
+    """Run the OpenAI-compatible gateway on this machine.
+
+    Point any client that accepts a base URL at it and nothing else changes:
+    OPENAI_BASE_URL=http://127.0.0.1:8787/v1
+    """
+    _require_loopback(host)
+    settings = load_settings(**ctx.obj[_OVERRIDES], gateway_upstream=upstream)
+    engine = _engine_with(settings)
+
+    from privaparse.gateway.server import create_app
+
+    typer.echo(f"privaparse gateway  http://{host}:{port}  ->  {settings.gateway_upstream}")
+    typer.echo(f"point a client at it with OPENAI_BASE_URL=http://{host}:{port}/v1")
+    _serve(create_app(settings, engine=engine), host=host, port=port)
+
+
+@app.command(
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+)
+def run(
+    ctx: typer.Context,
+    port: int = typer.Option(DEFAULT_PORT, "--port"),
+    wait: float = typer.Option(60.0, "--wait", help="Seconds to wait for a gateway to start."),
+) -> None:
+    """Run a command with its OpenAI client pointed at the gateway.
+
+    privaparse run -- <command>
+
+    Starts a gateway if none is already listening, sets OPENAI_BASE_URL in the
+    child's environment, and exits with the child's own exit code.
+    """
+    command = list(ctx.args)
+    if command and command[0] == "--":
+        command = command[1:]
+    if not command:
+        typer.secho(
+            "nothing to run. Usage: privaparse run -- <command>",
+            fg=typer.colors.RED, err=True,
+        )
+        raise typer.Exit(code=2)
+
+    daemon: Optional[subprocess.Popen] = None
+    if not _gateway_ready(port):
+        typer.echo(f"starting a gateway on 127.0.0.1:{port} ...")
+        daemon = _start_gateway(port)
+        if not _await_gateway(port, wait):
+            daemon.terminate()
+            typer.secho(
+                f"the gateway did not come up within {wait:g}s. Run `privaparse serve` "
+                "in another terminal to see why.",
+                fg=typer.colors.RED, err=True,
+            )
+            raise typer.Exit(code=1)
+
+    environment = dict(os.environ)
+    environment["OPENAI_BASE_URL"] = f"http://127.0.0.1:{port}/v1"
+    # OPENAI_API_KEY is deliberately untouched. It is the caller's credential,
+    # the gateway forwards it to the provider and stores none of its own, so
+    # there is nothing here to substitute and nothing to keep.
+
+    try:
+        code = _run_child(command, environment)
+    finally:
+        if daemon is not None:
+            # Only a gateway this command started. One that was already
+            # running belongs to whoever started it.
+            daemon.terminate()
+    raise typer.Exit(code=code)
+
+
+@gateway_app.command("stats")
+def gateway_stats(
+    port: int = typer.Option(DEFAULT_PORT, "--port"),
+) -> None:
+    """Counters from a running gateway. Prints no content, ever."""
+    body = _fetch_stats(port)
+    cache = body.get("cache", {})
+
+    typer.echo(f"requests          {body['requests']}")
+    typer.echo(f"entities/request  {body['entities_per_request']}")
+    typer.echo(f"pseudonymise p50  {body['pseudonymize_p50_ms']} ms")
+    typer.echo(
+        f"cache hit rate    {cache['hit_rate']} "
+        f"({cache['hits']} hit / {cache['misses']} miss)"
+    )
+    typer.echo(f"cache blocks      {cache['blocks']} / {cache['capacity']}")
+
+
 @catalog_app.command("show")
 def catalog_show(ctx: typer.Context) -> None:
     """List the resolved placeholder types. Prints no prompts and no values."""
@@ -501,6 +612,122 @@ def catalog_validate(
         f"{len(catalogue.schema())} label(s)",
         fg=typer.colors.GREEN,
     )
+
+
+# --- gateway helpers ---------------------------------------------------------
+
+
+def _require_loopback(host: str) -> None:
+    """Refuse any bind address other than this machine.
+
+    The vault sitting behind the gateway holds plaintext values and has no
+    per-user access control -- it was built for one person on one machine. A
+    port anyone on the network can reach is therefore a vault anyone on the
+    network can read back, whether or not they sent the request that filled it.
+    """
+    if host in _LOOPBACK_NAMES:
+        return
+    try:
+        if ipaddress.ip_address(host).is_loopback:
+            return
+    except ValueError:
+        pass
+
+    typer.secho(
+        f"refusing to bind {host}: the vault behind this gateway stores plaintext "
+        "values and has no per-user access control, so anything that can reach the "
+        "port can read back everything it ever stored. Bind 127.0.0.1 and use an SSH "
+        "tunnel if you need it from another machine.",
+        fg=typer.colors.RED,
+        err=True,
+    )
+    raise typer.Exit(code=1)
+
+
+def _serve(application, *, host: str, port: int) -> None:  # pragma: no cover - real server
+    import uvicorn
+
+    uvicorn.run(application, host=host, port=port, log_level="info")
+
+
+def _gateway_ready(port: int) -> bool:
+    import httpx
+
+    try:
+        response = httpx.get(f"http://127.0.0.1:{port}/healthz", timeout=1.0)
+    except httpx.HTTPError:
+        return False
+    return response.status_code == 200
+
+
+def _start_gateway(port: int) -> subprocess.Popen:  # pragma: no cover - spawns a process
+    return subprocess.Popen(
+        [sys.executable, "-m", "privaparse.app.main", "serve", "--port", str(port)]
+    )
+
+
+def _await_gateway(port: int, seconds: float) -> bool:  # pragma: no cover - timing
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if _gateway_ready(port):
+            return True
+        time.sleep(0.25)
+    return False
+
+
+def _run_child(command: list[str], environment: dict[str, str]) -> int:
+    """Run the child to completion and hand back its exit code.
+
+    There is no `exec` on Windows, so the child is a subprocess and this
+    process stays alive in front of it. That makes signal forwarding this
+    command's job: a Ctrl-C aimed at `privaparse run` has to reach the program
+    the user actually launched, not stop at the wrapper.
+    """
+    child = subprocess.Popen(command, env=environment)
+    previous = _forward_signals_to(child)
+    try:
+        return child.wait()
+    finally:
+        for received, handler in previous.items():
+            try:
+                signal.signal(received, handler)
+            except (ValueError, OSError):  # pragma: no cover - not the main thread
+                pass
+
+
+def _forward_signals_to(child: subprocess.Popen) -> dict:
+    def relay(received, frame) -> None:  # pragma: no cover - needs a real signal
+        child.terminate()
+
+    previous: dict = {}
+    for name in ("SIGINT", "SIGTERM", "SIGBREAK"):
+        received = getattr(signal, name, None)
+        if received is None:
+            continue
+        try:
+            previous[received] = signal.signal(received, relay)
+        except (ValueError, OSError):  # pragma: no cover - not the main thread
+            continue
+    return previous
+
+
+def _fetch_stats(port: int) -> dict:
+    import httpx
+
+    from privaparse.gateway.server import STATS_PATH
+
+    try:
+        response = httpx.get(f"http://127.0.0.1:{port}{STATS_PATH}", timeout=2.0)
+        response.raise_for_status()
+    except httpx.HTTPError:
+        typer.secho(
+            f"no privaparse gateway answering on 127.0.0.1:{port}. "
+            "Start one with: privaparse serve",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    return response.json()
 
 
 # --- helpers ---------------------------------------------------------------
