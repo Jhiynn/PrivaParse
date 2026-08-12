@@ -23,6 +23,10 @@ class FakeUpstream:
         #: Optional callable(body) -> reply, for a test whose expected answer
         #: has to contain a placeholder only this request could have issued.
         self.reply_for = None
+        #: The streaming equivalent: callable(body) -> list[bytes]. A streamed
+        #: answer that has to echo a placeholder cannot be written in advance
+        #: either -- only the request knows which one was issued.
+        self.chunks_for = None
         self.reply: dict = {
             "id": "chatcmpl-1",
             "object": "chat.completion",
@@ -54,7 +58,8 @@ class FakeUpstream:
     async def stream(self, path, body, headers):
         self.requests.append(json.loads(json.dumps(body)))
         self.headers.append(dict(headers))
-        for chunk in self.chunks:
+        chunks = self.chunks if self.chunks_for is None else self.chunks_for(body)
+        for chunk in chunks:
             yield chunk
 
     @property

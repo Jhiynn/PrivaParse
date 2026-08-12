@@ -21,7 +21,7 @@ from __future__ import annotations
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response, StreamingResponse
 from starlette.routing import Route
 
 from privaparse.app.config import Settings
@@ -34,6 +34,7 @@ from privaparse.gateway.extract import (
     extract_response,
     write_back,
 )
+from privaparse.gateway.stream import max_placeholder_length, restore_sse
 from privaparse.gateway.upstream import Upstream
 
 logger = get_logger(__name__)
@@ -78,6 +79,21 @@ async def _restore(engine: PrivaParseEngine, mapping_id: str, reply: dict) -> di
         return reply
 
 
+def _stream_restorer(engine: PrivaParseEngine, mapping_id: str):
+    """A `restore(text) -> text` for `restore_sse`, scoped to this request.
+
+    The vault lookup is blocking, so it goes to a worker thread; a streamed
+    answer arrives in many small pieces and doing it inline would block the
+    event loop once per piece. Failures are not caught here -- `restore_sse`
+    owns that rule, and catching it twice would hide which layer gave up.
+    """
+
+    async def restore(text: str) -> str:
+        return await run_in_threadpool(lambda: engine.reverse(mapping_id, text).text)
+
+    return restore
+
+
 def _error(status: int, message: str, kind: str) -> JSONResponse:
     """An OpenAI-shaped error, so a client's own error handling still works."""
     return JSONResponse({"error": {"message": message, "type": kind}}, status_code=status)
@@ -114,23 +130,13 @@ def create_app(
         status, body, _headers = await upstream.get_json("/v1/models", request.headers)
         return JSONResponse(body, status_code=status)
 
-    async def chat_completions(request: Request) -> JSONResponse:
+    async def chat_completions(request: Request) -> Response:
         try:
             body = await request.json()
         except ValueError:
             return _error(400, "the request body is not valid JSON", "invalid_request_error")
 
-        if body.get("stream") if isinstance(body, dict) else False:
-            # A streamed answer needs hold-back restoration, which is a later
-            # task. Forwarding now would pseudonymise correctly and then hand
-            # back an answer full of placeholders: a partial success that
-            # reads as a working gateway and hides the gap.
-            return _error(
-                501,
-                "streaming is not restored yet, so this gateway will not forward "
-                "a streaming request",
-                "not_implemented",
-            )
+        streaming = bool(body.get("stream")) if isinstance(body, dict) else False
 
         try:
             nodes = extract(body)
@@ -161,6 +167,16 @@ def create_app(
             )
             outbound = write_back(body, nodes, batch.texts)
             mapping_id = batch.mapping_id
+
+        if streaming:
+            relay = upstream.stream(_CHAT_PATH, outbound, request.headers)
+            if mapping_id is not None:
+                relay = restore_sse(
+                    relay,
+                    restore=_stream_restorer(engine, mapping_id),
+                    max_hold=max_placeholder_length(engine.catalogue),
+                )
+            return StreamingResponse(relay, media_type="text/event-stream")
 
         status, reply, _headers = await upstream.post_json(
             _CHAT_PATH, outbound, request.headers

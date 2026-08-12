@@ -144,18 +144,15 @@ def test_a_body_that_is_not_json_is_refused_before_anything_is_sent(
     assert upstream.requests == []
 
 
-def test_a_streaming_request_is_refused_until_the_stream_task_lands(
+def test_a_streaming_request_is_answered_as_an_event_stream(
     settings, fake_detector, upstream
 ):
-    """`stream: true` needs hold-back restoration, which is a later task.
-
-    Forwarding it now would pseudonymise the request correctly and then hand
-    the caller an answer full of placeholders -- a partial success that reads
-    as a working gateway. Refusing keeps the gap visible.
-    """
+    """`stream: true` is forwarded and relayed back as SSE. What happens to a
+    placeholder split across those events is tests/gateway/test_stream.py."""
     from privaparse.engine import PrivaParseEngine
 
     engine = PrivaParseEngine(settings, detector=fake_detector, configure_logs=False)
+    upstream.chunks = [b"data: [DONE]\n\n"]
     client = TestClient(create_app(settings, engine=engine, upstream=upstream))
     response = client.post(
         "/v1/chat/completions",
@@ -165,8 +162,9 @@ def test_a_streaming_request_is_refused_until_the_stream_task_lands(
             "messages": [{"role": "user", "content": "Hallo Max Mustermann"}],
         },
     )
-    assert response.status_code == 501
-    assert upstream.requests == []
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert "Max Mustermann" not in upstream.last["messages"][0]["content"]
 
 
 def test_an_upstream_status_is_passed_through(settings, fake_detector, upstream):
