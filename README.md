@@ -22,7 +22,12 @@ back into whatever the model replies.
 
 Phase 1: plain text and Markdown, a 25-type entity catalogue (21 enabled by
 default — four ship disabled on measured evidence, see below), CLI and Python
-library. No OCR, no PDF, no REST API, no cloud models — those are Phase 2.
+library. No OCR, no PDF, no cloud models.
+
+Phase 2 adds the **local gateway**: an OpenAI-compatible endpoint on
+`127.0.0.1` that pseudonymises a request on the way out and restores the
+answer on the way back, so any client that accepts a base URL gets PrivaParse
+without changing a line of its own code. See [Gateway](#gateway).
 
 ### Does GLiNER2 need fine-tuning for German? No.
 
@@ -311,6 +316,9 @@ Other commands:
 | `privaparse bench` | Throughput and detection quality together (needs GLiNER2) |
 | `privaparse vault stats` | Counts only — never prints stored values |
 | `privaparse vault mappings` | Recorded sessions and their ids, for a lost `--mapping-out` |
+| `privaparse serve` | Run the gateway on `127.0.0.1` |
+| `privaparse run -- <cmd>` | Run a command with its OpenAI client pointed at the gateway |
+| `privaparse gateway stats` | Counters from a running gateway — numbers only |
 
 As a library:
 
@@ -332,6 +340,125 @@ engine = PrivaParseEngine()          # loads the model once
 result = engine.pseudonymize(text)   # reuses it on every call
 ```
 
+## Gateway
+
+One command, and any client that accepts a base URL is going through
+PrivaParse:
+
+```bash
+privaparse run -- claude
+```
+
+`run` starts a gateway if none is listening, sets `OPENAI_BASE_URL` in the
+child's environment, and exits with the child's own exit code. Your
+`OPENAI_API_KEY` is passed through untouched — the gateway forwards it to the
+provider and stores no credential of its own.
+
+Or run the gateway yourself and point things at it:
+
+```bash
+privaparse serve
+```
+
+```bash
+OPENAI_BASE_URL=http://127.0.0.1:8787/v1 aider
+```
+
+Anything that reads `OPENAI_BASE_URL` or takes a `base_url` works: the OpenAI
+Python and Node SDKs, Aider, Continue, Cline, LangChain, LlamaIndex, `curl`.
+Endpoints are `/v1/chat/completions` (streaming and non-streaming, tool calls
+included) and `/v1/models`.
+
+### What it does to a request
+
+Every text-bearing field is extracted, pseudonymised under **one mapping per
+request**, and written back before anything is forwarded. One mapping matters:
+the answer mixes placeholders from every message, and `reverse` resolves
+against exactly one session.
+
+**The request path fails closed.** A field the gateway has no rule for stops
+the request with a 502 and nothing reaches the provider — a gateway that
+forwards what it does not understand leaks the first time a client adopts a
+new API feature, and does it silently. **The response path never aborts**: if
+restoration fails you get the answer with placeholders standing, because at
+that point the answer already exists and has been paid for.
+
+Streamed answers are restored through a hold-back buffer, because
+`[[PERSON_A1]]` arrives split across events. Streamed tool calls are collected
+and emitted once complete, with their arguments parsed and re-serialised
+rather than string-substituted — a restored name containing a quote would
+otherwise produce arguments the client cannot parse.
+
+Detection is cached per text block, keyed by the catalogue as well as the
+text. A chat client resends its whole history every turn, so most blocks of
+any request but the first were detected already.
+
+### Restoration puts real PII into the client
+
+This is the thing to understand before deploying it anywhere but your own
+machine. The gateway's whole job is to hand back **unredacted** answers. The
+provider sees placeholders; the client sees real names.
+
+So pointing a **server-side** client at this — Open WebUI, a shared LibreChat,
+anything running on a host other than yours — places restored answers, with
+real PII in them, on that host and in front of whoever else uses it. The tool
+protects the hop to the model provider. It does nothing about the hop to the
+client, because there is no such hop when the client is you.
+
+For the same reason `serve` refuses any bind address that is not loopback. The
+vault behind the gateway stores plaintext values and has no per-user access
+control — it was built for one person on one machine — so a port the network
+can reach is a vault the network can read back, whether or not the reader sent
+the request that filled it. Reach it from another machine over an SSH tunnel,
+not by binding a wider address.
+
+### Known gaps
+
+**`TAX_ID` recall is 0.000 on the gold set, and the gateway inherits that
+exactly.** Four German Steuer-IDs in the gold set are detected as PHONE
+instead — the bare form is matched by the phone backstop, the grouped form is
+labelled `phone_number` by the model, and nothing produces a competing exact
+span. They are still pseudonymised, so nothing leaves in the clear; they are
+pseudonymised as the *wrong type*, which means a client asking about tax IDs
+gets a placeholder that reads as a phone number. The full account, and why the
+fix is deferred rather than missed, is under
+[One defect, two numbers](#does-gliner2-need-fine-tuning-for-german-no) above.
+Anyone reading only this section should still meet it.
+
+**Tool declarations are forwarded unscanned.** A `tools` block is the client's
+own schema — function names, descriptions, a parameter shape — and
+pseudonymising it would degrade the model's choice of tool while protecting
+nobody. A client that writes a person into a tool *description* sends that
+person to the provider.
+
+**A streaming request cannot report an upstream error status.** The relay
+starts as soon as the provider responds, so a provider-side error arrives in
+the stream body rather than as an HTTP status.
+
+**The deprecated `functions` / `function_call` fields are refused**, not
+ignored. Same shape as `tools` and the same argument, but nothing is tested
+against them.
+
+### Docker
+
+```bash
+docker build --target full -t privaparse:full .
+```
+
+```bash
+docker run --rm --network host -v privaparse-vault:/data privaparse:full
+```
+
+`full` bakes the model weights in and sets `PRIVAPARSE_OFFLINE=1`, so the
+container never contacts the Hugging Face Hub. `--target slim` leaves the
+weights out and downloads them on first use.
+
+`--network host` is what makes the container's loopback bind reachable from
+your host, and it is the only documented way in: publishing a port would mean
+binding `0.0.0.0` inside the container, and the image has no way to ask for
+that. Mount `/data` — the vault must outlive the container, or every past
+answer becomes unrestorable.
+
 ## Configuration
 
 Every setting is an environment variable with the `PRIVAPARSE_` prefix, or a
@@ -349,6 +476,8 @@ CLI flag.
 | `PRIVAPARSE_SCAN_CODE` | `false` | Also scan code blocks and URLs |
 | `PRIVAPARSE_QUANTIZE` | on CUDA | fp16 weights |
 | `PRIVAPARSE_COMPILE` | on CUDA | `torch.compile` |
+| `PRIVAPARSE_GATEWAY_UPSTREAM` | `https://api.openai.com` | Origin the gateway forwards to — Azure, a local vLLM server, anything OpenAI-compatible. No `/v1` |
+| `PRIVAPARSE_GATEWAY_CACHE` | `2048` | Text blocks the gateway keeps detection results for. `0` turns the cache off, so entries hold no entity values beyond the request |
 
 `PRIVAPARSE_DEVICE=cuda` on a machine without CUDA **fails** rather than falling
 back to CPU. A silent fallback is invisible in logs and shows up weeks later as
