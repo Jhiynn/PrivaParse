@@ -3,6 +3,13 @@
 *.db
 *.db-journal
 
+# Local configuration, which is where a key or a token ends up. Settings reads
+# `.env` from the working directory, so one copied into an image would also
+# quietly override that image's own configuration wherever it ran.
+.env
+.env.*
+!.env.example
+
 .git
 .github
 .venv
