@@ -30,6 +30,7 @@ from privaparse.app.config import Settings
 from privaparse.app.logging import get_logger
 from privaparse.engine import PrivaParseEngine
 from privaparse.gateway.adapter import openai as shape
+from privaparse.gateway.adapter import responses as responses_shape
 from privaparse.gateway.cache import CachingDetector, DetectionCache
 from privaparse.gateway.extract import (
     UnscannableField,
@@ -45,13 +46,23 @@ logger = get_logger(__name__)
 
 _CHAT_PATH = "/v1/chat/completions"
 
+#: The Responses API. Codex CLI speaks only this one -- `wire_api = "chat"`
+#: was removed in February 2026 -- so a Chat Completions gateway cannot serve
+#: it at all.
+RESPONSES_PATH = "/v1/responses"
+
 #: Namespaced so it can never collide with a path the provider defines.
 STATS_PATH = "/privaparse/stats"
 
 
 
 async def _restore(
-    engine: PrivaParseEngine, mapping_id: str, reply: dict, *, fuzzy: bool = False
+    engine: PrivaParseEngine,
+    mapping_id: str,
+    reply: dict,
+    *,
+    fuzzy: bool = False,
+    walk=extract_response,
 ) -> dict:
     """Put the real values back into the provider's answer.
 
@@ -65,7 +76,7 @@ async def _restore(
     the restored answer would produce a number the invoice disagrees with.
     """
     try:
-        nodes = extract_response(reply)
+        nodes = walk(reply)
         if not nodes:
             return reply
         restored = await run_in_threadpool(
@@ -220,9 +231,74 @@ def create_app(
             reply = await _restore(engine, mapping_id, reply, fuzzy=settings.gateway_fuzzy)
         return JSONResponse(reply, status_code=status)
 
+    async def responses_endpoint(request: Request) -> Response:
+        """The Responses API, which is the only protocol Codex CLI speaks.
+
+        Same rules as the chat route -- one mapping per request, fail closed
+        outbound, never abort inbound -- over a different shape.
+        """
+        try:
+            body = await request.json()
+        except ValueError:
+            return _error(400, "the request body is not valid JSON", "invalid_request_error")
+
+        if bool(body.get("stream")) if isinstance(body, dict) else False:
+            # Typed SSE events (`response.output_text.delta`) need their own
+            # hold-back, which is not written. Forwarding now would
+            # pseudonymise correctly and hand back an answer full of
+            # placeholders: a partial success that reads as a working gateway.
+            return _error(
+                501,
+                "streaming is not restored on /v1/responses yet, so this gateway "
+                "will not forward a streaming request",
+                "not_implemented",
+            )
+
+        try:
+            nodes = responses_shape.extract_input(body)
+        except UnscannableField as refusal:
+            logger.warning("refused a responses request: %s", refusal)
+            return _error(
+                502,
+                f"privaparse cannot scan this request and will not forward it: {refusal}",
+                "privaparse_unscannable_field",
+            )
+
+        started = time.perf_counter()
+        outbound = body
+        mapping_id: str | None = None
+        entities = 0
+        if nodes:
+            batch = await run_in_threadpool(
+                lambda: engine.pseudonymize_batch(
+                    [node.text for node in nodes], detector=detector
+                )
+            )
+            outbound = write_back(body, nodes, batch.texts)
+            mapping_id = batch.mapping_id
+            entities = len(batch.placeholders)
+            if settings.gateway_hint and entities:
+                outbound = responses_shape.with_placeholder_hint(outbound)
+
+        metrics.record(entities=entities, seconds=time.perf_counter() - started)
+
+        status, reply, _headers = await upstream.post_json(
+            RESPONSES_PATH, outbound, request.headers
+        )
+        if mapping_id is not None:
+            reply = await _restore(
+                engine,
+                mapping_id,
+                reply,
+                fuzzy=settings.gateway_fuzzy,
+                walk=responses_shape.extract_output,
+            )
+        return JSONResponse(reply, status_code=status)
+
     app = Starlette(
         routes=[
             Route("/healthz", healthz, methods=["GET"]),
+            Route(RESPONSES_PATH, responses_endpoint, methods=["POST"]),
             Route(STATS_PATH, stats, methods=["GET"]),
             Route("/v1/models", list_models, methods=["GET"]),
             Route("/v1/chat/completions", chat_completions, methods=["POST"]),
