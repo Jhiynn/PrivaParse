@@ -112,6 +112,22 @@ class Settings(BaseSettings):
         "vLLM server, or any other OpenAI-compatible endpoint. The path is added "
         "by the gateway, so this is an origin: https://host, no /v1.",
     )
+    gateway_fuzzy: bool = Field(
+        default=False,
+        description="Also restore placeholders the model handed back slightly wrong "
+        "-- a bracket pair dropped, quotes injected, the underscore spaced out. Off "
+        "by default because exact matching is the stricter contract; a model that "
+        "mangles placeholders is measured in docs/gateway-model-fidelity-report.md. "
+        "Widens only how a placeholder may be spelled, never which mapping may "
+        "resolve it.",
+    )
+    gateway_hint: bool = Field(
+        default=False,
+        description="Prepend a system message asking the model to reproduce "
+        "[[TYPE_A1]] tokens verbatim. Off by default: it rewrites the caller's "
+        "request, costs tokens on every call that carries an entity, and can only "
+        "ask -- it cannot guarantee.",
+    )
     gateway_cache: int = Field(
         default=2048,
         ge=0,

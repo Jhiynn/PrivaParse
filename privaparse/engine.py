@@ -166,7 +166,12 @@ class PrivaParseEngine:
             )
 
     def reverse(
-        self, mapping_id: str | None, text: str, *, strict: bool = False
+        self,
+        mapping_id: str | None,
+        text: str,
+        *,
+        strict: bool = False,
+        fuzzy: bool = False,
     ) -> "ReverseResult":
         """Restore the placeholders this mapping issued — and only those.
 
@@ -179,7 +184,7 @@ class PrivaParseEngine:
         with self.database.session() as session:
             repo = self.repository(session)
             resolved = mapping_id or find_mapping_for(text, repo=repo)
-            return reverse_text(resolved, text, repo=repo, strict=strict)
+            return reverse_text(resolved, text, repo=repo, strict=strict, fuzzy=fuzzy)
 
     def vault_stats(self):
         with self.database.session() as session:

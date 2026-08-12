@@ -29,6 +29,7 @@ from starlette.routing import Route
 from privaparse.app.config import Settings
 from privaparse.app.logging import get_logger
 from privaparse.engine import PrivaParseEngine
+from privaparse.gateway.adapter import openai as shape
 from privaparse.gateway.cache import CachingDetector, DetectionCache
 from privaparse.gateway.extract import (
     UnscannableField,
@@ -49,7 +50,9 @@ STATS_PATH = "/privaparse/stats"
 
 
 
-async def _restore(engine: PrivaParseEngine, mapping_id: str, reply: dict) -> dict:
+async def _restore(
+    engine: PrivaParseEngine, mapping_id: str, reply: dict, *, fuzzy: bool = False
+) -> dict:
     """Put the real values back into the provider's answer.
 
     Never raises. The request path fails closed because a failure there risks
@@ -66,7 +69,7 @@ async def _restore(engine: PrivaParseEngine, mapping_id: str, reply: dict) -> di
         if not nodes:
             return reply
         restored = await run_in_threadpool(
-            lambda: [engine.reverse(mapping_id, node.text).text for node in nodes]
+            lambda: [engine.reverse(mapping_id, node.text, fuzzy=fuzzy).text for node in nodes]
         )
         return write_back(reply, nodes, restored)
     except Exception:  # noqa: BLE001 - see the docstring: nothing here may abort
@@ -79,7 +82,7 @@ async def _restore(engine: PrivaParseEngine, mapping_id: str, reply: dict) -> di
         return reply
 
 
-def _stream_restorer(engine: PrivaParseEngine, mapping_id: str):
+def _stream_restorer(engine: PrivaParseEngine, mapping_id: str, *, fuzzy: bool = False):
     """A `restore(text) -> text` for `restore_sse`, scoped to this request.
 
     The vault lookup is blocking, so it goes to a worker thread; a streamed
@@ -89,7 +92,9 @@ def _stream_restorer(engine: PrivaParseEngine, mapping_id: str):
     """
 
     async def restore(text: str) -> str:
-        return await run_in_threadpool(lambda: engine.reverse(mapping_id, text).text)
+        return await run_in_threadpool(
+            lambda: engine.reverse(mapping_id, text, fuzzy=fuzzy).text
+        )
 
     return restore
 
@@ -178,6 +183,12 @@ def create_app(
             outbound = write_back(body, nodes, batch.texts)
             mapping_id = batch.mapping_id
             entities = len(batch.placeholders)
+            if settings.gateway_hint and entities:
+                # After write_back on purpose: the hint never reaches the
+                # detector, so it cannot be scanned or stored as an entity.
+                # Only when something was actually replaced -- otherwise the
+                # caller pays tokens for a request with nothing to protect.
+                outbound = shape.with_placeholder_hint(outbound)
 
         # Recorded here rather than when the answer lands: this is PrivaParse's
         # own share of the request, which is the part an operator can act on.
@@ -190,8 +201,15 @@ def create_app(
             if mapping_id is not None:
                 relay = restore_sse(
                     relay,
-                    restore=_stream_restorer(engine, mapping_id),
+                    restore=_stream_restorer(
+                        engine, mapping_id, fuzzy=settings.gateway_fuzzy
+                    ),
                     max_hold=max_placeholder_length(engine.catalogue),
+                    # A mangled placeholder is only restorable if it arrives in
+                    # one piece, and the strict hold-back only ever protects
+                    # `[[`. Widening it is what lets the tolerant matcher see
+                    # `[PERSON_A1]` whole instead of split across two events.
+                    lenient=settings.gateway_fuzzy,
                 )
             return StreamingResponse(relay, media_type="text/event-stream")
 
@@ -199,7 +217,7 @@ def create_app(
             _CHAT_PATH, outbound, request.headers
         )
         if mapping_id is not None:
-            reply = await _restore(engine, mapping_id, reply)
+            reply = await _restore(engine, mapping_id, reply, fuzzy=settings.gateway_fuzzy)
         return JSONResponse(reply, status_code=status)
 
     app = Starlette(

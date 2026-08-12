@@ -459,6 +459,19 @@ verbatim reproduction; that has not been measured here. Full account in
 reproduce with `eval/placeholder_fidelity.py` against your own model before
 trusting a deployment.
 
+**`PRIVAPARSE_GATEWAY_FUZZY=1` is the answer to it**, and on that model it took
+restoration from 1 case in 6 to 6 in 6. It also accepts a placeholder the model
+rewrote, matched only against the ones the current request issued — so it
+widens how a placeholder may be spelled, never which mapping may resolve one.
+
+`PRIVAPARSE_GATEWAY_HINT=1` asks the model, in a prepended system message, to
+reproduce the tokens verbatim. **Measured, it makes things worse when fuzzy is
+on** — the model stops mangling the placeholder and starts avoiding it, writing
+"the specified email address" instead, which loses the value before restoration
+can run. Kept as a switch because that may be an artefact of a small model.
+Numbers and the raw outputs in
+[docs/gateway-restore-fallbacks-report.md](docs/gateway-restore-fallbacks-report.md).
+
 **`TAX_ID` recall is 0.000 on the gold set, and the gateway inherits that
 exactly.** Four German Steuer-IDs in the gold set are detected as PHONE
 instead — the bare form is matched by the phone backstop, the grouped form is
@@ -530,6 +543,8 @@ CLI flag.
 | `PRIVAPARSE_COMPILE` | on CUDA | `torch.compile` |
 | `PRIVAPARSE_GATEWAY_UPSTREAM` | `https://api.openai.com` | Origin the gateway forwards to — Azure, a local vLLM server, anything OpenAI-compatible. No `/v1` |
 | `PRIVAPARSE_GATEWAY_CACHE` | `2048` | Text blocks the gateway keeps detection results for. `0` turns the cache off, so entries hold no entity values beyond the request |
+| `PRIVAPARSE_GATEWAY_FUZZY` | `false` | Also restore placeholders the model handed back mangled. Recommended on for local models — 1/6 → 6/6 restored on Qwen2.5-1.5B |
+| `PRIVAPARSE_GATEWAY_HINT` | `false` | Ask the model, via a prepended system message, to reproduce placeholders verbatim. Measured net-negative alongside fuzzy on a small model |
 
 `PRIVAPARSE_DEVICE=cuda` on a machine without CUDA **fails** rather than falling
 back to CPU. A silent fallback is invisible in logs and shows up weeks later as

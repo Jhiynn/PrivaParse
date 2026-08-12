@@ -48,6 +48,19 @@ _DATA_PREFIX = "data:"
 #: released without waiting for anything.
 _PARTIAL_TAIL_RE = re.compile(r"\[(?:\[(?:[A-Z][A-Z0-9_]*\]?)?)?$")
 
+#: The same idea with one bracket pair made optional, for when the tolerant
+#: matcher is on. A model that drops a bracket emits `[PERSON_A1]`, which the
+#: strict pattern releases immediately and therefore hands over split across
+#: events -- unrestorable however tolerant the matcher downstream is.
+_LENIENT_TAIL_RE = re.compile(r"\[\[?(?:[A-Z][A-Z0-9_]*\]?)?$")
+
+#: Worth asking the vault about, when the tolerant matcher is on. A bracket of
+#: any kind, or a bare `Something_A1` / `Something A1` token -- the shapes a
+#: mangled placeholder can take. Deliberately broad: it only decides whether a
+#: lookup happens, never what may be substituted, and that decision is still
+#: made against the placeholders this one mapping issued.
+_MAYBE_MANGLED_RE = re.compile(r"\[|(?<!\w)[A-Za-z][A-Za-z0-9_]*[_\s][A-Za-z]+[0-9]+(?!\w)")
+
 #: Room for the suffix in :func:`max_placeholder_length`. Suffixes run
 #: ``A1..Z9, AA1, ...``, so eight characters covers more entities in one
 #: mapping than a single request could ever produce.
@@ -75,14 +88,15 @@ class HoldBack:
     stream of ordinary prose flows through untouched.
     """
 
-    def __init__(self, max_hold: int) -> None:
+    def __init__(self, max_hold: int, lenient: bool = False) -> None:
         self.max_hold = max_hold
+        self._pattern = _LENIENT_TAIL_RE if lenient else _PARTIAL_TAIL_RE
         self._held = ""
 
     def feed(self, text: str) -> str:
         """Add `text`; return everything now safe to emit."""
         buffer = self._held + text
-        match = _PARTIAL_TAIL_RE.search(buffer)
+        match = self._pattern.search(buffer)
         if match is None:
             self._held = ""
             return buffer
@@ -113,6 +127,7 @@ async def restore_sse(
     *,
     restore: Callable[[str], Awaitable[str]],
     max_hold: int,
+    lenient: bool = False,
 ) -> AsyncIterator[bytes]:
     """Relay an SSE completion stream, putting real values back as it goes.
 
@@ -132,7 +147,14 @@ async def restore_sse(
         # The vault is only consulted when there is something to look up. A
         # token-by-token stream would otherwise hit the database once per
         # token to restore text that plainly holds no placeholder.
-        if not text or not contains_placeholder(text):
+        #
+        # The test for "something to look up" has to widen with the matcher:
+        # `contains_placeholder` wants `[[...]]`, so on its own it would skip
+        # exactly the mangled forms the tolerant matcher exists to catch.
+        worth_asking = contains_placeholder(text) or (
+            lenient and _MAYBE_MANGLED_RE.search(text) is not None
+        )
+        if not text or not worth_asking:
             return text
         try:
             return await restore(text)
@@ -156,7 +178,7 @@ async def restore_sse(
             if not isinstance(delta, dict):
                 continue
             index = choice.get("index", 0)
-            hold = holds.setdefault(index, HoldBack(max_hold))
+            hold = holds.setdefault(index, HoldBack(max_hold, lenient=lenient))
             content = delta.get("content")
             released = hold.feed(content) if isinstance(content, str) else ""
 

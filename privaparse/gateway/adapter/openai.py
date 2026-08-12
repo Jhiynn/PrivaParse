@@ -93,3 +93,34 @@ TEXT_PART_FIELD = "text"
 # places it tolerates.
 RESPONSE_CHOICES_FIELD = "choices"
 RESPONSE_MESSAGE_FIELD = "message"
+
+# The opt-in outbound hint. Deliberately short: it is prepended to somebody
+# else's prompt, and every token of it is billed to them. It names the shape
+# rather than explaining the scheme, because the provider does not need to be
+# told what the placeholders stand for.
+PLACEHOLDER_HINT = (
+    "Some values in this conversation are replaced by privacy placeholders of the "
+    "form [[TYPE_A1]]. Reproduce any such token exactly as written, character for "
+    "character, including both pairs of square brackets. Never translate, rename, "
+    "reformat, quote, split or omit one."
+)
+
+
+def with_placeholder_hint(body: dict) -> dict:
+    """A copy of `body` with the hint prepended as its own system message.
+
+    Its own message rather than an edit of the caller's: rewriting somebody
+    else's system prompt is a larger liberty than adding to the list, and a
+    separate message is trivial for them to spot in a request log.
+
+    Called after pseudonymisation, so the hint never reaches the detector and
+    can never be stored as an entity of its own.
+    """
+    if not isinstance(body, dict) or not isinstance(body.get(MESSAGES_FIELD), list):
+        return body
+    out = dict(body)
+    out[MESSAGES_FIELD] = [
+        {"role": "system", "content": PLACEHOLDER_HINT},
+        *body[MESSAGES_FIELD],
+    ]
+    return out
