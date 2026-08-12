@@ -98,6 +98,37 @@ def test_known_non_text_fields_are_ignored():
     assert [n.text for n in extract_input(body)] == ["hallo"]
 
 
+def test_the_fields_a_real_codex_turn_sends_are_all_accounted_for():
+    """Captured from Codex CLI 0.147.0 through a recording proxy, not guessed.
+
+    `client_metadata` appears in no published schema; its contents are
+    identifiers only -- installation, session, thread, turn and window ids
+    plus a timestamp -- which is why it is waved through rather than scanned.
+    """
+    body = {
+        "client_metadata": {
+            "x-codex-turn-metadata": '{"installation_id":"a18f17ab","request_kind":"turn"}',
+            "x-codex-installation-id": "a18f17ab", "turn_id": "019ff829",
+            "thread_id": "019ff829", "x-codex-window-id": "019ff829:0",
+            "session_id": "019ff829",
+        },
+        "include": ["reasoning.encrypted_content"],
+        "instructions": "Du bist Codex.",
+        "model": "qwen",
+        "parallel_tool_calls": False,
+        "prompt_cache_key": "019ff829",
+        "reasoning": {"summary": "auto"},
+        "store": False,
+        "stream": True,
+        "tool_choice": "auto",
+        "tools": [{"type": "function", "name": "exec_command", "description": "Run"}],
+        "input": [{"type": "message", "id": "msg_1", "role": "developer",
+                   "content": [{"type": "input_text", "text": "Max Mustermann"}]}],
+    }
+
+    assert [n.text for n in extract_input(body)] == ["Du bist Codex.", "Max Mustermann"]
+
+
 def test_an_unknown_top_level_field_carrying_text_is_refused():
     with pytest.raises(UnscannableField) as excinfo:
         extract_input({"input": "hallo", "some_new_field": "Max Mustermann"})

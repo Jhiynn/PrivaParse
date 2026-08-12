@@ -50,8 +50,15 @@ OUTPUT_FIELD = "output"
 # for `response_format` and `tools`. Identifiers (`model`, `user`,
 # `previous_response_id`, `conversation`, `prompt_cache_key`) must reach the
 # provider verbatim or the request means something else.
+#
+# `client_metadata` is not in the openai package's typed models at all -- it
+# is a Codex CLI extension, found by putting a recorder in front of a real
+# Codex run. Its contents were inspected before being waved through and are
+# identifiers only: an installation id, session, thread, turn and window ids,
+# and a timestamp. No paths, no user name, no prompt text.
 IGNORED_REQUEST_FIELDS = frozenset({
-    "background", "conversation", "include", "include_obfuscation",
+    "background", "client_metadata", "conversation", "include",
+    "include_obfuscation",
     "max_output_tokens", "max_tool_calls", "metadata", "model",
     "parallel_tool_calls", "previous_response_id", "prompt_cache_key",
     "prompt_cache_options", "prompt_cache_retention", "reasoning",

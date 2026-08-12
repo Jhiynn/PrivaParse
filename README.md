@@ -380,7 +380,7 @@ streaming and non-streaming, tool calls included) and `/v1/models`.
 | Client | Works | Why |
 | --- | --- | --- |
 | `curl`, OpenAI Python/Node SDK | **yes**, exercised in the suite and against a live vLLM | Chat Completions |
-| **Codex CLI** | **implemented, not yet run against the real thing** | Responses API — see below |
+| **Codex CLI** | **yes** — a real `codex exec` turn completed through the gateway | Responses API — see below |
 | Aider, Continue, Cline, LangChain, LlamaIndex | expected — **not tested here** | Chat Completions against a `base_url` |
 | Open WebUI, LibreChat | protocol yes — **but read the warning below first** | server-side clients put restored PII on that host |
 | **Claude Code** | **no** | speaks the Anthropic Messages API and reads `ANTHROPIC_BASE_URL`, not `OPENAI_BASE_URL` |
@@ -401,13 +401,27 @@ env_key = "OPENAI_API_KEY"
 wire_api = "responses"
 ```
 
-**This has passed its tests but has never been run against the real Codex
-CLI.** The input item union has 32 members and the walk covers the four a
-coding agent is expected to send (`message`, `function_call`,
-`function_call_output`, `reasoning`); anything else stops the request with a
-502 naming the field. That is the designed failure rather than a leak, but
-expect a first run to turn up an item type or two worth adding. The 502 body
-tells you which.
+Verified against Codex CLI 0.147.0: a full turn completed, the email in the
+prompt was pseudonymised before it reached the model, and the instruction
+block Codex resends every request hit an 0.85 cache rate across two turns at
+32 ms of PrivaParse overhead. Full account in
+[docs/codex-cli-report.md](docs/codex-cli-report.md).
+
+Two things that run turned up:
+
+- Codex sends `client_metadata`, which appears in no published schema. It is
+  now ignored — its contents are session identifiers, nothing typed by a
+  person — but the first run refused the request with a 502 naming it, which
+  is the fail-closed rule doing its job. Anything else unrecognised behaves
+  the same way, and the 502 body tells you which field.
+- **`function_call` and `function_call_output` are implemented and unit-tested
+  but have not been seen from a real Codex** — the small local model never
+  invoked a tool. Expect those paths to get their first real exercise on your
+  first turn that touches a file.
+
+Pointing Codex at a *local* model needs `--max-model-len 32768` or larger:
+Codex sends ~20 KB of instructions and ten tool definitions before you type
+anything, which does not fit in 8k.
 
 ### What it does to a request
 
