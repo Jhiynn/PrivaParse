@@ -18,7 +18,7 @@
 - **No `ruff format`.** Lint only. The codebase wraps signatures by hand and the formatter would rewrite files repository-wide.
 - **No AI-assistant attribution** in any commit message, file, or documentation page.
 - **Never introduce real PII** into tests, gold data, or examples. Synthetic only, matching the existing corpus (`Max Mustermann`, `beispiel.de`, checksum-valid generated IBANs).
-- **Measured numbers are moved, never re-derived.** No benchmark figure changes in this work.
+- **Measured numbers are moved, never re-derived** — with exactly one authorised exception, Task 5b, which re-scores the detection evaluation because the corpus it was measured on has since grown. Outside that task no benchmark figure changes in this work.
 - Commit style: Conventional Commits, imperative subject, body says why.
 
 ---
@@ -631,6 +631,55 @@ source comments and YAML rather than Markdown -- the link test found
 them, which is what it was written for.
 MSG
 ```
+
+---
+
+### Task 5b: Re-score the gold set at its current size
+
+The published detection scores describe a run over 91 gold documents. `eval/gold/de_gold.jsonl` now holds 124 — 91 with PII and 33 without — because batches D and E added 33 positive documents after that run. The README's "91 documents, 33 with no PII at all" was accurate when written and is now stale, and the 91 appearing on both sides of that drift is a coincidence, not a reconciliation.
+
+The maintainer chose fresh numbers over a disclosure of staleness. That makes this the one task in the plan permitted to change a published figure.
+
+**Files:**
+- Modify: `docs/benchmarks/detection-quality.md` (the scored tables)
+- Modify: `docs/benchmarks/README.md` (headline figures and the gold-set note)
+- Modify: `README.md` (the four-row table and the gold-set sentence)
+
+**Where this runs.** Not on the development machine. A `/lab` sandbox, because the run needs model weights and the lab already holds them: `gliner2-privacy-pii-multi` (1.2 GB) sits in the shared model store, which `sb-dev` and `sb-gpu` sandboxes mount read-only at `/share`.
+
+Use `sb-dev`, on CPU, rather than `sb-gpu`. The GPU buys nothing here: 124 documents is a sub-minute workload either way, and taking the GPU path would mean downloading a CUDA torch build (~2 GB) into a throwaway container to make a short job shorter. It is also load-bearing that this is legitimate — the project ships a model-marked test asserting that a CPU/GPU swap returns identical detections. Run that test in the sandbox first; it is the evidence that a CPU-scored run is comparable to the GPU-scored one it replaces. If that test fails or cannot run, stop and report, because then the device does change the answer and the whole approach is void.
+
+- [ ] **Step 1: Create the sandbox**
+
+`sb-dev`, image `ubuntu24`, `ttl_hours` 4. Confirm `/share/gliner2-privacy-pii-multi` is visible and read-only.
+
+- [ ] **Step 2: Get the source in**
+
+Upload a `git archive` of the working tree rather than cloning — the repository is still private and the sandbox has no credentials.
+
+- [ ] **Step 3: Install**
+
+Python 3.11+, then `pip install -e ".[model,dev]"`. This pulls the CPU torch build from PyPI. Set `PRIVAPARSE_MODEL_DIR` to the `/share` model directory and `PRIVAPARSE_OFFLINE=1` so nothing reaches for the Hugging Face Hub.
+
+- [ ] **Step 4: Prove the device does not change the answer**
+
+Run the model-marked tests: `pytest -m model`. The CPU/GPU parity test is the one that matters; record its result verbatim. If the suite cannot run for want of a GPU on the comparison side, record exactly which assertions did run and which did not, and say so plainly rather than implying full coverage.
+
+- [ ] **Step 5: Score the full corpus**
+
+Run `privaparse eval` over `eval/gold/de_gold.jsonl` with the shipped catalogue at its 21 enabled types. Capture the complete output, not just the summary table.
+
+- [ ] **Step 6: Bring the report back and compare**
+
+Download the generated report. Put the new figures beside the old ones and state, per type, which moved and in which direction. The 33 documents added since the last run are all positives, which is exactly where new false negatives hide — if recall fell, that is the expected shape of the change and it gets reported, not smoothed.
+
+- [ ] **Step 7: Update the three documents**
+
+`detection-quality.md` carries the new run. State in it that it supersedes a 91-document run and give the date of each. The README's four-row table and its gold-set sentence take the new numbers and the correct corpus size. `docs/benchmarks/README.md`'s headline figures follow.
+
+If the new numbers cross the project's own stated threshold — PERSON partial-match recall below 0.90 or precision below 0.85, the floor fixed before the original run — do not restate the "fine-tuning not warranted" verdict. Report the numbers and flag the verdict as needing the maintainer's decision. The threshold exists to be honoured when it is inconvenient; that is the only time a pre-registered threshold does any work.
+
+- [ ] **Step 8: Delete the sandbox, then commit**
 
 ---
 
