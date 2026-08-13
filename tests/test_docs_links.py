@@ -14,7 +14,13 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-SKIP_DIRS = {".venv", ".git", ".idea", "node_modules", ".pytest_cache", ".ruff_cache", "build", "dist"}
+# Agent scratch (`.superpowers`, `.claude`) is git-ignored and disposable: its
+# briefs quote documentation paths as instructions, so a file move would fail
+# this test on throwaway scaffolding rather than on anything shipped.
+SKIP_DIRS = {
+    ".venv", ".git", ".idea", ".claude", ".superpowers",
+    "node_modules", ".pytest_cache", ".ruff_cache", "build", "dist",
+}
 
 MARKDOWN_LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)")
 # A path, not a regex. Prose in these documents quotes patterns like
