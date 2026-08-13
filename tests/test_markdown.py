@@ -3,6 +3,8 @@ view has exactly the same length as the original, so offsets are interchangeable
 
 from __future__ import annotations
 
+import itertools
+
 from privaparse.parser.markdown import protect, protected_regions
 
 FENCED = """\
@@ -124,7 +126,7 @@ def test_regions_are_sorted_and_disjoint() -> None:
     text = "`a` und `b` und ```\ncode\n``` und https://x.de"
     regions = protected_regions(text)
     assert regions == sorted(regions, key=lambda r: r.start)
-    for left, right in zip(regions, regions[1:]):
+    for left, right in itertools.pairwise(regions):
         assert left.end <= right.start
 
 

@@ -57,7 +57,7 @@ class Metrics:
             return ordered[middle]
         return (ordered[middle - 1] + ordered[middle]) / 2
 
-    def snapshot(self, cache: "DetectionCache") -> dict[str, Any]:
+    def snapshot(self, cache: DetectionCache) -> dict[str, Any]:
         return {
             "requests": self.requests,
             "entities_per_request": round(self.entities_per_request, 2),

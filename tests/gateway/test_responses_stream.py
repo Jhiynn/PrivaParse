@@ -184,7 +184,7 @@ def test_the_completed_event_has_its_whole_response_restored():
                                      "text": f"Hallo {PLACEHOLDER}"}]}],
         }}),
     ])
-    completed = [p for p in _payloads(raw) if p["type"] == "response.completed"][0]
+    completed = next(p for p in _payloads(raw) if p["type"] == "response.completed")
     assert completed["response"]["output"][0]["content"][0]["text"] == f"Hallo {REAL}"
 
 

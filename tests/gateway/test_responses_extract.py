@@ -18,7 +18,6 @@ import pytest
 from privaparse.gateway.adapter.responses import extract_input, extract_output
 from privaparse.gateway.extract import UnscannableField, write_back
 
-
 # --- the request -----------------------------------------------------------
 
 

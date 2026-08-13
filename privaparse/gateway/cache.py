@@ -25,8 +25,9 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import OrderedDict
+from collections.abc import Sequence
 from dataclasses import asdict
-from typing import TYPE_CHECKING, Sequence
+from typing import TYPE_CHECKING
 
 from privaparse.parser.types import Span
 
@@ -37,7 +38,7 @@ if TYPE_CHECKING:  # pragma: no cover
 __all__ = ["CachingDetector", "DetectionCache", "catalogue_fingerprint"]
 
 
-def catalogue_fingerprint(catalogue: "Catalogue") -> str:
+def catalogue_fingerprint(catalogue: Catalogue) -> str:
     """A stable digest of every enabled type.
 
     Any change to an enabled type invalidates every block cached before it --
@@ -68,7 +69,7 @@ class DetectionCache:
         self.capacity = max(0, int(capacity))
         self.hits = 0
         self.misses = 0
-        self._entries: "OrderedDict[tuple[str, str], tuple[Span, ...]]" = OrderedDict()
+        self._entries: OrderedDict[tuple[str, str], tuple[Span, ...]] = OrderedDict()
 
     def __len__(self) -> int:
         return len(self._entries)
@@ -117,10 +118,10 @@ class CachingDetector:
     read only when something actually misses.
     """
 
-    def __init__(self, engine: "PrivaParseEngine", cache: DetectionCache) -> None:
+    def __init__(self, engine: PrivaParseEngine, cache: DetectionCache) -> None:
         self._engine = engine
         self._cache = cache
-        self._catalogue: "Catalogue | None" = None
+        self._catalogue: Catalogue | None = None
         self._fingerprint = ""
 
     def _current_fingerprint(self) -> str:

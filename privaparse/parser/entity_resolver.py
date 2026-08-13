@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Iterable
+from typing import TYPE_CHECKING
 
 from privaparse.app.logging import get_logger, register_secret
 from privaparse.database.models import Entity, EntityValue
@@ -18,10 +19,10 @@ if TYPE_CHECKING:  # pragma: no cover
 log = get_logger("resolver")
 
 __all__ = [
-    "ResolvedSpan",
+    "EntityResolver",
     "EntityUsage",
     "Resolution",
-    "EntityResolver",
+    "ResolvedSpan",
     "UnknownEntityTypeError",
 ]
 
@@ -65,7 +66,7 @@ class Resolution:
 class EntityResolver:
     """Maps surface forms onto stable placeholders through the global vault."""
 
-    def __init__(self, repo: VaultRepository, catalogue: "Catalogue") -> None:
+    def __init__(self, repo: VaultRepository, catalogue: Catalogue) -> None:
         self.repo = repo
         self.catalogue = catalogue
 

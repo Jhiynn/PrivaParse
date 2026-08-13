@@ -334,7 +334,7 @@ def test_serve_refuses_a_host_that_is_not_loopback(workspace: Path, monkeypatch)
     started: list[dict] = []
     monkeypatch.setattr(main, "_serve", lambda application, **kw: started.append(kw))
 
-    result = _run(workspace, "serve", "--host", "0.0.0.0")
+    result = _run(workspace, "serve", "--host", "0.0.0.0")  # noqa: S104 -- the value the guard must reject
 
     assert result.exit_code == 1
     assert "plaintext" in _said(result)

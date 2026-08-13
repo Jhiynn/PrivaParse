@@ -47,11 +47,11 @@ def streaming(base: str, model: str) -> None:
     with httpx.stream("POST", f"{base}/chat/completions", json=body,
                       headers=_headers(), timeout=120) as response:
         for line in response.iter_lines():
-            line = line.strip()
-            if not line.startswith("data: ") or line == "data: [DONE]":
+            stripped = line.strip()
+            if not stripped.startswith("data: ") or stripped == "data: [DONE]":
                 continue
             events += 1
-            for choice in json.loads(line[6:]).get("choices", []):
+            for choice in json.loads(stripped[6:]).get("choices", []):
                 piece = choice.get("delta", {}).get("content")
                 if isinstance(piece, str):
                     pieces.append(piece)
@@ -82,11 +82,11 @@ def tool_call(base: str, model: str) -> None:
                    f"HTTP {response.status_code} {response.text[:150]}")
             return
         for line in response.iter_lines():
-            line = line.strip()
-            if not line.startswith("data: ") or line == "data: [DONE]":
+            stripped = line.strip()
+            if not stripped.startswith("data: ") or stripped == "data: [DONE]":
                 continue
             events += 1
-            for choice in json.loads(line[6:]).get("choices", []):
+            for choice in json.loads(stripped[6:]).get("choices", []):
                 calls.extend(choice.get("delta", {}).get("tool_calls") or [])
 
     if not calls:

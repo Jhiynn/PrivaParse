@@ -26,7 +26,7 @@ def _chunk(delta: dict, finish: str | None = None) -> bytes:
         "id": "stub", "object": "chat.completion.chunk",
         "choices": [{"index": 0, "delta": delta, "finish_reason": finish}],
     }
-    return f"data: {json.dumps(payload)}\n\n".encode("utf-8")
+    return f"data: {json.dumps(payload)}\n\n".encode()
 
 
 async def chat(request):

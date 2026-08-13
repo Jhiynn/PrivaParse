@@ -217,7 +217,7 @@ def test_an_event_split_across_byte_chunks_is_reassembled():
 
 def test_a_multibyte_character_split_across_byte_chunks_survives():
     whole = _event(_chunk("Grüße")) + _event(_chunk(None, finish="stop"))
-    boundary = whole.index("ü".encode("utf-8")) + 1
+    boundary = whole.index("ü".encode()) + 1
     raw = _run([whole[:boundary], whole[boundary:]])
     assert _content(raw) == "Grüße"
 

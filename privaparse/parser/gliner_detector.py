@@ -27,8 +27,9 @@ identical precision, and ``512`` was also the faster of the two on GPU. See
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Sequence
+from typing import TYPE_CHECKING, Any
 
 from privaparse.app.logging import get_logger
 from privaparse.parser.types import SOURCE_GLINER, Span
@@ -39,7 +40,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
 log = get_logger("gliner")
 
-__all__ = ["GlinerDetector", "Chunk", "chunk_text"]
+__all__ = ["Chunk", "GlinerDetector", "chunk_text"]
 
 _WARMUP_TEXT = "Herr Max Mustermann, max@test.de, +49 170 1234567."
 
@@ -58,8 +59,8 @@ class GlinerDetector:
 
     def __init__(
         self,
-        settings: "Settings",
-        device: "ResolvedDevice",
+        settings: Settings,
+        device: ResolvedDevice,
         *,
         model: Any = None,
         progress: Callable[[int, int], None] | None = None,
@@ -98,7 +99,7 @@ class GlinerDetector:
         """Pay the compile and CUDA-init cost now, not on the first real request."""
         try:
             self._extract([Chunk(_WARMUP_TEXT, 0)])
-        except Exception as exc:  # pragma: no cover - warmup must never be fatal
+        except Exception as exc:  # noqa: BLE001 -- pragma: no cover, model inference can raise anything
             log.warning("warmup pass failed (continuing): %s", exc)
         else:
             log.debug("warmup complete")

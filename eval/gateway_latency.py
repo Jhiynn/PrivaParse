@@ -24,7 +24,7 @@ import argparse
 import json
 import statistics
 import time
-from typing import Any
+from typing import Any, ClassVar
 
 from starlette.testclient import TestClient
 
@@ -80,7 +80,7 @@ def _request(kilobytes: int) -> dict[str, Any]:
 class _StubUpstream:
     """The provider, minus the provider."""
 
-    reply = {
+    reply: ClassVar[dict[str, Any]] = {
         "id": "chatcmpl-bench",
         "object": "chat.completion",
         "choices": [

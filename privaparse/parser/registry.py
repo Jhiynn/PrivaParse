@@ -12,19 +12,20 @@ module scope.
 from __future__ import annotations
 
 import threading
-from typing import Callable, TypeVar
+from collections.abc import Callable
+from typing import TypeVar
 
 __all__ = [
-    "register_normalizer",
-    "register_validator",
-    "register_backstop",
+    "get_backstop",
     "get_normalizer",
     "get_validator",
-    "get_backstop",
+    "known_backstops",
     "known_normalizers",
     "known_validators",
-    "known_backstops",
     "load_builtins",
+    "register_backstop",
+    "register_normalizer",
+    "register_validator",
 ]
 
 F = TypeVar("F", bound=Callable)
@@ -105,7 +106,7 @@ def load_builtins() -> None:
     The gateway made that ordinary: every request detects in a worker thread,
     so a cold process gets a dozen threads here at once.
     """
-    global _loaded
+    global _loaded  # noqa: PLW0603 -- deliberate module-level cache flag
     if _loaded:
         return
     with _import_lock:

@@ -6,10 +6,10 @@ so no caller ever handles the on-disk representation directly.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Iterator
 
 from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.engine import Engine
@@ -53,14 +53,14 @@ class Database:
         self._session_factory = sessionmaker(bind=self._engine, expire_on_commit=False)
 
     @classmethod
-    def from_path(cls, path: Path, *, echo: bool = False) -> "Database":
+    def from_path(cls, path: Path, *, echo: bool = False) -> Database:
         path = Path(path)
         if path.parent and not path.parent.exists():
             path.parent.mkdir(parents=True, exist_ok=True)
         return cls(f"sqlite:///{path.resolve()}", echo=echo)
 
     @classmethod
-    def in_memory(cls) -> "Database":
+    def in_memory(cls) -> Database:
         db = cls("sqlite://")
         db.create_all()
         return db

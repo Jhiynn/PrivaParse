@@ -25,7 +25,7 @@ Four tables, and the reason for each:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import (
     DateTime,
@@ -40,7 +40,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _new_uuid() -> str:
@@ -64,7 +64,7 @@ class Entity(Base):
     suffix_index: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
 
-    values: Mapped[list["EntityValue"]] = relationship(
+    values: Mapped[list[EntityValue]] = relationship(
         back_populates="entity", cascade="all, delete-orphan", lazy="selectin"
     )
 
@@ -112,7 +112,7 @@ class Mapping(Base):
     source_name: Mapped[str | None] = mapped_column(String(512), nullable=True)
     text_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
 
-    entries: Mapped[list["MappingEntry"]] = relationship(
+    entries: Mapped[list[MappingEntry]] = relationship(
         back_populates="mapping", cascade="all, delete-orphan", lazy="selectin"
     )
 

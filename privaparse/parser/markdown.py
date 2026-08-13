@@ -28,7 +28,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-__all__ = ["Region", "ProtectedText", "protect", "protected_regions"]
+__all__ = ["ProtectedText", "Region", "protect", "protected_regions"]
 
 _FENCE_RE = re.compile(r"^( {0,3})(`{3,}|~{3,})(.*)$")
 _HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)

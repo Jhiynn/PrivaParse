@@ -14,8 +14,9 @@ from __future__ import annotations
 
 import os
 import threading
+from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Sequence
+from typing import TYPE_CHECKING, Any, Self
 
 from privaparse.app.config import Settings, load_settings
 from privaparse.app.device import ResolvedDevice, resolve_device
@@ -35,9 +36,9 @@ log = get_logger("engine")
 __all__ = [
     "PrivaParseEngine",
     "default_engine",
-    "reset_default_engine",
     "detect",
     "pseudonymize",
+    "reset_default_engine",
     "reverse",
 ]
 
@@ -49,11 +50,11 @@ class PrivaParseEngine:
         self,
         settings: Settings | None = None,
         *,
-        detector: "Detector | None" = None,
+        detector: Detector | None = None,
         cipher: ValueCipher | None = None,
         database: Database | None = None,
         configure_logs: bool = True,
-        progress: "Callable[[int, int], None] | None" = None,
+        progress: Callable[[int, int], None] | None = None,
     ) -> None:
         #: Optional (chunks done, chunks total) callback, for a CLI progress bar.
         self.progress = progress
@@ -95,7 +96,7 @@ class PrivaParseEngine:
 
     # --- pipeline ----------------------------------------------------------
 
-    def detect(self, text: str) -> list["Span"]:
+    def detect(self, text: str) -> list[Span]:
         """Detected entities, after masking, merging and the coreference sweep.
 
         Read-only: nothing is written to the vault.
@@ -113,7 +114,7 @@ class PrivaParseEngine:
             catalogue=self.settings.catalogue,
         )
 
-    def detect_raw(self, text: str) -> "tuple[ProtectedText, list[Span]]":
+    def detect_raw(self, text: str) -> tuple[ProtectedText, list[Span]]:
         """Masked text plus unfiltered detector output.
 
         The threshold sweep needs the model's scores before merging drops
@@ -126,7 +127,7 @@ class PrivaParseEngine:
 
     def pseudonymize(
         self, text: str, *, source_name: str | None = None
-    ) -> "PseudonymizationResult":
+    ) -> PseudonymizationResult:
         """Replace entities with placeholders and record a reversible mapping."""
         from privaparse.parser.pseudonymizer import pseudonymize_text
 
@@ -141,12 +142,12 @@ class PrivaParseEngine:
 
     def pseudonymize_batch(
         self,
-        texts: "Sequence[str]",
+        texts: Sequence[str],
         *,
         source_name: str | None = None,
-        detector: "Detector | None" = None,
+        detector: Detector | None = None,
         adopt_placeholders: bool = False,
-    ) -> "BatchResult":
+    ) -> BatchResult:
         """Pseudonymise several texts under one mapping.
 
         ``detector`` overrides the engine's own for this call, the same
@@ -174,7 +175,7 @@ class PrivaParseEngine:
         *,
         strict: bool = False,
         fuzzy: bool = False,
-    ) -> "ReverseResult":
+    ) -> ReverseResult:
         """Restore the placeholders this mapping issued — and only those.
 
         ``mapping_id=None`` looks for the session that issued *every*
@@ -202,7 +203,7 @@ class PrivaParseEngine:
         return self.settings.catalogue
 
     @property
-    def detector(self) -> "Detector":
+    def detector(self) -> Detector:
         """The detector, loaded on first use and kept warm afterwards."""
         if self._detector is None:
             with self._detector_lock:
@@ -210,7 +211,7 @@ class PrivaParseEngine:
                     self._detector = self._build_detector()
         return self._detector
 
-    def _build_detector(self) -> "Detector":
+    def _build_detector(self) -> Detector:
         from privaparse.parser.detector import build_default_detector
 
         return build_default_detector(self.settings, self.device, progress=self.progress)
@@ -218,7 +219,7 @@ class PrivaParseEngine:
     def close(self) -> None:
         self.database.dispose()
 
-    def __enter__(self) -> "PrivaParseEngine":
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *exc: object) -> None:
@@ -265,7 +266,7 @@ _default_lock = threading.Lock()
 
 
 def default_engine() -> PrivaParseEngine:
-    global _default
+    global _default  # noqa: PLW0603 -- module-level singleton engine, that's the point
     if _default is None:
         with _default_lock:
             if _default is None:
@@ -275,7 +276,7 @@ def default_engine() -> PrivaParseEngine:
 
 def reset_default_engine() -> None:
     """Drop the shared engine. Mainly for tests and config reloads."""
-    global _default
+    global _default  # noqa: PLW0603 -- module-level singleton engine, that's the point
     with _default_lock:
         if _default is not None:
             _default.close()
@@ -285,13 +286,13 @@ def reset_default_engine() -> None:
 # --- convenience API -------------------------------------------------------
 
 
-def detect(text: str) -> list["Span"]:
+def detect(text: str) -> list[Span]:
     return default_engine().detect(text)
 
 
-def pseudonymize(text: str, *, source_name: str | None = None) -> "PseudonymizationResult":
+def pseudonymize(text: str, *, source_name: str | None = None) -> PseudonymizationResult:
     return default_engine().pseudonymize(text, source_name=source_name)
 
 
-def reverse(mapping_id: str, text: str, *, strict: bool = False) -> "ReverseResult":
+def reverse(mapping_id: str, text: str, *, strict: bool = False) -> ReverseResult:
     return default_engine().reverse(mapping_id, text, strict=strict)

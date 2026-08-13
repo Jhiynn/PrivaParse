@@ -8,7 +8,8 @@ regex-only detector, a fake, or the real GLiNER2 model without changing a line.
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Iterable, Protocol, Sequence, runtime_checkable
+from collections.abc import Iterable, Sequence
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import phonenumbers
 
@@ -23,14 +24,14 @@ if TYPE_CHECKING:  # pragma: no cover
 log = get_logger("detector")
 
 __all__ = [
+    "CompositeDetector",
     "Detector",
     "RegexDetector",
     "StaticDetector",
-    "CompositeDetector",
     "build_default_detector",
+    "is_plausible_phone",
     "is_valid_email",
     "is_valid_phone",
-    "is_plausible_phone",
 ]
 
 # Pragmatic rather than RFC-complete: the exotic corners of the address grammar
@@ -110,7 +111,7 @@ class RegexDetector:
     around it, rather than letting the two compete on length or source.
     """
 
-    def __init__(self, catalogue: "Catalogue") -> None:
+    def __init__(self, catalogue: Catalogue) -> None:
         self.catalogue = catalogue
 
     def detect(self, text: str) -> list[Span]:
@@ -184,7 +185,7 @@ class StaticDetector:
 
 
 def build_default_detector(
-    settings: "Settings", device: "ResolvedDevice", progress=None
+    settings: Settings, device: ResolvedDevice, progress=None
 ) -> Detector:
     """Assemble the detector described by ``settings.detector``."""
     mode = settings.detector
@@ -199,7 +200,7 @@ def build_default_detector(
 
 
 def _build_gliner_detector(
-    settings: "Settings", device: "ResolvedDevice", progress=None
+    settings: Settings, device: ResolvedDevice, progress=None
 ) -> Detector:
     try:
         from privaparse.parser.gliner_detector import GlinerDetector

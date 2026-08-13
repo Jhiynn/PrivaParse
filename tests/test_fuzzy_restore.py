@@ -81,7 +81,7 @@ def test_a_mangled_placeholder_from_another_session_is_not_restored(
     placeholders a mapping may resolve. A session that never issued
     `[[PERSON_A1]]` must not restore it however it is spelled.
     """
-    mapping_id, _ = issued
+    _mapping_id, _ = issued
     other = pseudonymize_text(
         "Hallo Erika Musterfrau", detector=fake_detector, repo=repo, settings=settings
     )

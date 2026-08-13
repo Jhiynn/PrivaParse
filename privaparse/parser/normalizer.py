@@ -23,15 +23,15 @@ log = get_logger("normalizer")
 
 __all__ = [
     "normalize",
-    "normalize_person",
-    "normalize_email",
-    "normalize_phone",
     "normalize_casefold",
-    "normalize_strip_upper",
-    "normalize_digits",
-    "normalize_identity",
     "normalize_date_iso",
+    "normalize_digits",
+    "normalize_email",
     "normalize_expiry",
+    "normalize_identity",
+    "normalize_person",
+    "normalize_phone",
+    "normalize_strip_upper",
 ]
 
 _WHITESPACE_RE = re.compile(r"\s+")

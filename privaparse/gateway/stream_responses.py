@@ -31,7 +31,8 @@ from __future__ import annotations
 import codecs
 import copy
 import json
-from typing import Any, AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from typing import Any
 
 from privaparse.app.logging import get_logger
 from privaparse.database.placeholder import contains_placeholder

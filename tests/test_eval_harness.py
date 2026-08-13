@@ -196,7 +196,7 @@ def test_verdict_uses_the_catalogue_bar():
 
     report = EvalReport(label="x", documents=1, catalogue=load_catalogue())
     report.partial["PERSON"] = Counts(tp=8, fp=0, fn=2)  # recall 0.80, bar 0.90
-    verdicts = dict((name, ok) for name, ok, _ in report.verdicts())
+    verdicts = {name: ok for name, ok, _ in report.verdicts()}
     assert verdicts["PERSON"] is False
 
 
@@ -227,11 +227,11 @@ def _report_with(precision: float, recall: float) -> EvalReport:
         StaticDetector([]), [_document(text, [])], label="stub", catalogue=load_catalogue()
     )
     support = 100
-    tp = int(round(recall * support))
+    tp = round(recall * support)
     report.partial["PERSON"] = Counts(
         tp=tp,
         fn=support - tp,
-        fp=int(round(tp / precision - tp)) if precision else 0,
+        fp=round(tp / precision - tp) if precision else 0,
     )
     return report
 
@@ -398,7 +398,6 @@ def test_gold_set_contains_negative_documents():
 
 def test_generated_decidable_values_pass_their_validators():
     from privaparse.evaluation.build_gold import generate_decidable
-
     from privaparse.parser import registry
 
     for entity_type, value, validator in generate_decidable(seed=7):

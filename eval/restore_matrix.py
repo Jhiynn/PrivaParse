@@ -40,8 +40,8 @@ CASES = [
     ("echo the address", f"Wiederhole exakt, ohne Kommentar:\nKontakt: {EMAIL}", EMAIL, False),
     ("echo the phone", f"Wiederhole exakt, ohne Kommentar:\nTel: {PHONE}", PHONE, False),
     ("answer a question",
-     f"Die Rueckfrage geht an {EMAIL}. An welche Adresse soll ich schreiben? "
-     "Antworte in einem kurzen Satz.", EMAIL, False),
+     (f"Die Rueckfrage geht an {EMAIL}. An welche Adresse soll ich schreiben? "
+      "Antworte in einem kurzen Satz."), EMAIL, False),
     ("use it in a sentence",
      f"Schreibe einen Satz, in dem die Adresse {EMAIL} unveraendert vorkommt.",
      EMAIL, False),

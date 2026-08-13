@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Sequence
+from typing import TYPE_CHECKING
 
 from privaparse.app.logging import get_logger
 from privaparse.database.placeholder import contains_placeholder
@@ -27,13 +28,13 @@ if TYPE_CHECKING:  # pragma: no cover
 log = get_logger("pseudonymizer")
 
 __all__ = [
-    "PseudonymizationResult",
-    "BatchResult",
     "AlreadyPseudonymizedError",
+    "BatchResult",
+    "PseudonymizationResult",
     "SpanIntegrityError",
-    "pseudonymize_text",
-    "pseudonymize_batch",
     "apply_replacements",
+    "pseudonymize_batch",
+    "pseudonymize_text",
 ]
 
 
@@ -96,7 +97,7 @@ def pseudonymize_text(
     *,
     detector: Detector,
     repo: VaultRepository,
-    settings: "Settings",
+    settings: Settings,
     source_name: str | None = None,
 ) -> PseudonymizationResult:
     """Detect, replace and persist, as one transaction.
@@ -121,7 +122,7 @@ def pseudonymize_batch(
     *,
     detector: Detector,
     repo: VaultRepository,
-    settings: "Settings",
+    settings: Settings,
     source_name: str | None = None,
     adopt_placeholders: bool = False,
 ) -> BatchResult:
@@ -224,11 +225,13 @@ def pseudonymize_batch(
     repo.session.commit()
 
     log.info(
-        "pseudonymised %d text(s) as %s: %d replacement(s), %d placeholder(s), mapping=%s",
+        "pseudonymised %d text(s) as %s: %d replacement(s), %d placeholder(s), "
+        "%d adopted, mapping=%s",
         len(texts),
         source_name or ("<text>" if len(texts) == 1 else "<batch>"),
         sum(len(r.spans) for r in resolutions),
         len(merged),
+        adopted,
         mapping.id,
     )
     return BatchResult(
@@ -321,7 +324,7 @@ def _verify_spans(text: str, spans: list[Span]) -> None:
             )
 
 
-def _ensure_known_types(per_text_spans: Sequence[list[Span]], catalogue: "Catalogue") -> None:
+def _ensure_known_types(per_text_spans: Sequence[list[Span]], catalogue: Catalogue) -> None:
     """Raise before any text in the batch is resolved, if any span names a
     type the catalogue does not define.
 

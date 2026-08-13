@@ -28,7 +28,8 @@ from __future__ import annotations
 import codecs
 import json
 import re
-from typing import Any, AsyncIterator, Awaitable, Callable, Iterable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
+from typing import Any
 
 from privaparse.app.logging import get_logger
 from privaparse.database.placeholder import contains_placeholder
@@ -345,7 +346,7 @@ def _raw(block: str) -> bytes:
 
 
 def _encode(payload: dict[str, Any]) -> bytes:
-    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n".encode("utf-8")
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n".encode()
 
 
 def _reassemble(lines: Iterable[str], payload: dict[str, Any]) -> bytes:

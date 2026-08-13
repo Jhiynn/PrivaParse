@@ -20,16 +20,16 @@ __version__ = "0.1.0"
 
 __all__ = [
     "PrivaParseEngine",
+    "__version__",
     "default_engine",
-    "reset_default_engine",
     "detect",
     "pseudonymize",
+    "reset_default_engine",
     "reverse",
-    "__version__",
 ]
 
 
-def __getattr__(name: str):  # noqa: D103 - lazy re-export, keeps import cheap
+def __getattr__(name: str):
     if name in __all__:
         from privaparse import engine as _engine
 

@@ -18,9 +18,10 @@ not the pipeline.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Protocol, Sequence
+from typing import TYPE_CHECKING, Any, Protocol
 
 from privaparse.evaluation import DEFAULT_GOLD_PATH
 from privaparse.parser.types import Span
@@ -47,7 +48,7 @@ class GoldEntity:
     #: annotation has no model label, since it was hand-written, not detected.
     label: str | None = None
 
-    def overlaps(self, other: "GoldEntity") -> bool:
+    def overlaps(self, other: GoldEntity) -> bool:
         return self.start < other.end and other.start < self.end
 
     @property
@@ -110,7 +111,7 @@ class EvalReport:
     #: The catalogue this run was scored against — where every type's bar
     #: comes from. Optional only so a test can build a report by hand without
     #: one; `evaluate()` always sets it.
-    catalogue: "Catalogue | None" = None
+    catalogue: Catalogue | None = None
     # Per-label recall is not computable and must not be reported: gold
     # entities carry a placeholder type, not a model label, so a missed
     # entity has no label to attribute it to, and there is no denominator to
@@ -220,7 +221,7 @@ def evaluate(
     documents: Sequence[GoldDocument],
     *,
     label: str = "detector",
-    catalogue: "Catalogue",
+    catalogue: Catalogue,
 ) -> EvalReport:
     report = EvalReport(label=label, documents=len(documents), catalogue=catalogue)
     entity_types = [t.name for t in catalogue.enabled]
@@ -425,7 +426,7 @@ class SupportsDetectRaw(Protocol):
 
     settings: Any
 
-    def detect_raw(self, text: str) -> "tuple[ProtectedText, list[Span]]": ...
+    def detect_raw(self, text: str) -> tuple[ProtectedText, list[Span]]: ...
 
 
 class _ReplayDetector:
@@ -452,11 +453,11 @@ class _ReplayDetector:
 
     def __init__(
         self,
-        protected: "list[ProtectedText]",
-        raw: "list[list[Span]]",
+        protected: list[ProtectedText],
+        raw: list[list[Span]],
         *,
         threshold: float,
-        catalogue: "Catalogue | None",
+        catalogue: Catalogue | None,
         sweep: bool,
     ) -> None:
         self._protected = protected
@@ -487,7 +488,7 @@ class _ReplayDetector:
         )
 
 
-def _without_per_type_thresholds(catalogue: "Catalogue") -> "Catalogue":
+def _without_per_type_thresholds(catalogue: Catalogue) -> Catalogue:
     """The same catalogue, with every type's own ``threshold:`` cleared.
 
     Looks like it throws away the thing the sweep is supposed to measure;
@@ -517,7 +518,7 @@ def sweep_thresholds(
     documents: Sequence[GoldDocument],
     *,
     thresholds: Sequence[float] = DEFAULT_SWEEP,
-    catalogue: "Catalogue",
+    catalogue: Catalogue,
 ) -> dict[float, EvalReport]:
     """Score the gold set at several thresholds from one model pass.
 
@@ -534,7 +535,7 @@ def sweep_thresholds(
     """
     swept_catalogue = _without_per_type_thresholds(catalogue)
 
-    protected: list["ProtectedText"] = []
+    protected: list[ProtectedText] = []
     raw: list[list[Span]] = []
     for document in documents:
         document_protected, document_raw = engine.detect_raw(document.text)

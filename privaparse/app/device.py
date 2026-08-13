@@ -98,7 +98,7 @@ def _gpu_info(index: int) -> tuple[str | None, int | None]:
 
         props = torch.cuda.get_device_properties(index)
         return props.name, int(props.total_memory // (1024 * 1024))
-    except Exception:  # pragma: no cover - diagnostics must never break the run
+    except Exception:  # noqa: BLE001 -- pragma: no cover, CUDA driver can raise anything
         return None, None
 
 

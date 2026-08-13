@@ -7,7 +7,7 @@ from privaparse.database.models import Entity, EntityValue
 from privaparse.parser.entity_resolver import EntityResolver, UnknownEntityTypeError
 from privaparse.parser.types import SOURCE_GLINER, Span
 
-SECRET = "sk-live-4f3a9c2b8e1d"
+SECRET = "sk-live-4f3a9c2b8e1d"  # noqa: S105 -- this project's entity-type name, not a real credential
 
 CATALOGUE = """
 version: 1

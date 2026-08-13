@@ -163,7 +163,7 @@ class Settings(BaseSettings):
         )
 
     @property
-    def catalogue(self) -> "Catalogue":
+    def catalogue(self) -> Catalogue:
         """The resolved catalogue. Cached — loading parses YAML and validates."""
         cached = self.__dict__.get("_catalogue")
         if cached is None:

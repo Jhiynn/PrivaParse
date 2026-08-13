@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import statistics
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Sequence
 
 from privaparse.app.logging import get_logger
 from privaparse.engine import PrivaParseEngine
@@ -23,7 +23,7 @@ from privaparse.evaluation.harness import GoldDocument, evaluate
 
 log = get_logger("bench")
 
-__all__ = ["BenchResult", "run_bench", "format_bench_report", "DEFAULT_MATRIX"]
+__all__ = ["DEFAULT_MATRIX", "BenchResult", "format_bench_report", "run_bench"]
 
 #: Mirrors the PERSON bar in the default catalogue (see
 #: `privaparse/app/entities.default.yaml`). Kept local rather than read from
@@ -175,7 +175,7 @@ def _nvidia_smi_clocks() -> tuple[int | None, int | None, str | None]:
         return None, None, None
     try:
         out = subprocess.run(
-            [
+            [  # noqa: S607 -- nvidia-smi on PATH, absence already tolerated above
                 "nvidia-smi",
                 "--query-gpu=clocks.current.graphics,clocks.max.graphics,pstate",
                 "--format=csv,noheader,nounits",
@@ -183,10 +183,13 @@ def _nvidia_smi_clocks() -> tuple[int | None, int | None, str | None]:
             capture_output=True,
             text=True,
             timeout=10,
+            check=False,
         ).stdout.strip().splitlines()[0]
         current, maximum, pstate = (part.strip() for part in out.split(","))
         return int(current), int(maximum), pstate
-    except Exception:  # pragma: no cover - diagnostics must never break a run
+    except (  # pragma: no cover - diagnostics must never break a run
+        OSError, subprocess.SubprocessError, ValueError, IndexError
+    ):
         return None, None, None
 
 
@@ -194,7 +197,7 @@ def _percentile(values: list[float], fraction: float) -> float:
     if not values:
         return 0.0
     ordered = sorted(values)
-    index = min(len(ordered) - 1, int(round(fraction * (len(ordered) - 1))))
+    index = min(len(ordered) - 1, round(fraction * (len(ordered) - 1)))
     return ordered[index]
 
 
@@ -205,7 +208,7 @@ def _reset_vram_peak(engine: PrivaParseEngine) -> None:
         import torch
 
         torch.cuda.reset_peak_memory_stats()
-    except Exception:  # pragma: no cover - diagnostics only
+    except Exception:  # noqa: BLE001, S110 -- pragma: no cover, CUDA driver can raise anything
         pass
 
 
@@ -216,7 +219,7 @@ def _vram_peak(engine: PrivaParseEngine) -> int | None:
         import torch
 
         return int(torch.cuda.max_memory_allocated() // (1024 * 1024))
-    except Exception:  # pragma: no cover - diagnostics only
+    except Exception:  # noqa: BLE001 -- pragma: no cover, CUDA driver can raise anything
         return None
 
 

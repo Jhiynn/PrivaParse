@@ -19,12 +19,12 @@ from privaparse.database.repository import VaultRepository
 log = get_logger("reverse")
 
 __all__ = [
-    "ReverseResult",
-    "UnknownMappingError",
     "ForeignPlaceholderError",
     "NoCoveringMappingError",
-    "reverse_text",
+    "ReverseResult",
+    "UnknownMappingError",
     "find_mapping_for",
+    "reverse_text",
 ]
 
 
@@ -96,7 +96,7 @@ class ReverseResult:
         return not self.foreign and not self.unknown
 
 
-def _tolerant_pattern(placeholder: str) -> "re.Pattern[str] | None":
+def _tolerant_pattern(placeholder: str) -> re.Pattern[str] | None:
     """A pattern for the ways a model tends to rewrite one placeholder.
 
     Measured manglings, all from one afternoon against a 1.5B model: a bracket

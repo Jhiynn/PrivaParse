@@ -15,9 +15,10 @@ config, which is the opposite of what a privacy tool should do on upgrade.
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 import yaml
 
@@ -28,12 +29,12 @@ from privaparse.parser import registry
 log = get_logger("catalogue")
 
 __all__ = [
+    "DEFAULT_CATALOGUE_PATH",
+    "MODEL_LABELS",
     "Bar",
     "Catalogue",
     "CatalogueError",
     "PlaceholderType",
-    "DEFAULT_CATALOGUE_PATH",
-    "MODEL_LABELS",
     "discover_catalogue_path",
     "load_catalogue",
 ]
@@ -157,7 +158,7 @@ def load_catalogue(path: Path | None = None) -> Catalogue:
     base = _read(DEFAULT_CATALOGUE_PATH)
     overlay_path = path if path is not None else discover_catalogue_path()
 
-    sources = {name: DEFAULT_CATALOGUE_PATH for name in base.get("placeholder_types", {})}
+    sources = dict.fromkeys(base.get("placeholder_types", {}), DEFAULT_CATALOGUE_PATH)
     if overlay_path is not None:
         overlay = _read(overlay_path)
         for name in overlay.get("placeholder_types", {}):

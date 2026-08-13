@@ -16,7 +16,8 @@ missed entity leaves the machine, a spurious one only costs readability.
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Iterable, Sequence
+from collections.abc import Iterable, Sequence
+from typing import TYPE_CHECKING
 
 from privaparse.app.logging import get_logger
 from privaparse.parser import registry
@@ -28,7 +29,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
 log = get_logger("merge")
 
-__all__ = ["merge_spans", "coreference_sweep", "resolve_spans", "span_priority"]
+__all__ = ["coreference_sweep", "merge_spans", "resolve_spans", "span_priority"]
 
 # Hyphens are deliberately absent: German double-barrelled names
 # (Müller-Lüdenscheidt) would lose half their surface form.
@@ -66,7 +67,7 @@ def resolve_spans(
     *,
     threshold: float = 0.5,
     sweep: bool = True,
-    catalogue: "Catalogue | None",
+    catalogue: Catalogue | None,
 ) -> list[Span]:
     """Full cleanup: merge, then optionally sweep, then merge again."""
     merged = merge_spans(spans, protected=protected, threshold=threshold, catalogue=catalogue)
@@ -88,7 +89,7 @@ def merge_spans(
     *,
     protected: ProtectedText | None = None,
     threshold: float = 0.5,
-    catalogue: "Catalogue | None",
+    catalogue: Catalogue | None,
 ) -> list[Span]:
     """Drop weak spans, trim edges, cut model spans back from any exact span
     they overlap, and resolve what overlap is left greedily: longest span
@@ -142,7 +143,7 @@ def coreference_sweep(
     accepted: Sequence[Span],
     protected: ProtectedText,
     *,
-    catalogue: "Catalogue | None",
+    catalogue: Catalogue | None,
 ) -> list[Span]:
     """Find further occurrences of already-accepted surface forms.
 
@@ -208,7 +209,7 @@ def coreference_sweep(
 # --- helpers ---------------------------------------------------------------
 
 
-def _threshold_for_span(span: Span, threshold: float, catalogue: "Catalogue | None") -> float:
+def _threshold_for_span(span: Span, threshold: float, catalogue: Catalogue | None) -> float:
     """The score floor ``span`` must clear: its own type's catalogue
     ``threshold:`` if it declares one, otherwise the caller's blanket
     ``threshold`` — the same fallback ``Catalogue.threshold_for`` itself
@@ -226,7 +227,7 @@ def _threshold_for_span(span: Span, threshold: float, catalogue: "Catalogue | No
     return catalogue.threshold_for(span.type, threshold)
 
 
-def _passes_rule_check(span: Span, catalogue: "Catalogue | None") -> bool:
+def _passes_rule_check(span: Span, catalogue: Catalogue | None) -> bool:
     """Reject model proposals that are provably not what they claim to be.
 
     Only the model is second-guessed. A backstop span came from the rule
@@ -248,7 +249,7 @@ def _passes_rule_check(span: Span, catalogue: "Catalogue | None") -> bool:
 def _trim_to_exact_spans(
     candidates: list[Span],
     protected: ProtectedText | None,
-    catalogue: "Catalogue | None",
+    catalogue: Catalogue | None,
 ) -> list[Span]:
     """Cut model spans back from the boundary of any exact span they overlap.
 

@@ -97,7 +97,7 @@ def test_the_model_lands_on_the_configured_device(model_settings: Settings) -> N
     settings = model_settings.model_copy(update={"device": "cuda"})
     detector = GlinerDetector(settings, resolve_device(settings))
 
-    parameters = [p for p in _iter_parameters(detector._model)]
+    parameters = list(_iter_parameters(detector._model))
     assert parameters, "could not reach the model parameters"
     assert all(p.device.type == "cuda" for p in parameters[:20])
 
@@ -171,7 +171,7 @@ def _iter_parameters(model):
             continue
         try:
             attribute = getattr(model, name)
-        except Exception:
+        except Exception:  # noqa: BLE001, S112 -- arbitrary model attrs can raise on access
             continue
         if isinstance(attribute, torch.nn.Module):
             yield from attribute.parameters()

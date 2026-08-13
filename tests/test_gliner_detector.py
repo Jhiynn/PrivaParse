@@ -6,6 +6,7 @@ real thing are in ``test_gliner_model.py`` behind the ``model`` marker.
 
 from __future__ import annotations
 
+import itertools
 import re
 
 import pytest
@@ -353,7 +354,7 @@ def test_chunks_cover_the_whole_document() -> None:
 def test_chunks_overlap_so_boundary_entities_are_seen_whole() -> None:
     text = "x" * 500
     chunks = chunk_text(text, 200, overlap=50)
-    for left, right in zip(chunks, chunks[1:]):
+    for left, right in itertools.pairwise(chunks):
         assert right.offset < left.offset + len(left.text)
 
 
@@ -407,7 +408,7 @@ def test_chunk_count_stays_proportional_to_document_size(max_chars: int) -> None
 def test_chunking_always_moves_forward(max_chars: int) -> None:
     text = "Wort " * 2000
     chunks = chunk_text(text, max_chars)
-    for left, right in zip(chunks, chunks[1:]):
+    for left, right in itertools.pairwise(chunks):
         assert right.offset > left.offset
 
 
@@ -418,7 +419,7 @@ def test_chunking_never_leaves_a_gap(max_chars: int) -> None:
     chunks = chunk_text(text, max_chars)
 
     assert chunks[0].offset == 0
-    for left, right in zip(chunks, chunks[1:]):
+    for left, right in itertools.pairwise(chunks):
         assert right.offset <= left.offset + len(left.text)
     assert chunks[-1].offset + len(chunks[-1].text) == len(text)
 
@@ -429,7 +430,7 @@ def test_overlap_is_capped_relative_to_the_window() -> None:
     text = "x" * 3000
     chunks = chunk_text(text, 200, overlap=500)
     assert len(chunks) < 60
-    for left, right in zip(chunks, chunks[1:]):
+    for left, right in itertools.pairwise(chunks):
         assert right.offset > left.offset
 
 

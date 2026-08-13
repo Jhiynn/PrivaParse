@@ -58,14 +58,14 @@ class Span:
     def length(self) -> int:
         return self.end - self.start
 
-    def overlaps(self, other: "Span") -> bool:
+    def overlaps(self, other: Span) -> bool:
         return self.start < other.end and other.start < self.end
 
     def verify_against(self, text: str) -> bool:
         """True if this span still points at its own text in ``text``."""
         return text[self.start : self.end] == self.text
 
-    def shifted(self, offset: int) -> "Span":
+    def shifted(self, offset: int) -> Span:
         """Same span, relocated by ``offset`` characters."""
         return Span(
             start=self.start + offset,

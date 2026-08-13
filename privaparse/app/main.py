@@ -10,7 +10,6 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Optional
 
 import typer
 
@@ -43,23 +42,23 @@ _LOOPBACK_NAMES = frozenset({"localhost"})
 @app.callback()
 def _main(
     ctx: typer.Context,
-    device: Optional[str] = typer.Option(
+    device: str | None = typer.Option(
         None, "--device", help="auto | cpu | cuda | cuda:N. Overrides PRIVAPARSE_DEVICE."
     ),
-    detector: Optional[str] = typer.Option(
+    detector: str | None = typer.Option(
         None, "--detector", help="hybrid | gliner | regex."
     ),
-    db: Optional[Path] = typer.Option(None, "--db", help="Path to the vault database."),
-    threshold: Optional[float] = typer.Option(
+    db: Path | None = typer.Option(None, "--db", help="Path to the vault database."),
+    threshold: float | None = typer.Option(
         None, "--threshold", min=0.0, max=1.0,
         help="Score floor for a type with no threshold of its own in the "
         "catalogue. Most types declare one and are unaffected by this.",
     ),
-    batch_size: Optional[int] = typer.Option(None, "--batch-size", min=1),
-    scan_code: Optional[bool] = typer.Option(
+    batch_size: int | None = typer.Option(None, "--batch-size", min=1),
+    scan_code: bool | None = typer.Option(
         None, "--scan-code/--protect-code", help="Also scan code blocks and URLs."
     ),
-    log_level: Optional[str] = typer.Option(None, "--log-level"),
+    log_level: str | None = typer.Option(None, "--log-level"),
 ) -> None:
     _force_utf8_output()
     ctx.ensure_object(dict)
@@ -81,8 +80,8 @@ def _main(
 def pseudonymize(
     ctx: typer.Context,
     file: Path = typer.Argument(..., exists=True, dir_okay=False, readable=True),
-    out: Optional[Path] = typer.Option(None, "-o", "--out", help="Defaults to <file>.pseudo.md"),
-    mapping_out: Optional[Path] = typer.Option(
+    out: Path | None = typer.Option(None, "-o", "--out", help="Defaults to <file>.pseudo.md"),
+    mapping_out: Path | None = typer.Option(
         None, "--mapping-out", help="Write the mapping id to this file as well."
     ),
 ) -> None:
@@ -108,14 +107,14 @@ def pseudonymize(
 def reverse(
     ctx: typer.Context,
     file: Path = typer.Argument(..., exists=True, dir_okay=False, readable=True),
-    mapping: Optional[str] = typer.Option(
+    mapping: str | None = typer.Option(
         None,
         "--mapping",
         "-m",
         help="Mapping id from pseudonymize. Omit to find the session that issued "
         "every placeholder in the file.",
     ),
-    out: Optional[Path] = typer.Option(None, "-o", "--out"),
+    out: Path | None = typer.Option(None, "-o", "--out"),
     strict: bool = typer.Option(
         False, "--strict", help="Fail if the text carries placeholders from another session."
     ),
@@ -185,7 +184,7 @@ def detect(
     for span in spans:
         span_range = f"{span.start}-{span.end}"
         typer.echo(
-            f"{str(span.type):<8} {span_range:<14} {span.source:<7} "
+            f"{span.type!s:<8} {span_range:<14} {span.source:<7} "
             f"{span.score:>6.2f}  {span.text}"
         )
     typer.echo(f"\n{len(spans)} span(s)")
@@ -208,7 +207,7 @@ def demo(
     _section(
         "2. DETECTED",
         "\n".join(
-            f"  {str(r.span.type):<8} {r.span.text!r:<32} -> {r.placeholder}"
+            f"  {r.span.type!s:<8} {r.span.text!r:<32} -> {r.placeholder}"
             for r in result.spans
         )
         or "  (nothing detected)",
@@ -271,8 +270,8 @@ def evaluate(
         help="hybrid | gliner | regex. Repeat to compare several in one run; "
         "defaults to the global --detector.",
     ),
-    gold: Optional[Path] = typer.Option(None, "--gold", help="Gold JSONL."),
-    report: Optional[Path] = typer.Option(
+    gold: Path | None = typer.Option(None, "--gold", help="Gold JSONL."),
+    report: Path | None = typer.Option(
         None, "--report", help="Write a markdown report here (default docs/eval-report.md)."
     ),
     show: int = typer.Option(15, "--show", help="Mistakes to list per category."),
@@ -351,8 +350,8 @@ def evaluate(
 def bench(
     ctx: typer.Context,
     repeats: int = typer.Option(3, "--repeats", min=1, help="Passes over the gold set."),
-    gold: Optional[Path] = typer.Option(None, "--gold"),
-    report: Optional[Path] = typer.Option(None, "--report"),
+    gold: Path | None = typer.Option(None, "--gold"),
+    report: Path | None = typer.Option(None, "--report"),
     full_matrix: bool = typer.Option(
         False, "--matrix", help="Sweep device x dtype x compile x batch size."
     ),
@@ -386,7 +385,7 @@ def bench(
 
         try:
             engine = PrivaParseEngine(settings)
-        except Exception as exc:  # a config being unavailable must not stop the sweep
+        except Exception as exc:  # noqa: BLE001 -- config unavailable must not stop the sweep
             from privaparse.evaluation.bench import BenchResult
 
             results.append(
@@ -430,7 +429,7 @@ def bench(
 def vault_mappings(
     ctx: typer.Context,
     limit: int = typer.Option(20, "--limit", "-n", min=1),
-    match: Optional[str] = typer.Option(
+    match: str | None = typer.Option(
         None, "--match", help="Only sessions whose source filename contains this."
     ),
 ) -> None:
@@ -474,7 +473,7 @@ def serve(
     ctx: typer.Context,
     host: str = typer.Option("127.0.0.1", "--host", help="Loopback only. See below."),
     port: int = typer.Option(DEFAULT_PORT, "--port"),
-    upstream: Optional[str] = typer.Option(
+    upstream: str | None = typer.Option(
         None, "--upstream", help="Origin to forward to, e.g. https://api.openai.com. "
         "Overrides PRIVAPARSE_GATEWAY_UPSTREAM.",
     ),
@@ -520,7 +519,7 @@ def run(
         )
         raise typer.Exit(code=2)
 
-    daemon: Optional[subprocess.Popen] = None
+    daemon: subprocess.Popen | None = None
     if not _gateway_ready(port):
         typer.echo(f"starting a gateway on 127.0.0.1:{port} ...")
         daemon = _start_gateway(port)
@@ -594,7 +593,7 @@ def catalog_show(ctx: typer.Context) -> None:
 
 @catalog_app.command("validate")
 def catalog_validate(
-    file: Optional[Path] = typer.Argument(
+    file: Path | None = typer.Argument(
         None, exists=True, dir_okay=False, readable=True,
         help="Catalogue to check. Omit to check the resolved one.",
     ),
@@ -661,7 +660,7 @@ def _gateway_ready(port: int) -> bool:
 
 
 def _start_gateway(port: int) -> subprocess.Popen:  # pragma: no cover - spawns a process
-    return subprocess.Popen(
+    return subprocess.Popen(  # noqa: S603 -- fixed argv, this process's own entry point
         [sys.executable, "-m", "privaparse.app.main", "serve", "--port", str(port)]
     )
 
@@ -683,7 +682,7 @@ def _run_child(command: list[str], environment: dict[str, str]) -> int:
     command's job: a Ctrl-C aimed at `privaparse run` has to reach the program
     the user actually launched, not stop at the wrapper.
     """
-    child = subprocess.Popen(command, env=environment)
+    child = subprocess.Popen(command, env=environment)  # noqa: S603 -- operator-supplied command by design
     previous = _forward_signals_to(child)
     try:
         return child.wait()

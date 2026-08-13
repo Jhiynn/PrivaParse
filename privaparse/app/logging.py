@@ -83,7 +83,7 @@ class RedactingFilter(logging.Filter):
             return True
         try:
             rendered = record.getMessage()
-        except Exception:  # pragma: no cover - never let logging raise
+        except Exception:  # noqa: BLE001 -- pragma: no cover, formatting args can raise anything
             return True
         scrubbed = self._registry.scrub(rendered)
         if scrubbed != rendered:

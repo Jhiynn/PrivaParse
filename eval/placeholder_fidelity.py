@@ -32,8 +32,8 @@ CASES = [
     ("echo, person", "Wiederhole exakt, ohne Kommentar:\nName: [[PERSON_A1]]", "[[PERSON_A1]]"),
     ("echo, phone", "Wiederhole exakt, ohne Kommentar:\nTel: [[PHONE_A7]]", "[[PHONE_A7]]"),
     ("answer a question",
-     "Kunde [[PERSON_A1]] hat geschrieben. An wen soll ich antworten? "
-     "Antworte in einem kurzen Satz.", "[[PERSON_A1]]"),
+     ("Kunde [[PERSON_A1]] hat geschrieben. An wen soll ich antworten? "
+      "Antworte in einem kurzen Satz."), "[[PERSON_A1]]"),
     ("inside a sentence",
      "Schreibe einen Satz, in dem die Adresse [[EMAIL_A1]] unveraendert vorkommt.",
      "[[EMAIL_A1]]"),

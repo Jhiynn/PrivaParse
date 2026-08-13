@@ -18,6 +18,7 @@ Run with::
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import random
 import re
@@ -149,7 +150,7 @@ def _validate(doc_id: str, text: str, entities: list[dict]) -> None:
             raise ValueError(f"{doc_id}: unknown entity type {entity['type']!r}")
 
     ordered = sorted(entities, key=lambda e: e["start"])
-    for left, right in zip(ordered, ordered[1:]):
+    for left, right in itertools.pairwise(ordered):
         if left["end"] > right["start"]:
             raise ValueError(f"{doc_id}: overlapping annotations at {left['start']}")
 
@@ -232,7 +233,7 @@ def generate_decidable(seed: int = 1) -> list[tuple[str, str, str | None]]:
     and "by construction" for it means only the digit-length range Task 13's
     brief specifies, not a checksum that does not exist to satisfy.
     """
-    rng = random.Random(seed)
+    rng = random.Random(seed)  # noqa: S311 -- synthetic gold data, nothing cryptographic
     out: list[tuple[str, str, str | None]] = []
     for _ in range(6):
         out.append(("IBAN", _iban_de(rng.randrange(10**9)), "iban_mod97"))
@@ -241,8 +242,8 @@ def generate_decidable(seed: int = 1) -> list[tuple[str, str, str | None]]:
     for _ in range(4):
         out.append(("TAX_ID", _tax_id_de(f"{rng.randrange(10**9):010d}"), "tax_de"))
     for _ in range(3):
-        out.append(("IP", f"{rng.randrange(1,224)}.{rng.randrange(256)}."
-                          f"{rng.randrange(256)}.{rng.randrange(1,255)}", "ip_parse"))
+        out.append(("IP", (f"{rng.randrange(1,224)}.{rng.randrange(256)}."
+                            f"{rng.randrange(256)}.{rng.randrange(1,255)}"), "ip_parse"))
     for _ in range(3):
         out.append(("POSTAL_CODE", f"{rng.randrange(10000, 100000)}", "postal_de"))
     # Batch D (Task 13) — the four types generate_decidable() did not yet cover.
