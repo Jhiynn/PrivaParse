@@ -342,6 +342,17 @@ The work is done when all of the following hold:
 - `ruff check .` exits clean under whatever rule set the gate settles on.
 - `python -m build` produces an sdist and a wheel; installing the wheel into an
   empty virtualenv gives a working `privaparse --help` and `privaparse doctor`.
+- **The install is verified in a clean Linux sandbox, not on the development
+  machine.** The machine that wrote the code is the worst place to test whether
+  a stranger can install it: the package is already installed editable, the
+  dependencies are already resolved, the model weights are already on disk, and
+  the shell is Windows while most readers are not. A `/lab` sandbox with
+  nothing but a Python image runs the README's own commands verbatim —
+  `pipx install` against the built wheel, then `privaparse doctor`, then
+  `privaparse demo` on a sample document — and the README is wrong until that
+  transcript is clean. `pip install -e ".[dev,gateway]"` from a fresh clone is
+  checked the same way, since that is the contributor path in
+  `CONTRIBUTING.md`.
 - Every relative link in `README.md` and under `docs/` resolves to a file that
   exists. Checked mechanically, not by eye — the restructure moves eight files
   and rewrites a 679-line README, which is exactly the situation that produces
