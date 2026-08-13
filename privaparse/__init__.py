@@ -16,7 +16,9 @@ model is loaded a single time.
 
 from __future__ import annotations
 
-__version__ = "0.1.0"
+from importlib import metadata
+
+__version__ = metadata.version("privaparse")
 
 __all__ = [
     "PrivaParseEngine",
