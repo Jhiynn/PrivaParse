@@ -34,17 +34,19 @@ without changing a line of its own code. See [Gateway](#gateway).
 That verdict is specifically about PERSON — the only type this question was
 ever built to answer (see `EvalReport.verdict()` in
 `privaparse/evaluation/harness.py`). Measured on the German gold set in
-`eval/gold/` — **91 documents, 33 with no PII at all** (a gold set with only
+`eval/gold/` — **124 documents, 33 with no PII at all** (a gold set with only
 positives cannot see a false positive, which turns out to be exactly where
-this configuration struggles) — scored at **21 enabled types, 35 labels**.
+this configuration struggles) — scored at **21 enabled types, 31 labels**,
+the catalogue as it ships today.
 
-The catalogue ships **31** labels today, not 35. The four that went are the
-four the per-label sweep found zero gold entities for
-([docs/benchmarks/labels.md](docs/benchmarks/labels.md)), so their removal cannot move
-any number in this section — a label that detected nothing contributed nothing
-to detect. The scores below are still the scores of what ships; only the label
-count differs, and it is stated here rather than quietly corrected because the
-run itself was scored at 35.
+That is a larger gold set than the one this section quoted before: 91
+documents, 76 supporting PERSON entities, measured 2026-08-10. Batches D and
+E added 33 more documents afterward, every one of them containing PII —
+which is exactly where a detector's misses hide, since a document with
+nothing in it cannot produce a false negative. This section was regenerated
+2026-08-14 against the grown set; the 91-document numbers are not restated
+here, but the full old-versus-new comparison for every scored type is in
+[docs/benchmarks/detection-quality.md](docs/benchmarks/detection-quality.md).
 
 An earlier note in this README quoted PERSON at P 0.967 / R 0.983 / F1
 0.975, measured under 3 labels on 38 documents, 10 of them negatives. That
@@ -62,7 +64,7 @@ precision below 0.85.
 
 | Type | Precision (partial) | Recall (partial) | F1 | Support |
 | --- | ---: | ---: | ---: | ---: |
-| PERSON | 0.973 | 0.961 | 0.967 | 76 |
+| PERSON | 0.969 | 0.960 | 0.964 | 99 |
 | EMAIL | 1.000 | 1.000 | 1.000 | 21 |
 | PHONE | 0.818 | 1.000 | 0.900 | 18 |
 | IBAN | 1.000 | 1.000 | 1.000 | 6 |
@@ -159,9 +161,10 @@ get wrong either way. Re-enabling any of them is `enabled: true` in a
 `privaparse/app/entities.default.yaml` for the full reasoning.
 
 Reproduce the detection table with `privaparse eval` (needs GLiNER2 — see
-Install). `docs/benchmarks/detection-quality.md` has not yet been regenerated for this
-configuration and still describes the earlier, 3-label measurement — the
-table above is the current one.
+Install). `docs/benchmarks/detection-quality.md` now carries this exact
+run — every one of the 21 enabled types, not only the four above — laid out
+beside the 91-document numbers it superseded, with the direction of every
+move stated per type.
 
 Those numbers are for short documents, which is what the gold set contains. On
 documents long enough to be split into chunks, recall depends on the chunk
