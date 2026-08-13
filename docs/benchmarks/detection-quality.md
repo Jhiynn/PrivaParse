@@ -88,12 +88,12 @@ One line per catalogued type that declares a bar (the `bar:` key in the catalogu
 - **hybrid/gliner2-privacy-pii-multi** CARD [OK] — meets bar — recall 1.000, precision 1.000
 
 PHONE's own bar (precision/recall 0.95) is unchanged from before and was
-already failing at 91 documents — see "One defect, two numbers" in the
-README for the mechanism (the Steuer-ID/phone-backstop collision). Nothing
-about the 33 added documents moved this one either direction. PERSON is the
-only type this project's fine-tuning question is about (see
-`EvalReport.verdict()` in `privaparse/evaluation/harness.py`); it still
-clears both floors.
+already failing at 91 documents — see
+["One defect, two numbers"](#one-defect-two-numbers) below for the mechanism
+(the Steuer-ID/phone-backstop collision). Nothing about the 33 added
+documents moved this one either direction. PERSON is the only type this
+project's fine-tuning question is about (see `EvalReport.verdict()` in
+`privaparse/evaluation/harness.py`); it still clears both floors.
 
 ## Old vs. new — every scored type, both directions stated
 
@@ -170,6 +170,43 @@ model label, so a missed entity has no label to attribute it to.
 | hybrid/gliner2-privacy-pii-multi | api_key | 1 | 0 | 1.000 |
 | hybrid/gliner2-privacy-pii-multi | access_token | 1 | 0 | 1.000 |
 | hybrid/gliner2-privacy-pii-multi | password | 1 | 0 | 1.000 |
+
+## One defect, two numbers
+
+All four of PHONE's false positives are all four of TAX_ID's false
+negatives — the same defect, counted from both ends, not two separate ones.
+TAX_ID reports P 1.000 / R 0.000 / F1 0.000 (support 4); the gold set is
+deliberately kept in a form that keeps this gap visible rather than one
+shaped to avoid it (`eval/gold/de_gold_source.md`'s Batch A note). The four
+missed Steuer-IDs reach PHONE by two different routes. `de-047` keeps its
+Steuer-ID in the bare, ungrouped form `generate_decidable()` actually
+produces, and the phone *backstop* — the regex/`phonenumbers` rule, not the
+model — matches an unbroken eleven-digit string as a German mobile number
+directly. `de-048` and `de-049` write theirs the way a Finanzamt letter
+actually prints one, grouped in threes (`XX XXX XXX XXX`); the backstop
+finds nothing there, but the *model* labels all three `phone_number`
+instead — the per-label breakdown above shows exactly this, `phone_number`
+at 0 true positives and 3 false positives. `phone_shape`, the validator
+that would otherwise veto a model guess that is not actually phone-shaped,
+does not catch these three, because a grouped twelve-digit number genuinely
+is phone-shaped — and TAX_ID's own backstop (`vat_de`, matching a VAT-ID's
+`DE`-plus-nine-digits shape) does not cover a Steuer-ID's shape at all, so
+nothing produces a competing exact span for the model's guess to lose to.
+PHONE's 0.818 precision above and TAX_ID's 0.000 recall are this one
+defect, read from opposite sides of the same four entities.
+
+The fix is known and deliberately deferred, not missed. A checksum-
+validated TAX_ID backstop would turn it into an exact span, and the
+existing rule that an exact span trims back an overlapping model guess
+would resolve the three grouped cases on its own — the model's
+`phone_number` label would simply lose to a genuine TAX_ID match. The bare
+case needs a second rule that does not exist yet: when two *regex* spans of
+different types compete for the same text — a new TAX_ID backstop against
+the existing phone backstop, here — nothing currently prefers the one
+backed by a checksum over the one that only checked shape. Both fixes wait
+on a label-ablation study to measure whether `phone_number` is a
+false-positive driver generally, not only here, since that answer could
+change what the second rule needs to look like.
 
 ## Mistakes: hybrid/gliner2-privacy-pii-multi
 

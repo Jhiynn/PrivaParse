@@ -178,8 +178,8 @@ span. They are still pseudonymised, so nothing leaves in the clear; they are
 pseudonymised as the *wrong type*, which means a client asking about tax IDs
 gets a placeholder that reads as a phone number. The full account, and why the
 fix is deferred rather than missed, is under
-[One defect, two numbers](../README.md#does-gliner2-need-fine-tuning-for-german-no)
-in the README. Anyone reading only this section should still meet it.
+[One defect, two numbers](benchmarks/detection-quality.md#one-defect-two-numbers).
+Anyone reading only this section should still meet it.
 
 **Tool declarations are forwarded unscanned.** A `tools` block is the client's
 own schema — function names, descriptions, a parameter shape — and

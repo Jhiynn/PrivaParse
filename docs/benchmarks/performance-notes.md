@@ -47,6 +47,11 @@ threshold. Shorter chunks focus the comparison.
 buys another 1.7 points but starts costing precision, so it is not the default —
 set it deliberately if recall outweighs everything else.
 
+512 is also the faster of the two on GPU, despite issuing more chunks (22
+against 6 for this document) — the quadratic cost of the 1500-character
+window's longer chunks outweighs having fewer of them (see section 3's
+per-chunk timing).
+
 This does not change `docs/benchmarks/detection-quality.md`: every gold document is shorter than
 one chunk, so chunking never engages there. The effect is invisible on short
 inputs and shows up only on documents long enough to split — which is to say, on

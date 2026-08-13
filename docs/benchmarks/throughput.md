@@ -47,3 +47,31 @@ Same box, `chunk_chars=512`, one document of increasing length:
 
 Flat at ~53 KB/s across a 300-fold range. Cost is chunks × constant; document
 length enters only through the chunk count.
+
+## Wider catalogue, same GPU: 21 types vs. 3 labels
+
+The matrix above predates the 21-type catalogue and still measures the
+original 3-label configuration (person, email, phone) — see the caveat at
+the top of this file. The following pair of numbers is not part of that
+matrix; they were measured together, in one sandbox session on the same
+RTX 3060, so the ratio between them means something:
+
+**46.5 documents/second** (p50 21.4 ms) against the catalogue as it shipped
+for that measurement session — 21 enabled types, 35 labels — versus
+**161.7 documents/second** against the original 3-label configuration
+alone. Widening the catalogue costs roughly 3.5x throughput; that is the
+price of the other 32 labels, not a regression.
+
+The 35-label figure is dated, not wrong: this session ran 2026-08-10, a day
+before four labels that measured zero true positives (`middle_name`,
+`secret`, `recovery_code`, `sensitive_account_id` — see
+[labels.md](labels.md)) were removed from the catalogue on 2026-08-11. The
+catalogue ships 31 labels today; this pair of numbers has not been
+re-measured against that smaller set, so 35 is what this specific run used,
+not a live description of what `privaparse doctor` reports now.
+
+These two numbers are not comparable to the matrix above, or to any
+throughput figure from a different measurement session — GPU clock state,
+driver version and thermal history all move the absolute value, which is
+exactly why this pair was measured together rather than against an older
+number from a different run.
