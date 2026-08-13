@@ -329,7 +329,7 @@ def evaluate(
                 engine.close()
 
     text = format_report(reports, show_mistakes=show)
-    target = report or (DEFAULT_REPORT_DIR / "eval-report.md")
+    target = report or (DEFAULT_REPORT_DIR / "benchmarks" / "detection-quality.md")
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(text, encoding="utf-8")
 
@@ -406,7 +406,7 @@ def bench(
             engine.close()
 
     text = format_bench_report(results, documents)
-    target = report or (DEFAULT_REPORT_DIR / "bench-report.md")
+    target = report or (DEFAULT_REPORT_DIR / "benchmarks" / "throughput.md")
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(text, encoding="utf-8")
 
