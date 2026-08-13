@@ -1,14 +1,17 @@
 # Evaluation report
 
-**Measured 2026-08-14** in a `/lab` sb-dev sandbox — 4 CPU cores, no GPU —
-against the full 124-document gold set (`eval/gold/de_gold.jsonl`: 91
-documents carrying PII, 33 without), scored at the shipped catalogue's 21
-enabled types with `privaparse eval`. Model weights:
-`fastino/gliner2-privacy-filter-PII-multi`, loaded from the lab's shared
-model store at `/share/models/gliner2-privacy-pii-multi` with
+**Measured 2026-08-14** in a `/lab` sb-gpu sandbox on node1 — RTX 3060,
+CUDA 13.0 — against the full 124-document gold set
+(`eval/gold/de_gold.jsonl`: 91 documents carrying PII, 33 without), scored
+at the shipped catalogue's 21 enabled types with `privaparse eval`. Model
+weights: `fastino/gliner2-privacy-filter-PII-multi`, loaded from the lab's
+shared model store at `/share/models/gliner2-privacy-pii-multi` with
 `PRIVAPARSE_OFFLINE=1` — no network reached, nothing downloaded. That local
 path is why the run label below reads `gliner2-privacy-pii-multi` rather
 than the repo id: it is the store's directory name, not a different model.
+`privaparse doctor` confirmed the resolved device before this ran:
+`device=cuda:0 gpu=NVIDIA GeForce RTX 3060 vram=11909MiB dtype=fp16
+compile=on`.
 
 **This run supersedes the 91-document run** quoted in the top-level README's
 "Does GLiNER2 need fine-tuning for German?" section (measured 2026-08-10, 76
@@ -18,18 +21,37 @@ between the two runs, all of them positives — see
 [docs/benchmarks/README.md](README.md) for the old numbers placed next to
 these.
 
-A caveat on the device, stated plainly rather than left implicit: `pytest -m
-model`, run in the same sandbox immediately before this, could not exercise
-the CPU/GPU parity assertion itself
-(`test_swapping_cpu_for_gpu_does_not_change_what_is_detected` skips outright
-without CUDA, as does the device-placement test) — there is no GPU in this
-sandbox to compare against. Every other model-marked test passed on CPU
-against these same weights, including a full pseudonymize/reverse round
-trip, so the CPU path itself is exercised and working; what is *not*
-re-verified here is that CPU and GPU agree on this exact weights file. That
-was last established when GPU-side numbers were measured (see
-`docs/benchmarks/throughput.md` and the README's device-swap note). Full
+**CPU/GPU parity is now proven, not assumed.** A previous pass at this same
+124-document re-score ran in a CPU-only sandbox (`sb-dev`, no GPU), where
+`pytest -m model`'s two device tests —
+`test_the_model_lands_on_the_configured_device` and
+`test_swapping_cpu_for_gpu_does_not_change_what_is_detected` — skipped
+outright for lack of CUDA. That run's CPU-scored numbers were committed
+anyway, on the reasoning that parity had already been established by an
+older cross-device run (`docs/benchmarks/performance-notes.md` section 3b).
+That reasoning was sound in principle but rested on a claim, not on this
+run's own evidence. This time, on real GPU hardware, `pytest -m model` ran
+all 7 model-marked tests with **zero skips** — both device tests executed
+and passed, including the one that runs the same text through the CPU
+(fp32) and GPU (fp16) forward paths and asserts identical spans. Full
 verbatim test output is in the Task 5b report.
+
+With parity independently proven on this hardware, the table below was
+re-measured directly on the GPU — the same device class the model's
+originally published numbers were measured on — rather than continuing to
+lean on a CPU proxy. **Every one of the 21 scored types below is identical,
+to three decimal places, to the CPU-scored numbers this run supersedes** —
+same precision, same recall, same F1, same support, on every row, and the
+full false-positive/false-negative mistake lists (24 FP / 16 FN) match
+entry-for-entry. The one place a real numeric difference showed up is the
+"Per model label" table further down: two PERSON entities that the CPU
+(fp32) pass attributed to the model's internal `person` label were
+attributed to `full_name` instead under GPU (fp16) — a fp32-vs-fp16
+numerical difference at the margin between two overlapping model labels
+that both roll up into the same gold `PERSON` type. It does not change the
+PERSON count, any type-level metric, or the verdict below; it is reported
+here because it is a genuine measured difference and the instruction
+governing this task was not to drop one quietly.
 
 | Run | Type | Support | P (exact) | R (exact) | P (partial) | R (partial) | F1 (partial) |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -133,10 +155,10 @@ model label, so a missed entity has no label to attribute it to.
 | hybrid/gliner2-privacy-pii-multi | phone_number | 0 | 3 | 0.000 |
 | hybrid/gliner2-privacy-pii-multi | postal_code | 3 | 2 | 0.600 |
 | hybrid/gliner2-privacy-pii-multi | date_of_birth | 4 | 2 | 0.667 |
-| hybrid/gliner2-privacy-pii-multi | full_name | 21 | 1 | 0.955 |
+| hybrid/gliner2-privacy-pii-multi | full_name | 23 | 1 | 0.958 |
 | hybrid/gliner2-privacy-pii-multi | last_name | 1 | 1 | 0.500 |
 | hybrid/gliner2-privacy-pii-multi | (rule) | 51 | 1 | 0.981 |
-| hybrid/gliner2-privacy-pii-multi | person | 68 | 1 | 0.986 |
+| hybrid/gliner2-privacy-pii-multi | person | 66 | 1 | 0.985 |
 | hybrid/gliner2-privacy-pii-multi | government_id | 3 | 1 | 0.750 |
 | hybrid/gliner2-privacy-pii-multi | account_id | 3 | 1 | 0.750 |
 | hybrid/gliner2-privacy-pii-multi | street_address | 3 | 1 | 0.750 |
