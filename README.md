@@ -82,9 +82,9 @@ such rather than presented with PERSON's confidence:**
 | --- | ---: | ---: | ---: | ---: |
 | CARD | 1.000 | 1.000 | 1.000 | 3 |
 | PASSPORT | 1.000 | 1.000 | 1.000 | 3 |
-| USERNAME | 1.000 | 1.000 | 1.000 | 3 |
+| USERNAME | 0.750 | 1.000 | 0.857 | 3 |
 | IP | 1.000 | 1.000 | 1.000 | 3 |
-| DATE_OF_BIRTH | 1.000 | 1.000 | 1.000 | 3 |
+| DATE_OF_BIRTH | 0.667 | 1.000 | 0.800 | 4 |
 | ADDRESS | 0.750 | 1.000 | 0.857 | 3 |
 | NATIONAL_ID | 0.750 | 1.000 | 0.857 | 3 |
 | ACCOUNT_ID | 0.750 | 1.000 | 0.857 | 3 |
@@ -130,18 +130,30 @@ on a label-ablation study to measure whether `phone_number` is a
 false-positive driver generally, not only here, since that answer could
 change what the second rule needs to look like.
 
-**Seven types with no gold data at all:** `DRIVERS_LICENSE`,
+**Seven types that had no gold data at all, and now do:** `DRIVERS_LICENSE`,
 `LICENSE_NUMBER`, `ACCOUNT_NUMBER`, `ROUTING_NUMBER`, `CARD_EXPIRY`,
-`CARD_CVV`, `SECRET`. None has a single gold entity in the corpus, so none
-of them can register a true positive or a miss — the only thing that can
-happen to any of them is a false positive. Reconstructing exact counts from
-the precision/recall/support above (rounding to three decimals pins the
-integers uniquely) shows the fourteen measured types account for 11 of the
-corpus's 23 false positives; the other 12 belong to this group of seven,
-with no way to say from this gold set which of the seven produced which
-one. `privaparse eval` prints 1.000 or 0.000 for each of them depending on
-whether it happened to be one that tripped — neither number means the type
-works or doesn't; it means nothing was there to check it against.
+`CARD_CVV`, `SECRET`. Batches D and E gave each of them three gold entities
+— thin, same caveat as the block above, but no longer zero — and the first
+real measurement is not a flattering one:
+
+| Type | Precision (partial) | Recall (partial) | F1 | Support |
+| --- | ---: | ---: | ---: | ---: |
+| DRIVERS_LICENSE | 1.000 | 1.000 | 1.000 | 3 |
+| CARD_EXPIRY | 1.000 | 1.000 | 1.000 | 3 |
+| SECRET | 1.000 | 1.000 | 1.000 | 3 |
+| ACCOUNT_NUMBER | 0.429 | 1.000 | 0.600 | 3 |
+| CARD_CVV | 0.167 | 0.333 | 0.222 | 3 |
+| LICENSE_NUMBER | 1.000 | 0.000 | 0.000 | 3 |
+| ROUTING_NUMBER | 1.000 | 0.000 | 0.000 | 3 |
+
+Three of the seven are clean. ACCOUNT_NUMBER's precision and CARD_CVV's
+precision and recall are weak. The other two are not weak, they are absent:
+**LICENSE_NUMBER and ROUTING_NUMBER measured 0.000 recall — three gold
+entities each, and the pipeline missed every one.** Zero gold coverage used
+to mean the only failure mode visible was a false positive; that framing no
+longer holds for either of these two, and it never was a guarantee that they
+worked, only that nothing had checked. Now something has, and for these two
+the answer is that they currently detect nothing.
 
 **Overall, across all 21 enabled types on all 91 documents: 23 false
 positives against 7 false negatives.** That ratio is the finding this gold
@@ -182,14 +194,22 @@ document, a 1500-character window scored PERSON recall 0.900 while 512 scored
 
 Two configurations, measured together in one sandbox session on the same
 RTX 3060 so the ratio between them means something: **46.5 documents/second**
-(p50 21.4 ms) against the shipped catalogue — 21 enabled types, 35 labels —
-versus **161.7 documents/second** against the original 3-label configuration
-alone (person, email, phone). Widening the catalogue costs roughly 3.5x
-throughput; that is the price of the other 32 labels, not a regression.
-These two numbers are not comparable to a throughput figure from a different
-measurement session — GPU clock state, driver version and thermal history
-all move the absolute value, which is exactly why this pair was measured
-together rather than against an older number from a different run.
+(p50 21.4 ms) against the catalogue as it shipped for that measurement
+session — 21 enabled types, 35 labels — versus **161.7 documents/second**
+against the original 3-label configuration alone (person, email, phone).
+Widening the catalogue costs roughly 3.5x throughput; that is the price of
+the other 32 labels, not a regression. The 35-label figure is dated, not
+wrong: this session ran 2026-08-10, a day before four labels that measured
+zero true positives (`middle_name`, `secret`, `recovery_code`,
+`sensitive_account_id` — see `docs/benchmarks/labels.md`) were removed from the
+catalogue on 2026-08-11. The catalogue ships 31 labels today; this pair of
+numbers has not been re-measured against that smaller set, so 35 is what
+this specific run used, not a live description of what `privaparse doctor`
+reports now. These two numbers are also not comparable to a throughput
+figure from a different measurement session — GPU clock state, driver
+version and thermal history all move the absolute value, which is exactly
+why this pair was measured together rather than against an older number
+from a different run.
 
 Quality is identical across every device, dtype and batch size measured, on
 both Linux and Windows.
