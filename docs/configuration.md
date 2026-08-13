@@ -38,6 +38,17 @@ bypassing `Settings` entirely (see `privaparse/app/catalogue.py`), which is
 why that name — not `PRIVAPARSE_CATALOGUE_PATH` — is the one that shows up
 elsewhere in this documentation.
 
+**If both are set, `PRIVAPARSE_CATALOGUE_PATH` wins and `PRIVAPARSE_ENTITIES`
+is silently ignored — not merged, not warned about.** `Settings.catalogue`
+calls `load_catalogue(self.catalogue_path)`; `load_catalogue` only calls
+`discover_catalogue_path()` — the function that reads `PRIVAPARSE_ENTITIES`
+— when the path it was given is `None`. Setting `PRIVAPARSE_CATALOGUE_PATH`
+supplies that path directly, so discovery never runs and `PRIVAPARSE_ENTITIES`
+stops mattering, with no error or log line to say so.
+`PRIVAPARSE_ENTITIES` is the documented discovery route for the common case;
+`PRIVAPARSE_CATALOGUE_PATH` is an override that suppresses it. Set at most
+one.
+
 ## Performance
 
 | Variable | Default | What it does |
