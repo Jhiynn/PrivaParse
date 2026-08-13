@@ -163,7 +163,7 @@ placeholder_types:
   NATIONAL_ID:
     # government_id alone found 3 of 3 with 12 false positives; national_id_number
     # alone found 2 of 3 with 3. Keeping only the latter is a real trade — less
-    # noise for less recall, not a free cut — see docs/label-report.md.
+    # noise for less recall, not a free cut — see docs/benchmarks/labels.md.
     labels: [national_id_number]
   USERNAME:
     enabled: false   # 27 false positives against 3 gold entities (n=3)

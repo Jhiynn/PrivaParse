@@ -11,7 +11,7 @@ gateway -- this measures the model, not PrivaParse):
 
     python eval/placeholder_fidelity.py --url http://127.0.0.1:9000/v1 --model qwen
 
-See docs/gateway-model-fidelity-report.md for what a 1.5B model scored.
+See docs/benchmarks/gateway-fidelity.md for what a 1.5B model scored.
 """
 
 from __future__ import annotations

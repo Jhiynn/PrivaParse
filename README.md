@@ -40,7 +40,7 @@ this configuration struggles) — scored at **21 enabled types, 35 labels**.
 
 The catalogue ships **31** labels today, not 35. The four that went are the
 four the per-label sweep found zero gold entities for
-([docs/label-report.md](docs/label-report.md)), so their removal cannot move
+([docs/benchmarks/labels.md](docs/benchmarks/labels.md)), so their removal cannot move
 any number in this section — a label that detected nothing contributed nothing
 to detect. The scores below are still the scores of what ships; only the label
 count differs, and it is stated here rather than quietly corrected because the
@@ -51,7 +51,7 @@ An earlier note in this README quoted PERSON at P 0.967 / R 0.983 / F1
 number is real; it describes a narrower configuration, not the one below.
 The real difference between the two runs is not whether negatives existed
 — even at 3 labels, those 10 already caught two false positives
-([docs/eval-report.md](docs/eval-report.md) — `de-009`'s "König von
+([docs/benchmarks/detection-quality.md](docs/benchmarks/detection-quality.md) — `de-009`'s "König von
 Spanien", `de-026`'s "vier Personen") — it is how much surface a false
 positive had to land on. At 35 labels, the same class of corpus catches
 23.
@@ -159,7 +159,7 @@ get wrong either way. Re-enabling any of them is `enabled: true` in a
 `privaparse/app/entities.default.yaml` for the full reasoning.
 
 Reproduce the detection table with `privaparse eval` (needs GLiNER2 — see
-Install). `docs/eval-report.md` has not yet been regenerated for this
+Install). `docs/benchmarks/detection-quality.md` has not yet been regenerated for this
 configuration and still describes the earlier, 3-label measurement — the
 table above is the current one.
 
@@ -191,13 +191,13 @@ together rather than against an older number from a different run.
 Quality is identical across every device, dtype and batch size measured, on
 both Linux and Windows.
 
-Full matrix in [docs/bench-report.md](docs/bench-report.md) — that file has
+Full matrix in [docs/benchmarks/throughput.md](docs/benchmarks/throughput.md) — that file has
 not yet been regenerated for the 21-type catalogue and still describes the
 3-label configuration; the two numbers above are current. If your own
 numbers come out an order of magnitude worse, run `privaparse doctor` before
 blaming the code: a laptop GPU held in its idle power state still reports
 100 % utilisation and costs a factor of 14. That story is in
-[docs/performance-notes.md](docs/performance-notes.md).
+[docs/benchmarks/performance-notes.md](docs/benchmarks/performance-notes.md).
 
 ## Install
 
@@ -405,7 +405,7 @@ Verified against Codex CLI 0.147.0: a full turn completed, the email in the
 prompt was pseudonymised before it reached the model, and the instruction
 block Codex resends every request hit an 0.85 cache rate across two turns at
 32 ms of PrivaParse overhead. Full account in
-[docs/codex-cli-report.md](docs/codex-cli-report.md).
+[docs/benchmarks/codex-cli.md](docs/benchmarks/codex-cli.md).
 
 Two things that run turned up:
 
@@ -464,7 +464,7 @@ a repeated turn. Both scale linearly with payload size, so they extrapolate.
 The warm second is not detection — that is cached — it is span resolution and
 the vault writes behind it, which every request does because a mapping is what
 scopes an answer to one session. Full method, environment and caveats in
-[docs/gateway-latency-report.md](docs/gateway-latency-report.md); the most
+[docs/benchmarks/gateway-latency.md](docs/benchmarks/gateway-latency.md); the most
 important caveat is that the measurement ran on four cores, so the warm figure
 should improve on a workstation.
 
@@ -502,7 +502,7 @@ placeholder instead of their data, which is the safe direction. But it is
 silent and it is total, and it hits hardest in exactly the configuration
 `PRIVAPARSE_GATEWAY_UPSTREAM` exists to enable. Large models are far better at
 verbatim reproduction; that has not been measured here. Full account in
-[docs/gateway-model-fidelity-report.md](docs/gateway-model-fidelity-report.md),
+[docs/benchmarks/gateway-fidelity.md](docs/benchmarks/gateway-fidelity.md),
 reproduce with `eval/placeholder_fidelity.py` against your own model before
 trusting a deployment.
 
@@ -517,7 +517,7 @@ on** — the model stops mangling the placeholder and starts avoiding it, writin
 "the specified email address" instead, which loses the value before restoration
 can run. Kept as a switch because that may be an artefact of a small model.
 Numbers and the raw outputs in
-[docs/gateway-restore-fallbacks-report.md](docs/gateway-restore-fallbacks-report.md).
+[docs/benchmarks/gateway-fallbacks.md](docs/benchmarks/gateway-fallbacks.md).
 
 **`TAX_ID` recall is 0.000 on the gold set, and the gateway inherits that
 exactly.** Four German Steuer-IDs in the gold set are detected as PHONE

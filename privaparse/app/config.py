@@ -117,7 +117,7 @@ class Settings(BaseSettings):
         description="Also restore placeholders the model handed back slightly wrong "
         "-- a bracket pair dropped, quotes injected, the underscore spaced out. Off "
         "by default because exact matching is the stricter contract; a model that "
-        "mangles placeholders is measured in docs/gateway-model-fidelity-report.md. "
+        "mangles placeholders is measured in docs/benchmarks/gateway-fidelity.md. "
         "Widens only how a placeholder may be spelled, never which mapping may "
         "resolve it.",
     )

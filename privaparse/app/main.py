@@ -272,7 +272,7 @@ def evaluate(
     ),
     gold: Path | None = typer.Option(None, "--gold", help="Gold JSONL."),
     report: Path | None = typer.Option(
-        None, "--report", help="Write a markdown report here (default docs/eval-report.md)."
+        None, "--report", help="Write a markdown report here (default docs/benchmarks/detection-quality.md)."
     ),
     show: int = typer.Option(15, "--show", help="Mistakes to list per category."),
     sweep_threshold: bool = typer.Option(

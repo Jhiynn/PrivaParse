@@ -1,7 +1,7 @@
 """The two opt-in answers to a model that will not echo a placeholder.
 
 Both are off by default and both are measured rather than assumed --
-docs/gateway-model-fidelity-report.md has the numbers that motivated them.
+docs/benchmarks/gateway-fidelity.md has the numbers that motivated them.
 
 `PRIVAPARSE_GATEWAY_FUZZY` widens what counts as a placeholder on the way
 back. `PRIVAPARSE_GATEWAY_HINT` adds a system message on the way out asking

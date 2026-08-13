@@ -13,7 +13,7 @@ turn looks like it -- the second sends the same history back with one message
 appended, and the detection cache answers for everything it has already seen.
 
 Run it where the model actually runs. On a laptop GPU held in its idle power
-state the numbers are meaningless (docs/performance-notes.md).
+state the numbers are meaningless (docs/benchmarks/performance-notes.md).
 
     python eval/gateway_latency.py --sizes 50 200 --repeats 5
 """

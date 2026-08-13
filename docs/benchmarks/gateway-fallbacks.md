@@ -1,6 +1,6 @@
 # Two ways to survive a model that will not echo a placeholder
 
-[docs/gateway-model-fidelity-report.md](gateway-model-fidelity-report.md)
+[docs/benchmarks/gateway-fidelity.md](gateway-fidelity.md)
 established the problem: restoration is an exact string match, and a small
 model returns `[EMAIL_A1]` where `[[EMAIL_A1]]` went out. This measures the two
 opt-in answers to it.

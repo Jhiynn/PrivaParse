@@ -10,7 +10,7 @@
 # type's own comment). The other four labels are not routed at all: Task 14
 # measured every label alone against the full gold set, and each of those
 # four found zero gold entities — see the removal note on each one's former
-# type (PERSON, ACCOUNT_ID, SECRET twice) and docs/label-report.md for the
+# type (PERSON, ACCOUNT_ID, SECRET twice) and docs/benchmarks/labels.md for the
 # full sweep. MODEL_LABELS in catalogue.py still lists all 42; that constant
 # documents what the model offers, not what this file chooses to send.
 # Granularity errs high on purpose: merging two types later is a migration
@@ -61,7 +61,7 @@ placeholder_types:
   PERSON:
     # middle_name dropped (Task 14): measured alone against the 99 gold
     # PERSON entities it found none, and it cost nothing either — 0 found,
-    # 0 noise. Silent, not borderline; see docs/label-report.md for the
+    # 0 noise. Silent, not borderline; see docs/benchmarks/labels.md for the
     # full per-label sweep this and the other three Task 14 removals rest
     # on.
     labels: [person, full_name, first_name, last_name]
@@ -344,7 +344,7 @@ placeholder_types:
     # sensitive_account_id dropped (Task 14): measured alone against the 3
     # gold ACCOUNT_ID entities it found none, and cost one false positive —
     # noise with no matching benefit. account_id alone now carries the
-    # type's entire measured signal; see docs/label-report.md.
+    # type's entire measured signal; see docs/benchmarks/labels.md.
     labels: [account_id]
     prompts:
       account_id: "Kunden-, Konto- und Mandantennummern"
@@ -364,7 +364,7 @@ placeholder_types:
     # three labels that remain are not strong either (api_key finds one of
     # three with no noise; password and access_token each find one of
     # three and both carry noise of their own) — SECRET is the weakest
-    # type this catalogue measures; see docs/label-report.md.
+    # type this catalogue measures; see docs/benchmarks/labels.md.
     labels: [password, api_key, access_token]
     prompts:
       password: "Passwoerter"

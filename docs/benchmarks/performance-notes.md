@@ -47,7 +47,7 @@ threshold. Shorter chunks focus the comparison.
 buys another 1.7 points but starts costing precision, so it is not the default —
 set it deliberately if recall outweighs everything else.
 
-This does not change `docs/eval-report.md`: every gold document is shorter than
+This does not change `docs/benchmarks/detection-quality.md`: every gold document is shorter than
 one chunk, so chunking never engages there. The effect is invisible on short
 inputs and shows up only on documents long enough to split — which is to say, on
 real ones.

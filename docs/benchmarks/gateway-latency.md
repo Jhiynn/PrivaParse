@@ -19,7 +19,7 @@ involved.
 | Chunk size | 512 characters (the default) |
 | Measured | 2026-08-12, `eval/gateway_latency.py --sizes 50 200 --repeats 5` |
 
-Same GPU as [docs/bench-report.md](bench-report.md) and the README's throughput
+Same GPU as [docs/benchmarks/throughput.md](throughput.md) and the README's throughput
 pair, so those numbers and these belong to the same machine. The core count
 does not: four cores is a quarter of a workstation, and the parts of this that
 are not on the GPU pay for that.

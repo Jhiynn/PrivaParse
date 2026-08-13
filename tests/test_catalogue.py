@@ -223,7 +223,7 @@ ALL_42 = 42
 #: pipeline, against the 124-document gold set. These four found zero true
 #: positives — no threshold or company of other labels can be short-changing
 #: them, since each ran by itself — so Part 1 of that task deleted them from
-#: entities.default.yaml outright. See docs/label-report.md for the full
+#: entities.default.yaml outright. See docs/benchmarks/labels.md for the full
 #: per-label sweep and each removed label's former type in
 #: entities.default.yaml for its own number.
 REMOVED_DEAD_LABELS = frozenset({"middle_name", "secret", "recovery_code", "sensitive_account_id"})

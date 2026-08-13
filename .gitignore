@@ -36,4 +36,4 @@ htmlcov/
 .superpowers/
 
 # Generated reports keep their directory but not stale runs
-docs/*-report.local.md
+docs/benchmarks/*.local.md

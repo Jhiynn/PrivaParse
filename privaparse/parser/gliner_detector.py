@@ -22,7 +22,7 @@ candidate spans against the whole chunk, so a longer chunk means more competing
 candidates and names that slip under the threshold. Measured on a 7.2 KB German
 document: ``chunk_chars=1500`` gave PERSON recall 0.900, ``512`` gave 0.950 at
 identical precision, and ``512`` was also the faster of the two on GPU. See
-``docs/performance-notes.md``.
+``docs/benchmarks/performance-notes.md``.
 """
 
 from __future__ import annotations
