@@ -128,6 +128,15 @@ class Settings(BaseSettings):
         "request, costs tokens on every call that carries an entity, and can only "
         "ask -- it cannot guarantee.",
     )
+    gateway_allow_images: bool = Field(
+        default=False,
+        description="Forward image and file parts the detector cannot read, instead "
+        "of refusing the request. Off by default, and the reason is not squeamishness: "
+        "a coding agent screenshots its own work, and a screenshot can show every "
+        "value that was just pseudonymised out of the text. Turning this on means "
+        "images leave the machine unexamined. Codex cannot verify its output visually "
+        "without it.",
+    )
     gateway_cache: int = Field(
         default=2048,
         ge=0,

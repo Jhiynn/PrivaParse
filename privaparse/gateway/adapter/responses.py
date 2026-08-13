@@ -155,8 +155,13 @@ TEXT_PART_TYPES = frozenset({"input_text", "output_text", "text"})
 PART_TEXT_FIELD = "text"
 
 
-def extract_input(body: Any) -> list[TextNode]:
-    """Every scannable string in a Responses request. Fails closed."""
+def extract_input(body: Any, *, allow_images: bool = False) -> list[TextNode]:
+    """Every scannable string in a Responses request. Fails closed.
+
+    ``allow_images`` forwards parts the detector cannot read rather than
+    refusing them -- see ``Settings.gateway_allow_images`` for what that
+    costs.
+    """
     if not isinstance(body, dict):
         raise UnscannableField((), "the request body is not a JSON object")
 
@@ -171,7 +176,7 @@ def extract_input(body: Any) -> list[TextNode]:
             elif value is not None:
                 raise UnscannableField(pointer, "expected instructions to be a string")
         elif key == INPUT_FIELD:
-            _walk_input(value, pointer, nodes)
+            _walk_input(value, pointer, nodes, allow_images)
         elif key in IGNORED_REQUEST_FIELDS:
             continue
         else:
@@ -179,7 +184,8 @@ def extract_input(body: Any) -> list[TextNode]:
     return nodes
 
 
-def _walk_input(value: Any, pointer: tuple[Any, ...], nodes: list[TextNode]) -> None:
+def _walk_input(value: Any, pointer: tuple[Any, ...], nodes: list[TextNode],
+                allow_images: bool = False) -> None:
     if isinstance(value, str):
         nodes.append(TextNode(pointer, value))
         return
@@ -190,10 +196,11 @@ def _walk_input(value: Any, pointer: tuple[Any, ...], nodes: list[TextNode]) -> 
         at = pointer + (index,)
         if not isinstance(item, dict):
             raise UnscannableField(at, "expected an input item object")
-        _walk_item(item, at, nodes)
+        _walk_item(item, at, nodes, allow_images)
 
 
-def _walk_item(item: dict, pointer: tuple[Any, ...], nodes: list[TextNode]) -> None:
+def _walk_item(item: dict, pointer: tuple[Any, ...], nodes: list[TextNode],
+               allow_images: bool = False) -> None:
     # `type` is optional on EasyInputMessage, so an item with a role and
     # content is a message even when nothing says so.
     kind = item.get("type")
@@ -219,7 +226,7 @@ def _walk_item(item: dict, pointer: tuple[Any, ...], nodes: list[TextNode]) -> N
             if key in IGNORED_ITEM_FIELDS:
                 continue
             if key == "content":
-                _walk_content(value, field, nodes)
+                _walk_content(value, field, nodes, allow_images)
             else:
                 _refuse_if_text(value, field, "unknown message field")
         return
@@ -260,7 +267,7 @@ def _walk_item(item: dict, pointer: tuple[Any, ...], nodes: list[TextNode]) -> N
                 if isinstance(value, str):
                     nodes.append(TextNode(field, value))
                 elif isinstance(value, list):
-                    _walk_content(value, field, nodes)
+                    _walk_content(value, field, nodes, allow_images)
                 elif value is not None:
                     raise UnscannableField(field, "expected a string or content list")
             else:
@@ -292,7 +299,8 @@ def _walk_freeform(value: Any, pointer: tuple[Any, ...], nodes: list[TextNode]) 
             _walk_freeform(sub, pointer + (index,), nodes)
 
 
-def _walk_content(value: Any, pointer: tuple[Any, ...], nodes: list[TextNode]) -> None:
+def _walk_content(value: Any, pointer: tuple[Any, ...], nodes: list[TextNode],
+                  allow_images: bool = False) -> None:
     if value is None:
         return
     if isinstance(value, str):
@@ -306,6 +314,10 @@ def _walk_content(value: Any, pointer: tuple[Any, ...], nodes: list[TextNode]) -
         if not isinstance(part, dict):
             raise UnscannableField(at, "expected a content part object")
         if part.get("type") not in TEXT_PART_TYPES:
+            if allow_images:
+                # Forwarded unexamined. The operator asked for that; see
+                # Settings.gateway_allow_images.
+                continue
             raise UnscannableField(
                 at, f"content part of type {part.get('type')!r} cannot be scanned"
             )

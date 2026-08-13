@@ -334,3 +334,22 @@ def test_an_image_generation_call_is_still_refused():
                        "result": "iVBORw0KGgo=", "revised_prompt": "Max Mustermann"}]}
     with pytest.raises(UnscannableField):
         extract_input(body)
+
+
+def test_an_image_part_is_forwarded_when_the_operator_allows_it():
+    """A coding agent screenshots its own work to check it. Refusing blocks
+    that outright; allowing it sends an image nobody scanned. Off by default,
+    and the switch says which risk is being taken."""
+    body = {"input": [
+        {"type": "function_call_output", "call_id": "c1", "output": [
+            {"type": "output_text", "text": "Kontakt Max Mustermann"},
+            {"type": "input_image", "image_url": "data:image/png;base64,iVBOR"},
+        ]},
+    ]}
+
+    with pytest.raises(UnscannableField):
+        extract_input(body)
+
+    assert [n.text for n in extract_input(body, allow_images=True)] == [
+        "Kontakt Max Mustermann"
+    ]

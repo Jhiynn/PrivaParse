@@ -252,7 +252,9 @@ def create_app(
         streaming = bool(body.get("stream")) if isinstance(body, dict) else False
 
         try:
-            nodes = responses_shape.extract_input(body)
+            nodes = responses_shape.extract_input(
+                body, allow_images=settings.gateway_allow_images
+            )
         except UnscannableField as refusal:
             logger.warning("refused a responses request: %s", refusal)
             return _error(
