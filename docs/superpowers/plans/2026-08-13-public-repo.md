@@ -84,6 +84,8 @@ Ruff is configured in `[tool.ruff]` but has never been installed, so lint has ne
 
 The rule set must be pinned explicitly. Ruff's defaults widen between releases, and a public repository whose CI turns red because a linter shipped a new rule teaches contributors to distrust the badge.
 
+Pinning means choosing, and two Pylint subcategories are deliberately excluded — `PLE` and `PLW` are selected, `PLC` and `PLR` are not. `PLC0415` (import-outside-top-level, 147 sites) would forbid the lazy imports that keep torch and gliner2 optional, so adopting it would break the thing that makes `[model]` an extra. `PLR` is complexity and magic-value opinion (`PLR2004` alone is 65 sites) with no defect signal here. An earlier draft of this step selected `PL` wholesale, which produced 446 findings instead of the 160 the table below was measured under; the corrected block is:
+
 In `pyproject.toml`, change the `dev` extra to:
 
 ```toml
@@ -102,7 +104,20 @@ line-length = 100
 target-version = "py311"
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F", "I", "UP", "B", "C4", "ISC", "PYI", "PL", "S", "BLE", "RUF"]
+select = ["E4", "E7", "E9", "F", "I", "UP", "B", "C4", "ISC", "PYI", "PLE", "PLW", "S", "BLE", "RUF"]
+ignore = [
+    # This project's source and gold data are German. RUF001-003 flag German
+    # orthography as "ambiguous unicode" -- a false positive by construction.
+    "RUF001", "RUF002", "RUF003",
+    # `[*xs, x]` versus `xs + [x]`. Style, no defect.
+    "RUF005",
+    # Deferred, not dismissed: exception chaining would improve tracebacks
+    # across five sites, but it is unrelated to making this repo public.
+    "B904",
+    # `strict=` changes what zip does at runtime -- it raises on a length
+    # mismatch where today it truncates. This change may not alter behaviour.
+    "B905",
+]
 
 [tool.ruff.lint.flake8-bugbear]
 # Typer's entire API is `def command(x: str = typer.Option(...))`. B008 is
