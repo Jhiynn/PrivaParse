@@ -65,11 +65,18 @@ curl -s http://127.0.0.1:8787/privaparse/detect -d '{"text": "max@test.de"}'
 }
 ```
 
-A body that isn't `{"text": ...}` or `{"texts": [...]}` — including a body
-that isn't a JSON object at all — is a 400:
+A body that isn't `{"text": ...}` or `{"texts": [...]}` is a 400, with a
+message that depends on what was actually wrong — a body that isn't a JSON
+object at all:
 
 ```json
 {"error": {"message": "the request body must be a JSON object", "type": "invalid_request_error"}}
+```
+
+or a JSON object missing both `text` and `texts`:
+
+```json
+{"error": {"message": "provide either `text` or `texts`", "type": "invalid_request_error"}}
 ```
 
 Order and arity are preserved across a batch: an empty string or a text with
@@ -235,10 +242,11 @@ entries:
 }
 ```
 
-`threshold` is `null` for types matched by a rule rather than the model
-(`EMAIL`, `PHONE`, `TAX_ID`). `reversible: false` marks a type that gets
-detected and pseudonymised but never restored — `CARD`, `CARD_CVV` and
-`SECRET` ship that way, so those values never round-trip back into a reply.
+`threshold` is `null` when the type declares no per-type override — the
+process-wide default (`--threshold` / `PRIVAPARSE_THRESHOLD`, `0.5`) applies
+to it instead. `reversible: false` marks a type that gets detected and
+pseudonymised but never restored — `CARD`, `CARD_CVV` and `SECRET` ship that
+way, so those values never round-trip back into a reply.
 
 ## GET /privaparse/vault
 
