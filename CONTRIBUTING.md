@@ -39,6 +39,10 @@ cd PrivaParse
 python -m venv .venv
 ```
 
+On Debian or Ubuntu this fails with "ensurepip is not available" unless
+`python3-venv` is installed first: `sudo apt install python3-venv`. Most other
+platforms ship it with Python itself.
+
 Activate it — `.venv\Scripts\activate` on Windows, `source .venv/bin/activate`
 on macOS or Linux — then:
 
@@ -74,7 +78,7 @@ pytest
 The default run deselects 7 tests marked `model`, via
 `addopts = "-m 'not model'"` in `pyproject.toml` — they need GLiNER2 weights
 on disk that a fresh checkout does not have. Everything else should pass on
-a clean checkout: 822 passed, 7 deselected, as of this writing. Run the
+a clean checkout: 832 passed, 7 deselected, as of this writing. Run the
 model-marked tests once weights exist (`pip install -e ".[model]"`, then any
 command that loads the detector — `privaparse doctor` or `privaparse demo
 <file>` — downloads them on first use):

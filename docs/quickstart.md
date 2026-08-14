@@ -1,12 +1,15 @@
 # Quickstart
 
 ```bash
-privaparse demo brief.md
+printf 'Mein Name ist Max Mustermann, erreichbar unter max@test.de.\n' > brief.md
+PRIVAPARSE_DETECTOR=regex privaparse demo brief.md
 ```
 
 `demo` runs the whole round trip and prints every stage — original, detections,
 pseudonymised text, a mock LLM answer, and the restored result. It is the
-fastest way to see whether the thing works on your documents.
+fastest way to see whether the thing works on your documents. Person
+detection needs the `[model]` extra; without it, `PRIVAPARSE_DETECTOR=regex`
+limits detection to email and phone.
 
 The real workflow is two commands:
 

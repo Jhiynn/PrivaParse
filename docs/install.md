@@ -2,6 +2,13 @@
 
 ## Install with pipx
 
+Need pipx first? `python -m pip install --user pipx` fails outright on Debian
+and Ubuntu 23.04+ (`externally-managed-environment`, PEP 668) unless you add
+`--break-system-packages`; the package manager's own pipx avoids that:
+`sudo apt install pipx` on Debian/Ubuntu, `brew install pipx` on macOS. See
+[pipx's own install instructions](https://pypa.github.io/pipx/installation/)
+for other platforms.
+
 ```bash
 pipx install "privaparse[gateway]"
 ```
@@ -125,3 +132,15 @@ the weights. One podman quirk: its default OCI image format silently drops
 `HEALTHCHECK`, so `podman build --format docker` is needed if you want the
 container healthcheck. Docker's builder keeps it either way. The image is
 large — 5.3 GB slim, 6.6 GB full — and that is torch, not PrivaParse.
+
+## Verified on
+
+Ubuntu 24.04.4 LTS, Python 3.12.3, in a sandbox that had never seen this
+project before — no editable install, no resolved dependencies, no model
+weights on disk. The pipx install of the built wheel (`[gateway]` extra),
+`privaparse doctor` without model weights, the `demo` round trip with
+`PRIVAPARSE_DETECTOR=regex`, and the contributor path (`python -m venv`,
+`pip install -e ".[dev,gateway]"`, `pytest`, `ruff check .`) were all run
+verbatim from this page, `README.md`, and `CONTRIBUTING.md`. `pytest` passed
+832, 7 deselected — matching a Windows checkout exactly — and `ruff check .`
+was clean.

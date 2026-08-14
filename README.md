@@ -44,11 +44,14 @@ GPU setup, Docker, and installing from source are in [docs/install.md](docs/inst
 ## Try it
 
 ```bash
-privaparse demo brief.md
+printf 'Mein Name ist Max Mustermann, erreichbar unter max@test.de.\n' > brief.md
+PRIVAPARSE_DETECTOR=regex privaparse demo brief.md
 ```
 
-`demo` runs the whole round trip and prints every stage. The real workflow is
-two commands:
+`demo` runs the whole round trip and prints every stage. Person detection
+needs the `[model]` extra; without it (the plain `[gateway]` install above),
+`PRIVAPARSE_DETECTOR=regex` keeps detection to email and phone — drop it once
+`[model]` is installed. The real workflow is two commands:
 
 ```bash
 privaparse pseudonymize brief.md -o brief.pseudo.md
@@ -72,6 +75,10 @@ privaparse serve
 ```bash
 OPENAI_BASE_URL=http://127.0.0.1:8787/v1 aider
 ```
+
+Without the `[model]` extra, prefix `serve` with `PRIVAPARSE_DETECTOR=regex` —
+otherwise the server starts fine but every request that reaches detection
+returns a 500.
 
 Which clients this works with today, what it costs, and its known gaps are in
 [docs/gateway.md](docs/gateway.md).

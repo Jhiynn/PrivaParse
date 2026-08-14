@@ -62,6 +62,14 @@ privaparse = ["app/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Without this, a bare `pytest` invocation (the console-script entry point,
+# as opposed to `python -m pytest`) never puts the repo root on sys.path, so
+# `tests/test_cli.py`'s `from tests.conftest import ...` fails to collect
+# with `ModuleNotFoundError: No module named 'tests'`. Confirmed on both
+# Windows and Linux — it is not a platform quirk, and it broke every
+# documented `pytest` invocation (CONTRIBUTING.md, ci.yml) before this line
+# existed.
+pythonpath = ["."]
 markers = [
     "model: requires GLiNER2 weights on disk (slow, needs `pip install -e .[model]`)",
 ]

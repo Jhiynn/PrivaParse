@@ -26,7 +26,7 @@ regenerated:
 `pytest` deselects 7 tests by default. The deselection is configured in
 `pyproject.toml`, via `addopts = "-m 'not model'"`, because those 7 need
 GLiNER2 weights on disk that a fresh checkout does not have. The default run
-currently passes 830, 7 deselected. That count moves as documentation pages
+currently passes 832, 7 deselected. That count moves as documentation pages
 are added — `tests/test_docs_links.py` is parametrized per file, so every
 Markdown page this project gains adds one more passing test.
 
