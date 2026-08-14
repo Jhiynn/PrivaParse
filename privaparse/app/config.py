@@ -172,6 +172,30 @@ class Settings(BaseSettings):
             f"Invalid device {v!r}. Expected 'auto', 'cpu', 'cuda', 'cuda:<N>' or 'mps'."
         )
 
+    @field_validator("api_key")
+    @classmethod
+    def _validate_api_key(cls, v: str) -> str:
+        """Refuse a key that cannot round-trip to bytes, at startup.
+
+        `os.environ` decodes with `surrogateescape`, so `PRIVAPARSE_API_KEY`
+        set from raw bytes that are not valid UTF-8 -- e.g. straight from
+        `/dev/urandom` -- arrives here as a `str` containing lone surrogates.
+        The gateway's auth middleware has to encode this value on every
+        request to compare it safely; refusing it here, the same way the
+        bind guard refuses a bad host, means an operator learns about the
+        mistake once at startup instead of via a wall of 500s in production.
+        """
+        try:
+            v.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise ValueError(
+                "PRIVAPARSE_API_KEY is not valid text: it contains bytes that "
+                "cannot be encoded back to UTF-8, most likely because it was set "
+                "directly from raw random bytes. A key must be text -- base64- or "
+                "hex-encode random bytes before using them as the key."
+            ) from exc
+        return v
+
     @property
     def catalogue(self) -> Catalogue:
         """The resolved catalogue. Cached — loading parses YAML and validates."""

@@ -92,6 +92,35 @@ def test_a_malformed_key_still_gets_401_not_500(settings, upstream):
     assert response.json()["error"]["type"] == "invalid_api_key"
 
 
+def test_a_legitimately_non_ascii_key_still_authenticates(settings, upstream):
+    """The malformed-key fix must not overcorrect into rejecting a real key
+    that merely is not ASCII -- an umlaut is ordinary, valid UTF-8, accepted
+    by `Settings.api_key`'s validator, and should authenticate exactly like
+    any other key.
+
+    Sent the same way as the malformed-key test and for the same reason:
+    `TestClient`/`httpx`'s own header encoding refuses a plain `str` header
+    value that is not ASCII, so this presents the key as its UTF-8 bytes
+    directly, which is what a real client speaking raw HTTP would put on the
+    wire for a non-ASCII header value.
+    """
+    umlaut_key = "schlüssel-42"
+    keyed_settings = settings.model_copy(update={"api_key": umlaut_key})
+    engine = PrivaParseEngine(keyed_settings, configure_logs=False)
+    app = create_app(keyed_settings, engine=engine, upstream=upstream)
+
+    async def send_umlaut_key() -> httpx.Response:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            return await client.get(
+                "/privaparse/catalogue",
+                headers=[(HEADER.encode("ascii"), umlaut_key.encode("utf-8"))],
+            )
+
+    response = asyncio.run(send_umlaut_key())
+    assert response.status_code == 200
+
+
 def test_the_two_credentials_do_not_cross(keyed_client, upstream):
     keyed_client.post(
         "/v1/chat/completions",

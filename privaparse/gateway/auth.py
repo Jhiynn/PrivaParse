@@ -56,9 +56,17 @@ class ApiKeyMiddleware:
         # surface as an unhandled 500 instead of the ordinary 401 every other
         # bad credential gets. `presented` is re-encoded with latin-1, the
         # exact inverse of that decode, so it round-trips the raw bytes the
-        # client sent losslessly and can never raise. `_api_key` is a normal
-        # operator-configured string, encoded as UTF-8 -- also incapable of
-        # raising, for any string Python can represent.
+        # client sent losslessly and can never raise.
+        #
+        # `_api_key.encode("utf-8")` is NOT safe for an arbitrary `str` --
+        # one containing a lone surrogate (reachable in practice: `os.environ`
+        # decodes with `surrogateescape`, so a key set from raw non-UTF-8
+        # bytes lands here as one) raises the same `UnicodeEncodeError`. It is
+        # safe here only because `Settings.api_key`'s field validator
+        # (`_validate_api_key` in `privaparse/app/config.py`) already refused
+        # any value that cannot round-trip to UTF-8, at startup. Do not treat
+        # this `.encode("utf-8")` as safe by construction if `_api_key` is
+        # ever sourced from anything other than a validated `Settings`.
         if not presented or not hmac.compare_digest(
             presented.encode("latin-1"), self._api_key.encode("utf-8")
         ):
