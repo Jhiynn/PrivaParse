@@ -16,8 +16,8 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
@@ -32,8 +32,8 @@ jobs:
         python-version: ["3.11", "3.12", "3.13"]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -41,8 +41,12 @@ jobs:
       # Model-marked tests need GLiNER2 weights on disk. A stock runner has
       # none, and downloading 2 GB of them on every push to prove the same
       # thing a local run proves is not a trade worth making.
-      - run: pytest --cov=privaparse --cov-report=term-missing
+      - name: Test
+        shell: bash
+        run: |
+          set -o pipefail
+          pytest --cov=privaparse --cov-report=term-missing | tee pytest-output.log
       - name: Coverage summary
         if: always()
         shell: bash
-        run: pytest --cov=privaparse --cov-report=term | tail -3 >> "$GITHUB_STEP_SUMMARY"
+        run: tail -3 pytest-output.log >> "$GITHUB_STEP_SUMMARY"
