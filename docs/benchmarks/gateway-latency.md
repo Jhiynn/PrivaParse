@@ -12,7 +12,7 @@ involved.
 | | |
 | --- | --- |
 | GPU | NVIDIA GeForce RTX 3060, 12 GB |
-| CPU | 4 cores (lab sandbox — **not** comparable to a workstation) |
+| CPU | 4 cores (isolated sandbox — **not** comparable to a workstation) |
 | torch | 2.13.0, CUDA build, fp16, `compile=on` |
 | Model | `fastino/gliner2-privacy-filter-PII-multi` (local snapshot, `PRIVAPARSE_OFFLINE=1`) |
 | Catalogue | 21 enabled types, 31 labels |

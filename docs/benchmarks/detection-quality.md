@@ -1,14 +1,15 @@
 # Evaluation report
 
-**Measured 2026-08-14** in a `/lab` sb-gpu sandbox on node1 — RTX 3060,
+**Measured 2026-08-14** in an isolated GPU sandbox — RTX 3060,
 CUDA 13.0 — against the full 124-document gold set
 (`eval/gold/de_gold.jsonl`: 91 documents carrying PII, 33 without), scored
 at the shipped catalogue's 21 enabled types with `privaparse eval`. Model
-weights: `fastino/gliner2-privacy-filter-PII-multi`, loaded from the lab's
-shared model store at `/share/models/gliner2-privacy-pii-multi` with
+weights: `fastino/gliner2-privacy-filter-PII-multi`, mounted read-only from
+a shared model store as `gliner2-privacy-pii-multi` with
 `PRIVAPARSE_OFFLINE=1` — no network reached, nothing downloaded. That local
-path is why the run label below reads `gliner2-privacy-pii-multi` rather
-than the repo id: it is the store's directory name, not a different model.
+directory name is why the run label below reads `gliner2-privacy-pii-multi`
+rather than the repo id: it is the store's directory name, not a different
+model.
 `privaparse doctor` confirmed the resolved device before this ran:
 `device=cuda:0 gpu=NVIDIA GeForce RTX 3060 vram=11909MiB dtype=fp16
 compile=on`.
@@ -22,7 +23,7 @@ between the two runs, all of them positives — see
 these.
 
 **CPU/GPU parity is now proven, not assumed.** A previous pass at this same
-124-document re-score ran in a CPU-only sandbox (`sb-dev`, no GPU), where
+124-document re-score ran in a CPU-only sandbox (no GPU), where
 `pytest -m model`'s two device tests —
 `test_the_model_lands_on_the_configured_device` and
 `test_swapping_cpu_for_gpu_does_not_change_what_is_detected` — skipped

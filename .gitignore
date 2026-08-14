@@ -31,9 +31,12 @@ htmlcov/
 .idea/
 .vscode/
 
-# Agent scratch — worktrees and execution ledgers, never part of the history
+# Local scratch — worktrees and execution ledgers, never part of the history
 .claude/worktrees/
 .superpowers/
+
+# Internal planning documents. Kept on disk, not published.
+docs/superpowers/
 
 # Generated reports keep their directory but not stale runs
 docs/benchmarks/*.local.md

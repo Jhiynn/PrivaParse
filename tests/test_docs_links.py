@@ -14,12 +14,17 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-# Agent scratch (`.superpowers`, `.claude`) is git-ignored and disposable: its
-# briefs quote documentation paths as instructions, so a file move would fail
-# this test on throwaway scaffolding rather than on anything shipped.
+# Local scratch (`.superpowers`, `.claude`) is git-ignored and disposable: the
+# notes inside quote documentation paths as examples, so a file move would
+# fail this test on throwaway scaffolding rather than on anything shipped.
+# `docs/superpowers` is untracked for a different reason -- it holds internal
+# plans and specs, kept on disk but not published -- but the same mismatch
+# applies: `rglob` still walks it, so it needs the same exclusion or this
+# test would keep checking documents that no longer ship.
 SKIP_DIRS = {
     ".venv", ".git", ".idea", ".claude", ".superpowers",
     "node_modules", ".pytest_cache", ".ruff_cache", "build", "dist",
+    "superpowers",
 }
 
 MARKDOWN_LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)")
