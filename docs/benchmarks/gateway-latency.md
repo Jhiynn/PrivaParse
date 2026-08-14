@@ -81,7 +81,6 @@ entity lookups. The cold figure is the more transferable of the two.
 CPU-side. On a workstation the warm number in particular should improve; do not
 read these as a laptop's numbers.
 
-**First turn only.** The plan called for first-turn latency and that is what
-this measures. A full conversation profile — twenty turns with a growing
-history, where each turn adds one uncached block to a mostly-cached request —
-is not measured here.
+**First turn only.** First-turn latency is what this measures. A full
+conversation profile — twenty turns with a growing history, where each turn
+adds one uncached block to a mostly-cached request — is not measured here.

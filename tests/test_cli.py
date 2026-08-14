@@ -262,7 +262,8 @@ def test_eval_writes_a_report_and_prints_a_verdict(workspace: Path) -> None:
     # backstop's shape check, from a German mobile number, so that one gold
     # document is a known, kept collision — restoring it is what makes
     # TAX_ID's low measured recall on the grouped form visible at all. See
-    # eval/gold/de_gold_source.md's Batch A note and the Task 12 fix report.
+    # eval/gold/de_gold_source.md's Batch A note and detection-quality.md's
+    # "One defect, two numbers" section.
     assert "| regex | PHONE | 18 | 0.947 | 1.000 | 0.947 | 1.000 | 0.973 |" in text
 
 

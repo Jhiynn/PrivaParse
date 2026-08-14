@@ -34,8 +34,9 @@ That reasoning was sound in principle but rested on a claim, not on this
 run's own evidence. This time, on real GPU hardware, `pytest -m model` ran
 all 7 model-marked tests with **zero skips** — both device tests executed
 and passed, including the one that runs the same text through the CPU
-(fp32) and GPU (fp16) forward paths and asserts identical spans. Full
-verbatim test output is in the Task 5b report.
+(fp32) and GPU (fp16) forward paths and asserts identical spans.
+`pytest -m model` on this run: 7 passed, zero skipped. On the CPU-only run
+above: 5 passed, 2 skipped — the two device tests, for lack of CUDA.
 
 With parity independently proven on this hardware, the table below was
 re-measured directly on the GPU — the same device class the model's

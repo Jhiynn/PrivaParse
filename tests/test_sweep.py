@@ -106,7 +106,7 @@ def test_format_sweep_produces_one_row_per_threshold():
 
 
 def test_sweep_scores_each_document_against_its_own_detection():
-    """Not in the brief: the three tests above all sweep a single document, so
+    """Extra coverage, added after the fact: the three tests above all sweep a single document, so
     none of them ever advances the replay past its first entry. This drives
     two documents with different text and different gold entities through one
     sweep, so a positional off-by-one (the wrong document's spans compared

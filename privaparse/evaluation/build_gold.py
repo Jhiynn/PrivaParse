@@ -230,8 +230,8 @@ def generate_decidable(seed: int = 1) -> list[tuple[str, str, str | None]]:
     entities.default.yaml declares none for it, because an 8-10 digit German
     Kontonummer has no single, nationwide check-digit scheme the way an IBAN
     or a Steuer-ID does — the reason IBAN replaced it. Its slot is ``None``,
-    and "by construction" for it means only the digit-length range Task 13's
-    brief specifies, not a checksum that does not exist to satisfy.
+    and "by construction" for it means only that same 8-10 digit length
+    range, not a checksum that does not exist to satisfy.
     """
     rng = random.Random(seed)  # noqa: S311 -- synthetic gold data, nothing cryptographic
     out: list[tuple[str, str, str | None]] = []
@@ -250,7 +250,7 @@ def generate_decidable(seed: int = 1) -> list[tuple[str, str, str | None]]:
     out.append(("ROUTING_NUMBER", f"{rng.randrange(10**8):08d}", "bank_routing_de"))
     out.append(("ROUTING_NUMBER", _bic_de(rng, branch=False), "bank_routing_de"))
     out.append(("ROUTING_NUMBER", _bic_de(rng, branch=True), "bank_routing_de"))
-    for year_width in (2, 4, 2):  # both MM/YY and MM/YYYY, per the brief
+    for year_width in (2, 4, 2):  # both MM/YY and MM/YYYY
         month = rng.randrange(1, 13)
         # expiry_shape has no notion of "plausible year" — any 2- or 4-digit
         # run satisfies it — but a card that expires in the year 3782 reads
@@ -261,7 +261,7 @@ def generate_decidable(seed: int = 1) -> list[tuple[str, str, str | None]]:
         full_year = 2026 + rng.randrange(1, 9)
         year = full_year if year_width == 4 else full_year % 100
         out.append(("CARD_EXPIRY", f"{month:02d}/{year:0{year_width}d}", "expiry_shape"))
-    for length in (3, 4, 3):  # both 3- and 4-digit CVVs, per the brief
+    for length in (3, 4, 3):  # both 3- and 4-digit CVVs
         out.append(("CARD_CVV", f"{rng.randrange(10**length):0{length}d}", "cvv_shape"))
     for length in (8, 9, 10):
         out.append(("ACCOUNT_NUMBER", f"{rng.randrange(10**length):0{length}d}", None))
