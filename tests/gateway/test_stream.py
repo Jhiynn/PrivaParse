@@ -487,6 +487,41 @@ def test_a_streamed_answer_comes_back_restored(settings, fake_detector, upstream
     assert _content(response.content) == "Hallo Max Mustermann"
 
 
+def test_a_streamed_answer_still_arrives_with_a_key_configured(
+    settings, fake_detector, upstream
+):
+    """The risk the pure-ASGI middleware exists to avoid: a
+    `BaseHTTPMiddleware` wraps the response object, and wrapping a
+    `StreamingResponse` is a well-known way to break it. This runs the same
+    streamed, restored request as `test_a_streamed_answer_comes_back_restored`
+    through an app with a key configured, presenting it, and checks the
+    chunks arrive exactly as they do without one.
+    """
+    key = "s3cret-stream-key"
+    client = _client(settings.model_copy(update={"api_key": key}), fake_detector, upstream)
+
+    def chunks_for(body):
+        placeholder = body["messages"][0]["content"].split("Hallo ")[1]
+        return [_event(_chunk(character)) for character in f"Hallo {placeholder}"] + [
+            _event(_chunk(None, finish="stop")),
+            b"data: [DONE]\n\n",
+        ]
+
+    upstream.chunks_for = chunks_for
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "gpt-4o",
+            "stream": True,
+            "messages": [{"role": "user", "content": "Hallo Max Mustermann"}],
+        },
+        headers={"X-PrivaParse-Key": key},
+    )
+
+    assert response.status_code == 200
+    assert _content(response.content) == "Hallo Max Mustermann"
+
+
 def test_a_streaming_request_still_fails_closed(settings, fake_detector, upstream):
     client = _client(settings, fake_detector, upstream)
 

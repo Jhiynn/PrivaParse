@@ -22,6 +22,7 @@ import time
 
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
+from starlette.middleware import Middleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response, StreamingResponse
 from starlette.routing import Route
@@ -31,6 +32,7 @@ from privaparse.app.logging import get_logger
 from privaparse.engine import PrivaParseEngine
 from privaparse.gateway.adapter import openai as shape
 from privaparse.gateway.adapter import responses as responses_shape
+from privaparse.gateway.auth import ApiKeyMiddleware
 from privaparse.gateway.cache import CachingDetector, DetectionCache
 from privaparse.gateway.direct import direct_routes
 from privaparse.gateway.errors import _error
@@ -335,6 +337,17 @@ def create_app(
             Route("/v1/models", list_models, methods=["GET"]),
             Route("/v1/chat/completions", chat_completions, methods=["POST"]),
             *direct,
+        ],
+        # Added via the constructor argument, not by wrapping the returned
+        # app, so `create_app(...)` keeps returning the Starlette instance
+        # itself -- `create_app(...).state` is read by both a test and Task
+        # 3, and wrapping the app in another object here would break it.
+        middleware=[
+            Middleware(
+                ApiKeyMiddleware,
+                api_key=settings.api_key,
+                exempt=frozenset({"/healthz"}),
+            )
         ],
     )
     # Later tasks read these off app.state (Task 3 needs both: the engine to

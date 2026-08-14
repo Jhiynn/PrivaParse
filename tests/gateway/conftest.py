@@ -8,10 +8,18 @@ from starlette.testclient import TestClient
 
 from privaparse.engine import PrivaParseEngine
 from privaparse.gateway.server import create_app
+from privaparse.gateway.upstream import Upstream
 
 
 class FakeUpstream:
-    """Stands in for the provider. Records every request it was handed."""
+    """Stands in for the provider. Records every request it was handed.
+
+    Headers are recorded through `Upstream._headers`, the same allow-list the
+    real client filters through, so `.headers` reflects what would actually
+    leave the machine -- not the full incoming request. Without this, a test
+    asserting a header never reaches the provider (e.g. the gateway's own
+    auth key) would see it here anyway and fail for the wrong reason.
+    """
 
     def __init__(self) -> None:
         self.requests: list[dict] = []
@@ -44,7 +52,7 @@ class FakeUpstream:
 
     async def post_json(self, path, body, headers):
         self.requests.append(json.loads(json.dumps(body)))
-        self.headers.append(dict(headers))
+        self.headers.append(Upstream._headers(headers))
         reply = self.reply
         if self.reply_for is not None:
             reply = self.reply_for(body)
@@ -56,12 +64,12 @@ class FakeUpstream:
     async def get_json(self, path, headers):
         # No request body on a GET, so nothing is appended to `requests` --
         # `.last` stays meaningful for the POST endpoints later tasks add.
-        self.headers.append(dict(headers))
+        self.headers.append(Upstream._headers(headers))
         return self.status, self.reply, {"content-type": "application/json"}
 
     async def stream(self, path, body, headers):
         self.requests.append(json.loads(json.dumps(body)))
-        self.headers.append(dict(headers))
+        self.headers.append(Upstream._headers(headers))
         chunks = self.chunks if self.chunks_for is None else self.chunks_for(body)
         for chunk in chunks:
             yield chunk
@@ -87,3 +95,32 @@ def direct_client(settings, upstream) -> TestClient:
     """
     engine = PrivaParseEngine(settings, configure_logs=False)
     return TestClient(create_app(settings, engine=engine, upstream=upstream))
+
+
+#: Must match the `KEY` constant in tests/gateway/test_auth.py -- the "right
+#: key" tests on that side present exactly this value.
+KEY = "s3cret-not-a-real-key"
+
+
+@pytest.fixture()
+def keyed_client(settings, upstream) -> TestClient:
+    """`direct_client`, but with a shared key configured.
+
+    Every route but /healthz now demands `X-PrivaParse-Key: KEY`.
+    """
+    keyed_settings = settings.model_copy(update={"api_key": KEY})
+    engine = PrivaParseEngine(keyed_settings, configure_logs=False)
+    return TestClient(create_app(keyed_settings, engine=engine, upstream=upstream))
+
+
+@pytest.fixture()
+def empty_key_client(settings, upstream) -> TestClient:
+    """`direct_client`, with `api_key` set to the empty string explicitly.
+
+    Distinct from the plain `settings` default in intent, not in value:
+    `PRIVAPARSE_API_KEY=` in a `.env` file produces this, and it must mean
+    "no key configured", not "the empty string is the key".
+    """
+    empty_settings = settings.model_copy(update={"api_key": ""})
+    engine = PrivaParseEngine(empty_settings, configure_logs=False)
+    return TestClient(create_app(empty_settings, engine=engine, upstream=upstream))
