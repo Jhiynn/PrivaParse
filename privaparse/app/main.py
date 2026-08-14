@@ -484,8 +484,8 @@ def serve(
     Point any client that accepts a base URL at it and nothing else changes:
     OPENAI_BASE_URL=http://127.0.0.1:8787/v1
     """
-    _require_loopback(host)
     settings = load_settings(**ctx.obj[_OVERRIDES], gateway_upstream=upstream)
+    _check_bind_address(host, api_key=settings.api_key)
     engine = _engine_with(settings)
 
     from privaparse.gateway.server import create_app
@@ -617,13 +617,15 @@ def catalog_validate(
 # --- gateway helpers ---------------------------------------------------------
 
 
-def _require_loopback(host: str) -> None:
-    """Refuse any bind address other than this machine.
+def _check_bind_address(host: str, *, api_key: str) -> None:
+    """Refuse a bind that would expose the vault with nothing in front of it.
 
-    The vault sitting behind the gateway holds plaintext values and has no
-    per-user access control -- it was built for one person on one machine. A
-    port anyone on the network can reach is therefore a vault anyone on the
-    network can read back, whether or not they sent the request that filled it.
+    Loopback is always allowed. Anything wider is allowed only when a key is
+    configured, because the vault holds plaintext values and
+    `/privaparse/reverse` reads them back for whoever asks. This deliberately
+    does not try to detect a container: the heuristics for that are unreliable,
+    and being wrong means either blocking a valid deployment or silently
+    publishing a vault on somebody's network.
     """
     if host in _LOOPBACK_NAMES:
         return
@@ -633,11 +635,15 @@ def _require_loopback(host: str) -> None:
     except ValueError:
         pass
 
+    if api_key:
+        return
+
     typer.secho(
         f"refusing to bind {host}: the vault behind this gateway stores plaintext "
-        "values and has no per-user access control, so anything that can reach the "
-        "port can read back everything it ever stored. Bind 127.0.0.1 and use an SSH "
-        "tunnel if you need it from another machine.",
+        "values, and /privaparse/reverse turns placeholders back into them for "
+        "whoever asks. Set PRIVAPARSE_API_KEY to a secret of your choosing and "
+        "callers must then present it as the X-PrivaParse-Key header. Or bind "
+        "127.0.0.1 and reach it through an SSH tunnel.",
         fg=typer.colors.RED,
         err=True,
     )

@@ -420,3 +420,52 @@ def test_gateway_stats_says_when_nothing_is_listening(workspace: Path) -> None:
 
     assert result.exit_code == 1
     assert "no privaparse gateway" in _said(result).lower()
+
+
+def test_serve_refuses_a_public_bind_without_a_key(workspace: Path, monkeypatch) -> None:
+    started: list[dict] = []
+    monkeypatch.setattr(main, "_serve", lambda application, **kw: started.append(kw))
+
+    result = _run(workspace, "serve", "--host", "0.0.0.0")  # noqa: S104 -- the value the guard must reject
+
+    assert result.exit_code == 1
+    # The message must name the setting, so the reader knows what to do next.
+    assert "PRIVAPARSE_API_KEY" in _said(result)
+    assert started == []
+
+
+def test_serve_still_refuses_a_public_bind_when_the_key_is_empty(
+    workspace: Path, monkeypatch
+) -> None:
+    # An empty string is not a key. This is the case a .env file produces when
+    # someone writes `PRIVAPARSE_API_KEY=` and moves on.
+    started: list[dict] = []
+    monkeypatch.setattr(main, "_serve", lambda application, **kw: started.append(kw))
+    monkeypatch.setenv("PRIVAPARSE_API_KEY", "")
+
+    result = _run(workspace, "serve", "--host", "0.0.0.0")  # noqa: S104 -- the value the guard must reject
+
+    assert result.exit_code == 1
+    assert started == []
+
+
+def test_serve_allows_a_public_bind_once_a_key_is_set(workspace: Path, monkeypatch) -> None:
+    started: list[dict] = []
+    monkeypatch.setattr(main, "_serve", lambda application, **kw: started.append(kw))
+    monkeypatch.setenv("PRIVAPARSE_API_KEY", "s3cret")
+
+    result = _run(workspace, "serve", "--host", "0.0.0.0")  # noqa: S104 -- allowed once a key guards it
+
+    assert result.exit_code == 0, _said(result)
+    assert started == [{"host": "0.0.0.0", "port": 8787}]  # noqa: S104
+
+
+def test_serve_allows_loopback_without_a_key(workspace: Path, monkeypatch) -> None:
+    # The default path for every existing user, and it must not change.
+    started: list[dict] = []
+    monkeypatch.setattr(main, "_serve", lambda application, **kw: started.append(kw))
+
+    result = _run(workspace, "serve", "--host", "127.0.0.1")
+
+    assert result.exit_code == 0, _said(result)
+    assert started == [{"host": "127.0.0.1", "port": 8787}]

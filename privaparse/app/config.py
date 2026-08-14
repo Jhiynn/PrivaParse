@@ -146,6 +146,16 @@ class Settings(BaseSettings):
         "the entries hold entity values in memory, and an operator may prefer that "
         "they not outlive the request that produced them.",
     )
+    api_key: str = Field(
+        default="",
+        description="Shared key callers must present as `X-PrivaParse-Key`. Empty "
+        "means no key and no authentication -- the default, and correct while the "
+        "gateway is bound to loopback, where reachability is the access control. "
+        "Setting one is also what permits a non-loopback bind: the vault behind "
+        "this gateway stores plaintext values and `/privaparse/reverse` turns "
+        "placeholders back into them, so a reachable port needs something in "
+        "front of it.",
+    )
 
     # --- logging -----------------------------------------------------------
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
