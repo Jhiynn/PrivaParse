@@ -138,7 +138,7 @@ throughput is in [docs/benchmarks/throughput.md](docs/benchmarks/throughput.md).
 
 ## Contributing
 
-See `CONTRIBUTING.md` at the repository root for issues and pull requests.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for issues and pull requests.
 The rule that matters most: no real PII in examples, tests, or gold
 documents, ever.
 

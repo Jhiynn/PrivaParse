@@ -65,5 +65,5 @@ honest rather than to test PrivaParse's own behaviour:
 ## Adding a gold document
 
 The gold set that backs every detection-quality number in this project lives
-under `eval/gold/`. See `CONTRIBUTING.md` for the full procedure for adding a
-document to it.
+under `eval/gold/`. See [CONTRIBUTING.md](../CONTRIBUTING.md) for the full
+procedure for adding a document to it.

@@ -11,4 +11,4 @@
 | [benchmarks/](benchmarks/README.md) | Every measured number in this project, with the command that reproduces it |
 
 For how to contribute — including the no-real-PII rule for examples and gold
-documents — see `CONTRIBUTING.md` at the repository root.
+documents — see [CONTRIBUTING.md](../CONTRIBUTING.md) at the repository root.
