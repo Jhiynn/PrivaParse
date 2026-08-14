@@ -43,14 +43,19 @@ GPU setup, Docker, and installing from source are in [docs/install.md](docs/inst
 
 ## Try it
 
+Save this as `brief.md`:
+
+```
+Mein Name ist Max Mustermann, erreichbar unter max@test.de.
+```
+
 ```bash
-printf 'Mein Name ist Max Mustermann, erreichbar unter max@test.de.\n' > brief.md
-PRIVAPARSE_DETECTOR=regex privaparse demo brief.md
+privaparse --detector regex demo brief.md
 ```
 
 `demo` runs the whole round trip and prints every stage. Person detection
 needs the `[model]` extra; without it (the plain `[gateway]` install above),
-`PRIVAPARSE_DETECTOR=regex` keeps detection to email and phone — drop it once
+`--detector regex` keeps detection to email and phone — drop it once
 `[model]` is installed. The real workflow is two commands:
 
 ```bash
@@ -76,7 +81,7 @@ privaparse serve
 OPENAI_BASE_URL=http://127.0.0.1:8787/v1 aider
 ```
 
-Without the `[model]` extra, prefix `serve` with `PRIVAPARSE_DETECTOR=regex` —
+Without the `[model]` extra, run `privaparse --detector regex serve` —
 otherwise the server starts fine but every request that reaches detection
 returns a 500.
 

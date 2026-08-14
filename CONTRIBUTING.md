@@ -78,10 +78,12 @@ pytest
 The default run deselects 7 tests marked `model`, via
 `addopts = "-m 'not model'"` in `pyproject.toml` — they need GLiNER2 weights
 on disk that a fresh checkout does not have. Everything else should pass on
-a clean checkout: 832 passed, 7 deselected, as of this writing. Run the
-model-marked tests once weights exist (`pip install -e ".[model]"`, then any
-command that loads the detector — `privaparse doctor` or `privaparse demo
-<file>` — downloads them on first use):
+a clean checkout, in about twenty seconds; run it to see the current total
+rather than trust a number written here, since `tests/test_docs_links.py` is
+parametrized per Markdown file and the total moves every time a page is
+added. Run the model-marked tests once weights exist (`pip install -e
+".[model]"`, then any command that loads the detector — `privaparse doctor`
+or `privaparse demo <file>` — downloads them on first use):
 
 ```bash
 pytest -m model

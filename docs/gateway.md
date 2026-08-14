@@ -24,8 +24,8 @@ OPENAI_BASE_URL=http://127.0.0.1:8787/v1 aider
 
 Both need the `[model]` extra installed — with only `[gateway]`, the server
 starts fine but returns a 500 on the first request that reaches detection.
-Prefix with `PRIVAPARSE_DETECTOR=regex` to run without it, at the cost of
-person detection.
+Run `privaparse --detector regex serve` instead to run without it, at the
+cost of person detection.
 
 ## Which clients this actually works with
 

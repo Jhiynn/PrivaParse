@@ -4,8 +4,8 @@
 .venv/Scripts/python -m pytest
 ```
 
-The default run skips everything that needs model weights and finishes in a
-couple of seconds. To include the model tests:
+The default run skips everything that needs model weights and finishes in
+about twenty seconds. To include the model tests:
 
 ```bash
 .venv/Scripts/python -m pytest -m model
@@ -26,9 +26,10 @@ regenerated:
 `pytest` deselects 7 tests by default. The deselection is configured in
 `pyproject.toml`, via `addopts = "-m 'not model'"`, because those 7 need
 GLiNER2 weights on disk that a fresh checkout does not have. The default run
-currently passes 832, 7 deselected. That count moves as documentation pages
-are added — `tests/test_docs_links.py` is parametrized per file, so every
-Markdown page this project gains adds one more passing test.
+passes everything else, in about twenty seconds — run it to see the current
+total rather than trust a number written here. It moves as documentation
+pages are added: `tests/test_docs_links.py` is parametrized per file, so
+every Markdown page this project gains adds one more passing test.
 
 ## Running the model tests
 

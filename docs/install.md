@@ -139,8 +139,8 @@ Ubuntu 24.04.4 LTS, Python 3.12.3, in a sandbox that had never seen this
 project before — no editable install, no resolved dependencies, no model
 weights on disk. The pipx install of the built wheel (`[gateway]` extra),
 `privaparse doctor` without model weights, the `demo` round trip with
-`PRIVAPARSE_DETECTOR=regex`, and the contributor path (`python -m venv`,
+`--detector regex`, and the contributor path (`python -m venv`,
 `pip install -e ".[dev,gateway]"`, `pytest`, `ruff check .`) were all run
 verbatim from this page, `README.md`, and `CONTRIBUTING.md`. `pytest` passed
-832, 7 deselected — matching a Windows checkout exactly — and `ruff check .`
-was clean.
+with 7 deselected on both platforms — matching a Windows checkout exactly —
+and `ruff check .` was clean.
