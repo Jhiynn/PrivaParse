@@ -125,6 +125,32 @@ class PrivaParseEngine:
         protected = protect(text, scan_code=self.settings.scan_code)
         return protected, self.detector.detect(protected.view)
 
+    def detect_many(
+        self, texts: Sequence[str], *, detector: Detector | None = None
+    ) -> list[list[Span]]:
+        """Detected entities for several texts, through the same pipeline
+        :meth:`detect` runs -- masking, threshold, merging and the
+        coreference sweep -- batched so the model call can batch too.
+
+        ``detector`` overrides the engine's own for this call, the same
+        injection :meth:`pseudonymize_batch` accepts: the gateway puts a
+        caching wrapper in front of detection without owning the detector
+        itself.
+
+        Read-only: nothing is written to the vault. This is deliberately the
+        same pipeline ``pseudonymize_batch`` runs before it resolves anything
+        against the vault, so a caller using this as a pre-flight check sees
+        exactly what pseudonymisation would remove -- not the detector's
+        unfiltered guesses.
+        """
+        from privaparse.parser.pseudonymizer import detect_many as _detect_many
+
+        return _detect_many(
+            texts,
+            detector=detector if detector is not None else self.detector,
+            settings=self.settings,
+        )
+
     def pseudonymize(
         self, text: str, *, source_name: str | None = None
     ) -> PseudonymizationResult:

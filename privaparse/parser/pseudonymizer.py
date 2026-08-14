@@ -33,6 +33,7 @@ __all__ = [
     "PseudonymizationResult",
     "SpanIntegrityError",
     "apply_replacements",
+    "detect_many",
     "pseudonymize_batch",
     "pseudonymize_text",
 ]
@@ -90,6 +91,34 @@ class BatchResult:
             for resolved in group:
                 seen.setdefault(resolved.placeholder, None)
         return list(seen)
+
+
+def detect_many(
+    texts: Sequence[str],
+    *,
+    detector: Detector,
+    settings: Settings,
+) -> list[list[Span]]:
+    """Detect across several texts, run through the full pipeline: masking,
+    threshold, merge and the coreference sweep.
+
+    This is exactly the detection step ``pseudonymize_batch`` runs before it
+    ever touches the vault -- extracted here so there is one code path for
+    "what would this pipeline find", not two that can drift apart. Read-only:
+    nothing is written.
+    """
+    protected = [protect(text, scan_code=settings.scan_code) for text in texts]
+    raw = detector.detect_many([p.view for p in protected])
+    return [
+        resolve_spans(
+            protected[index],
+            raw[index],
+            threshold=settings.threshold,
+            sweep=settings.coreference_sweep,
+            catalogue=settings.catalogue,
+        )
+        for index in range(len(texts))
+    ]
 
 
 def pseudonymize_text(
@@ -170,19 +199,7 @@ def pseudonymize_batch(
                     "document."
                 )
 
-    protected = [protect(text, scan_code=settings.scan_code) for text in texts]
-    raw = detector.detect_many([p.view for p in protected])
-
-    per_text_spans = [
-        resolve_spans(
-            protected[index],
-            raw[index],
-            threshold=settings.threshold,
-            sweep=settings.coreference_sweep,
-            catalogue=settings.catalogue,
-        )
-        for index in range(len(texts))
-    ]
+    per_text_spans = detect_many(texts, detector=detector, settings=settings)
     if adopt_placeholders:
         # A detector shown `[[PERSON_A1]]` can decide that is a name. Wrapping
         # it in a second placeholder is the nesting the refusal above exists to

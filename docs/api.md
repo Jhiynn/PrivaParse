@@ -27,6 +27,12 @@ single string) or `texts` (an array of strings); the response key is always
 `detections`, but its *shape* mirrors which form the caller used: an array of
 spans for `text`, an array of arrays for `texts`.
 
+This runs the same pipeline `pseudonymize` runs before it writes anything —
+masking fenced code blocks, applying the catalogue's threshold, merging
+overlaps and the coreference sweep — not the detector's raw, unfiltered
+output. What this endpoint reports is exactly what `pseudonymize` would
+remove, so it is safe to use as a pre-flight check.
+
 Batch request and response — `texts`, one detection list per input, in order:
 
 ```bash
@@ -198,19 +204,20 @@ values by guessing at a placeholder:
 An unknown `mapping_id`, or a body with no `text`, are the other 400/404
 cases — same `mapping_not_found` / `invalid_request_error` envelope.
 
-**`strict: true` has a rough edge.** By default, a placeholder belonging to a
-different mapping (with `mapping_id` given explicitly, so no session lookup
-happens) is left in the text and reported in `foreign` — nothing leaks, it
-just isn't restored. Set `strict: true` and that same situation raises
-`ForeignPlaceholderError` inside the engine instead, and this route does not
-catch it — the caller gets a bare 500 with no JSON error body, not the
-`mapping_not_found` shape every other failure here produces. It still fails
-closed and nothing is exposed, but it's the one path that doesn't return the
-structured error the rest of this API does. (`engine.reverse(..., strict=True)`
-raising on a foreign placeholder is exercised directly in
-`tests/test_session_scope.py::test_strict_mode_raises_on_a_foreign_placeholder`;
-nothing in this project's test suite drives that path through the HTTP route,
-which is exactly how the gap survives.)
+**`strict: true`.** By default, a placeholder belonging to a different
+mapping (with `mapping_id` given explicitly, so no session lookup happens) is
+left in the text and reported in `foreign` — nothing leaks, it just isn't
+restored. Set `strict: true` and that same situation is a 400 instead,
+carrying the engine's own message, `type: "invalid_request_error"`:
+
+```json
+{
+  "error": {
+    "message": "placeholders from another session appeared in this text: [[EMAIL_A1]]",
+    "type": "invalid_request_error"
+  }
+}
+```
 
 ## GET /privaparse/catalogue
 
