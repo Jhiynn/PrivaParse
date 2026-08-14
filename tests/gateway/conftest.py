@@ -4,6 +4,10 @@ import copy
 import json
 
 import pytest
+from starlette.testclient import TestClient
+
+from privaparse.engine import PrivaParseEngine
+from privaparse.gateway.server import create_app
 
 
 class FakeUpstream:
@@ -70,3 +74,16 @@ class FakeUpstream:
 @pytest.fixture
 def upstream() -> FakeUpstream:
     return FakeUpstream()
+
+
+@pytest.fixture()
+def direct_client(settings, upstream) -> TestClient:
+    """A client against the direct API, backed by a regex-only engine.
+
+    No model is loaded -- `settings` (from the root conftest) pins
+    `detector="regex"`, which is all the direct-API tests need. Follows the
+    same construction the other gateway tests use inline: a real engine over
+    an injected upstream, wrapped in Starlette's `TestClient`.
+    """
+    engine = PrivaParseEngine(settings, configure_logs=False)
+    return TestClient(create_app(settings, engine=engine, upstream=upstream))

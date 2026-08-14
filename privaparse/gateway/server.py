@@ -32,6 +32,8 @@ from privaparse.engine import PrivaParseEngine
 from privaparse.gateway.adapter import openai as shape
 from privaparse.gateway.adapter import responses as responses_shape
 from privaparse.gateway.cache import CachingDetector, DetectionCache
+from privaparse.gateway.direct import direct_routes
+from privaparse.gateway.errors import _error
 from privaparse.gateway.extract import (
     UnscannableField,
     extract,
@@ -112,11 +114,6 @@ def _stream_restorer(engine: PrivaParseEngine, mapping_id: str, *, fuzzy: bool =
     return restore
 
 
-def _error(status: int, message: str, kind: str) -> JSONResponse:
-    """An OpenAI-shaped error, so a client's own error handling still works."""
-    return JSONResponse({"error": {"message": message, "type": kind}}, status_code=status)
-
-
 def create_app(
     settings: Settings,
     *,
@@ -140,6 +137,9 @@ def create_app(
     cache = DetectionCache(settings.gateway_cache)
     detector = CachingDetector(engine, cache)
     metrics = Metrics()
+    # The direct API: PrivaParse's own capabilities over HTTP, not a proxy.
+    # Bound to the same engine and detection cache as the request path above.
+    direct = direct_routes(engine, detector)
 
     async def healthz(request: Request) -> JSONResponse:
         # "ready" means the engine exists: settings validated, vault database
@@ -334,6 +334,7 @@ def create_app(
             Route(STATS_PATH, stats, methods=["GET"]),
             Route("/v1/models", list_models, methods=["GET"]),
             Route("/v1/chat/completions", chat_completions, methods=["POST"]),
+            *direct,
         ],
     )
     # Later tasks read these off app.state (Task 3 needs both: the engine to
