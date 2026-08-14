@@ -42,3 +42,49 @@ def test_detect_preserves_order_and_arity(direct_client):
     # The remote detector in the next piece of work aligns these by index.
     assert len(detections) == len(texts)
     assert [bool(d) for d in detections] == [True, False, True, False, True]
+
+
+def test_pseudonymize_replaces_and_returns_a_mapping_id(direct_client):
+    response = direct_client.post(
+        "/privaparse/pseudonymize", json={"text": "Schreiben Sie an max@test.de"}
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["mapping_id"]
+    assert "max@test.de" not in body["text"]
+    assert "[[EMAIL_" in body["text"]
+
+
+def test_pseudonymize_does_not_leak_personal_data_by_default(direct_client):
+    response = direct_client.post(
+        "/privaparse/pseudonymize", json={"text": "Schreiben Sie an max@test.de"}
+    )
+    body = response.json()
+    # The promise of the default response: it can be logged safely.
+    assert "spans" not in body
+    assert "max@test.de" not in response.text
+
+
+def test_pseudonymize_returns_spans_when_asked(direct_client):
+    response = direct_client.post(
+        "/privaparse/pseudonymize",
+        json={"text": "Schreiben Sie an max@test.de", "include_spans": True},
+    )
+    spans = response.json()["spans"]
+    assert spans[0]["type"] == "EMAIL"
+    assert spans[0]["text"] == "max@test.de"
+    assert spans[0]["placeholder"].startswith("[[EMAIL_")
+
+
+def test_pseudonymize_shares_one_mapping_across_texts(direct_client):
+    response = direct_client.post(
+        "/privaparse/pseudonymize", json={"texts": ["max@test.de", "max@test.de"]}
+    )
+    body = response.json()
+    assert len(body["texts"]) == 2
+    # The same value must get the same placeholder, which is the whole point.
+    assert body["texts"][0] == body["texts"][1]
+
+
+def test_pseudonymize_rejects_a_bad_body(direct_client):
+    assert direct_client.post("/privaparse/pseudonymize", json={}).status_code == 400

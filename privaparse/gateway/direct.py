@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from privaparse.parser.types import Span
 
 DETECT_PATH = "/privaparse/detect"
+PSEUDONYMIZE_PATH = "/privaparse/pseudonymize"
 
 
 class _BadRequest(ValueError):
@@ -63,6 +64,13 @@ def _span_json(span: Span) -> dict[str, Any]:
     }
 
 
+def _resolved_span_json(resolved: Any) -> dict[str, Any]:
+    payload = _span_json(resolved.span)
+    payload["placeholder"] = resolved.placeholder
+    payload["entity_id"] = resolved.entity_id
+    return payload
+
+
 async def _read_json(request: Request) -> Any:
     try:
         return await request.json()
@@ -84,4 +92,31 @@ def direct_routes(engine: PrivaParseEngine, detector: CachingDetector) -> list[R
         payload = [[_span_json(s) for s in spans] for spans in found]
         return JSONResponse({"detections": payload[0] if singular else payload})
 
-    return [Route(DETECT_PATH, detect, methods=["POST"])]
+    async def pseudonymize(request: Request) -> JSONResponse:
+        try:
+            body = await _read_json(request)
+            texts, singular = _texts_from(body)
+        except _BadRequest as bad:
+            return _error(400, str(bad), "invalid_request_error")
+
+        source_name = body.get("source_name")
+        if source_name is not None and not isinstance(source_name, str):
+            return _error(400, "`source_name` must be a string", "invalid_request_error")
+
+        result = engine.pseudonymize_batch(
+            texts, source_name=source_name, detector=detector
+        )
+
+        payload: dict[str, Any] = {"mapping_id": result.mapping_id}
+        payload["text" if singular else "texts"] = (
+            result.texts[0] if singular else result.texts
+        )
+        if body.get("include_spans") is True:
+            spans = [[_resolved_span_json(r) for r in group] for group in result.spans]
+            payload["spans"] = spans[0] if singular else spans
+        return JSONResponse(payload)
+
+    return [
+        Route(DETECT_PATH, detect, methods=["POST"]),
+        Route(PSEUDONYMIZE_PATH, pseudonymize, methods=["POST"]),
+    ]
