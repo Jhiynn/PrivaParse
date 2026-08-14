@@ -141,7 +141,7 @@ Nothing in this table is rounded toward the earlier "fine-tuning not
 required" conclusion — PERSON still clears its own bar on the numbers as
 measured, and that is reported because it is true, not adjusted to make it
 true. USERNAME and DATE_OF_BIRTH regressed on precision alone; both are
-9-total-FP-sized categories at 91 documents already (see the README's "nine
+9-total-FP-sized categories at 91 documents already (see the README's "eight
 more types" caveat on n=3 support), so one additional false positive each
 is the entire move — not a trend, but not hidden either.
 

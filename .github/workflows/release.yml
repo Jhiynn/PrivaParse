@@ -8,7 +8,25 @@ permissions:
   contents: read
 
 jobs:
+  # CI's `push` trigger only fires on `branches: [main]`, so a `v*` tag runs
+  # no checks of its own. This is the last gate on the exact commit being
+  # tagged before `build` packages it -- CI already covers the breadth
+  # (matrix of OS/Python versions), so one leg here is a sanity check, not a
+  # second CI.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -e ".[dev,gateway]"
+      - run: ruff check .
+      - run: pytest
+
   build:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

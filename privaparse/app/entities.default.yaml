@@ -7,12 +7,13 @@
 # 38 of the 42 labels documented by fastino/gliner2-privacy-filter-PII-multi
 # are routed below, onto 25 placeholder types — but only 21 of those types are
 # currently enabled (CITY, REGION, COUNTRY and DATE are disabled; see each
-# type's own comment). The other four labels are not routed at all: Task 14
-# measured every label alone against the full gold set, and each of those
-# four found zero gold entities — see the removal note on each one's former
-# type (PERSON, ACCOUNT_ID, SECRET twice) and docs/benchmarks/labels.md for the
-# full sweep. MODEL_LABELS in catalogue.py still lists all 42; that constant
-# documents what the model offers, not what this file chooses to send.
+# type's own comment). The other four labels are not routed at all: the
+# per-label sweep measured every label alone against the full gold set, and
+# each of those four found zero gold entities — see the removal note on each
+# one's former type (PERSON, ACCOUNT_ID, SECRET twice) and
+# docs/benchmarks/labels.md for the full sweep. MODEL_LABELS in catalogue.py
+# still lists all 42; that constant documents what the model offers, not
+# what this file chooses to send.
 # Granularity errs high on purpose: merging two types later is a migration
 # that rewrites a column and de-duplicates rows, which is mechanical.
 # Splitting one type into two later is not possible without re-detecting
@@ -24,7 +25,7 @@
 # Thresholds below are a mix of two things, and each type's own comment says
 # which: a conservative starting point never yet measured (most types with no
 # gold coverage — see eval/gold/de_gold_source.md), or a value read off the
-# Task 12 sweep against the extended gold set. Five types carry an explicit
+# threshold sweep against the extended gold set. Five types carry an explicit
 # value from that sweep (DATE_OF_BIRTH, ADDRESS, POSTAL_CODE, NATIONAL_ID,
 # ACCOUNT_ID). Three carry the sweep's evidence in a comment but no explicit
 # value, because the evidence itself argues against pinning one — PERSON and
@@ -59,10 +60,10 @@ version: 1
 
 placeholder_types:
   PERSON:
-    # middle_name dropped (Task 14): measured alone against the 99 gold
-    # PERSON entities it found none, and it cost nothing either — 0 found,
-    # 0 noise. Silent, not borderline; see docs/benchmarks/labels.md for the
-    # full per-label sweep this and the other three Task 14 removals rest
+    # middle_name dropped (the per-label sweep): measured alone against the
+    # 99 gold PERSON entities it found none, and it cost nothing either — 0
+    # found, 0 noise. Silent, not borderline; see docs/benchmarks/labels.md
+    # for the full per-label sweep this and the other three removals rest
     # on.
     labels: [person, full_name, first_name, last_name]
     prompts:
@@ -148,12 +149,13 @@ placeholder_types:
     sweep: "off"
     threshold: 0.7
     # Disabled — project owner's call, on evidence: 13 false positives, 0
-    # true positives on the Task 12 gold set (91 documents). de-006 is the
-    # worked example: a document about a company's sales network gets
-    # Frankfurt, Hamburg and Leipzig masked, and a city name does not
-    # identify a person. Set enabled: true to turn it back on; nothing else
-    # needs to change, and this note stays so the next person re-decides
-    # from the same evidence rather than from a guess about why it's off.
+    # true positives on the threshold sweep's gold set (91 documents).
+    # de-006 is the worked example: a document about a company's sales
+    # network gets Frankfurt, Hamburg and Leipzig masked, and a city name
+    # does not identify a person. Set enabled: true to turn it back on;
+    # nothing else needs to change, and this note stays so the next person
+    # re-decides from the same evidence rather than from a guess about why
+    # it's off.
     enabled: false
 
   REGION:
@@ -164,10 +166,10 @@ placeholder_types:
     threshold: 0.7
     # Disabled alongside CITY, COUNTRY and DATE — project owner's call, on
     # this type's own evidence: 4 false positives (state_or_region), 0 true
-    # positives, on the Task 12 gold set. de-006 (a company's sales network
-    # across Bayern, Sachsen and Nordrhein-Westfalen) is the same worked
-    # example CITY's note points to. A region does not identify a person
-    # either.
+    # positives, on the threshold sweep's gold set. de-006 (a company's
+    # sales network across Bayern, Sachsen and Nordrhein-Westfalen) is the
+    # same worked example CITY's note points to. A region does not identify
+    # a person either.
     enabled: false
 
   POSTAL_CODE:
@@ -190,12 +192,13 @@ placeholder_types:
     threshold: 0.8
     # Disabled alongside CITY, REGION and DATE, but on different grounds:
     # COUNTRY measured 0 false positives as well as 0 true positives on the
-    # Task 12 gold set, so disabling it is not something the measurement
-    # argues for — the corpus simply never gave the model a country name to
-    # get wrong. This rests on judgement instead: a country name on its own
-    # rarely identifies a person, unlike the other three, which each have
-    # an actual false-positive count behind the decision. Re-decide this
-    # one from that judgement, not from evidence this sweep does not have.
+    # threshold sweep's gold set, so disabling it is not something the
+    # measurement argues for — the corpus simply never gave the model a
+    # country name to get wrong. This rests on judgement instead: a country
+    # name on its own rarely identifies a person, unlike the other three,
+    # which each have an actual false-positive count behind the decision.
+    # Re-decide this one from that judgement, not from evidence this sweep
+    # does not have.
     enabled: false
 
   NATIONAL_ID:
@@ -341,10 +344,10 @@ placeholder_types:
     threshold: 0.5
 
   ACCOUNT_ID:
-    # sensitive_account_id dropped (Task 14): measured alone against the 3
-    # gold ACCOUNT_ID entities it found none, and cost one false positive —
-    # noise with no matching benefit. account_id alone now carries the
-    # type's entire measured signal; see docs/benchmarks/labels.md.
+    # sensitive_account_id dropped (the per-label sweep): measured alone
+    # against the 3 gold ACCOUNT_ID entities it found none, and cost one
+    # false positive — noise with no matching benefit. account_id alone now
+    # carries the type's entire measured signal; see docs/benchmarks/labels.md.
     labels: [account_id]
     prompts:
       account_id: "Kunden-, Konto- und Mandantennummern"
@@ -357,8 +360,8 @@ placeholder_types:
     threshold: 0.8
 
   SECRET:
-    # secret and recovery_code dropped (Task 14), each measured alone
-    # against the 3 gold SECRET entities. secret found none and cost
+    # secret and recovery_code dropped (the per-label sweep), each measured
+    # alone against the 3 gold SECRET entities. secret found none and cost
     # nothing either — 0 found, 0 noise, silent. recovery_code found none
     # and cost one false positive — noise with no matching benefit. The
     # three labels that remain are not strong either (api_key finds one of

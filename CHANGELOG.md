@@ -8,7 +8,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Nothing yet.
 
-## [0.1.0] - 2026-08-13
+## [0.1.0] - 2026-08-14
 
 ### Added
 
@@ -76,9 +76,11 @@ Nothing yet.
   four labels (`middle_name`, `sensitive_account_id`, `secret`,
   `recovery_code`) measured alone against the gold set, found zero
   matching entities each, and were dropped from their type's routing.
-- CITY, REGION, COUNTRY, and DATE ship disabled by default after
-  measurement showed false positives with no offsetting true positives on
-  the gold set.
+- CITY, REGION, and DATE ship disabled by default after measurement showed
+  false positives with no offsetting true positives on the gold set;
+  COUNTRY ships disabled too, but on judgement — it measured neither false
+  positives nor true positives, so a country name alone rarely identifying
+  a person is what disabled it, not a measured cost.
 
 ### Fixed
 
@@ -91,3 +93,9 @@ Nothing yet.
   the image's own settings at build time.
 - A startup race where the model registry could be reported ready before
   it was actually filled.
+- The missing-GLiNER2 guard imported a module that succeeds whether or not
+  GLiNER2 itself is installed, so its friendly install message had never
+  once reached a user — a raw `ModuleNotFoundError` from the CLI, or a bare
+  500 from the gateway, was what a first-time user actually saw. The
+  gateway now catches this case and returns a 500 with an OpenAI-compatible
+  error envelope instead.

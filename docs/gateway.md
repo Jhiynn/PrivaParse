@@ -12,14 +12,16 @@ child's environment, and exits with the child's own exit code. Your
 `OPENAI_API_KEY` is passed through untouched — the gateway forwards it to the
 provider and stores no credential of its own.
 
-Or run the gateway yourself and point things at it:
+Or run the gateway yourself and point things at it — `run` reuses a gateway
+that's already listening rather than starting a second one, so this still
+works cross-platform:
 
 ```bash
 privaparse serve
 ```
 
 ```bash
-OPENAI_BASE_URL=http://127.0.0.1:8787/v1 aider
+privaparse run -- aider
 ```
 
 Both need the `[model]` extra installed — with only `[gateway]`, the server

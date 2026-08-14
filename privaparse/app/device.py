@@ -76,7 +76,10 @@ def _probe_torch() -> _TorchProbe:
         return _TorchProbe(
             available=False,
             cuda_available=False,
-            reason="torch is not installed (install with: pip install -e '.[model]')",
+            reason=(
+                "torch is not installed (pipx: pipx inject privaparse "
+                "\"gliner2[local]\"; checkout: pip install -e '.[model]')"
+            ),
         )
 
     if not torch.cuda.is_available():

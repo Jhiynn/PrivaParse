@@ -101,5 +101,6 @@ def test_missing_gliner2_raises_a_friendly_runtime_error(monkeypatch, mode) -> N
         build_default_detector(settings, resolve_device(settings))
 
     message = str(excinfo.value)
+    assert "pipx inject privaparse" in message
     assert "pip install -e '.[model]'" in message
     assert "--detector regex" in message

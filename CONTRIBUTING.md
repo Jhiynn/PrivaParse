@@ -140,12 +140,15 @@ that stayed in the repository rather than being quietly dropped once it was
 known. The same report's
 ["An earlier, more flattering number"](docs/benchmarks/detection-quality.md#an-earlier-more-flattering-number)
 section is the other half of the standard: it explains why an earlier
-PERSON F1 of 0.975, measured at 3 labels against 35 today, was not a better
+PERSON F1 of 0.975, measured at 3 labels against 31 today, was not a better
 system — it was a narrower one, with less surface for a false positive to
 land on, and the report says so plainly instead of letting the flattering
-number stand unexplained. CITY, REGION, COUNTRY, and DATE ship disabled in
-the default catalogue for the same reason, in the other direction — measured
-false positives with no offsetting recall (see
+number stand unexplained. CITY, REGION, and DATE ship disabled in the
+default catalogue for the same reason, in the other direction — measured
+false positives with no offsetting recall. COUNTRY ships disabled too, but
+on judgement rather than that evidence — it measured neither false positives
+nor true positives, so a country name alone rarely identifying a person is
+what disabled it (see
 [docs/benchmarks/labels.md](docs/benchmarks/labels.md)).
 
 That is what's being asked of every contribution that touches detection,
@@ -188,12 +191,13 @@ implementation.
    this specific case.
 
 A type that ships with zero gold entities ships `enabled: false`. That isn't
-a formality: CITY, REGION, COUNTRY, and DATE are disabled in the shipped
-catalogue precisely because measurement found false positives with no
-offsetting true positives, and an unmeasured type gets the same default as a
-measured-and-found-wanting one, because "nobody has checked" and "checked
-and it costs more than it's worth" are both reasons not to trust something
-by default.
+a formality: CITY, REGION, and DATE are disabled in the shipped catalogue
+precisely because measurement found false positives with no offsetting true
+positives. COUNTRY is disabled too, but on judgement rather than that same
+evidence — it measured neither a false positive nor a true positive, so an
+unmeasured type gets the same default as a measured-and-found-wanting one,
+because "nobody has checked" and "checked and it costs more than it's worth"
+are both reasons not to trust something by default.
 
 ## Adding gold documents
 

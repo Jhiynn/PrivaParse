@@ -74,11 +74,7 @@ Point any OpenAI-compatible client at PrivaParse and it pseudonymises requests
 going out, restores answers coming back — no code changes on the client side.
 
 ```bash
-privaparse serve
-```
-
-```bash
-OPENAI_BASE_URL=http://127.0.0.1:8787/v1 aider
+privaparse run -- aider
 ```
 
 Without the `[model]` extra, run `privaparse --detector regex serve` —
@@ -90,8 +86,9 @@ Which clients this works with today, what it costs, and its known gaps are in
 
 ## Evidence
 
-Phase 1 ships a 25-type entity catalogue — 21 enabled by default, four disabled
-on measured evidence (see [docs/benchmarks/labels.md](docs/benchmarks/labels.md))
+Phase 1 ships a 25-type entity catalogue — 21 enabled by default, three
+disabled on measured false positives and one (COUNTRY) on judgement rather
+than evidence (see [docs/benchmarks/labels.md](docs/benchmarks/labels.md))
 — for plain text and Markdown, as a CLI and a Python library. No OCR, no PDF, no
 cloud models.
 
@@ -124,7 +121,7 @@ are the same defect, counted from opposite ends; see
 for the mechanism.
 
 The rest of the catalogue is measured too, and it is not uniformly clean.
-Nine types rest on three gold entities each — thin. Seven more, measured for
+Eight types rest on three gold entities each — thin. Seven more, measured for
 the first time this run, were not all clean either: **LICENSE_NUMBER and
 ROUTING_NUMBER measured 0.000 recall — they detect nothing** — and CARD_CVV
 measured 0.167 precision. Full tables, the per-label breakdown, and every

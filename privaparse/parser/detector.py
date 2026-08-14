@@ -222,9 +222,11 @@ def _build_gliner_detector(
         # same `try` so that lazy import, and the ImportError it can raise, is
         # actually covered by the handler below.
         return GlinerDetector(settings, device, progress=progress)
-    except ImportError as exc:  # pragma: no cover - exercised by install state
+    except ImportError as exc:
         raise GlinerUnavailableError(
-            "The GLiNER2 backend is not installed. Either install it with\n"
-            "    pip install -e '.[model]'\n"
+            "The GLiNER2 backend is not installed. Install it with:\n"
+            '    pipx inject privaparse "gliner2[local]"\n'
+            '      (or, for a fresh install: pipx install "privaparse[gateway,model]")\n'
+            "    pip install -e '.[model]'   (from a source checkout)\n"
             "or run with --detector regex for email and phone only."
         ) from exc

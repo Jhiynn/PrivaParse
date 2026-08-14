@@ -32,10 +32,11 @@ support 99, precision 0.969, recall 0.960, F1 0.964 (partial-match columns
 — the ones the verdict uses), measured 2026-08-14 against the full
 124-document gold set. This is the same run behind the top-level README's
 own table now — the two used to disagree (this file lagged the README by
-one gold-set growth spurt), and Task 5b closed that gap by regenerating both
-together rather than leaving the older one to quietly go stale. The number
-this superseded: support 76, precision 0.973, recall 0.961, F1 0.967,
-measured 2026-08-10 on the 91-document set that predates Batches D and E
+one gold-set growth spurt), and the 124-document re-score closed that gap
+by regenerating both together rather than leaving the older one to quietly
+go stale. The number this superseded: support 76, precision 0.973, recall
+0.961, F1 0.967, measured 2026-08-10 on the 91-document set that predates
+Batches D and E
 (see "About the gold set" below). Recall moved down, not up — expected,
 since every document those two batches added was a positive, which is
 exactly where a new miss hides; it still clears the pre-registered floor by
@@ -56,14 +57,15 @@ both measure against the same **124 documents, 33 of them containing no PII
 at all** (verified directly against `eval/gold/de_gold.jsonl`, which
 currently holds ids `de-001` through `de-124`). That was not always so for
 the first of those two: detection-quality.md and the top-level README's
-headline table both described a 91-document run until 2026-08-14 — Task 13
-added Batches D and E (`de-092`–`de-124`, 33 more documents) after that run,
-every one of them containing PII, so the total grew from 91 to 124 while the
-no-PII count held at 33. Task 5b re-ran the detection-quality measurement
-against the grown set and updated both documents that quoted it; the
-91-document numbers are kept alongside the new ones in each for comparison,
-not deleted. labels.md already measured against the full 124 before
-that — its per-label sweep predates this re-run and needed no update.
+headline table both described a 91-document run until 2026-08-14 — the
+gold-set expansion added Batches D and E (`de-092`–`de-124`, 33 more
+documents) after that run, every one of them containing PII, so the total
+grew from 91 to 124 while the no-PII count held at 33. The 124-document
+re-score reran the detection-quality measurement against the grown set and
+updated both documents that quoted it; the 91-document numbers are kept
+alongside the new ones in each for comparison, not deleted. labels.md
+already measured against the full 124 before that — its per-label sweep
+predates this re-run and needed no update.
 [throughput.md](throughput.md) and [performance-notes.md](performance-notes.md)
 have **not** been regenerated and still describe an earlier, smaller
 configuration — see the caveat on each in the top-level README before

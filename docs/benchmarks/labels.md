@@ -33,7 +33,8 @@ to defend by the third decimal place.
 **Each label was measured alone, and that changes what the numbers mean.**
 Isolating one label is the only way per-label recall is computable at all —
 with one label enabled, every detection necessarily came from it, while in
-the shipped 42-label schema a missed entity has no label to attribute it to
+the shipped 31-label schema (21 enabled types, competing together) a
+missed entity has no label to attribute it to
 (see `EvalReport.by_label` in `privaparse/evaluation/harness.py`, which
 reports precision only for exactly this reason). The trade is that these
 numbers do not describe how a label behaves in company: the same label can
@@ -102,7 +103,7 @@ are disabled on their own measured false-positive counts; COUNTRY is disabled
 on judgement rather than a comparable count, since a country name alone
 rarely identifies a person. This report does not change any of the four.
 Note for anyone comparing numbers: each type's own comment in
-`entities.default.yaml` cites a false-positive count from the Task 12 sweep
+`entities.default.yaml` cites a false-positive count from the threshold sweep
 (91 documents, every type active together), not from this report (124
 documents, this label alone) — CITY's comment says 13, the row above says
 16, and both are real, from two different measurements. Do not average them
@@ -111,7 +112,7 @@ or treat one as a correction of the other.
 ## Dropped entirely
 
 Four labels found zero true positives when measured alone and are no longer
-in the catalogue as of this report (Task 14):
+in the catalogue as of this report (the per-label sweep):
 
 | Label | Type | Support | Found | Noise |
 | --- | --- | ---: | ---: | ---: |
@@ -134,13 +135,14 @@ list it explains.
 
 ## Also worth recording
 
-**Secrets are the weakest area measured, and the project owner named them as
-important.** No SECRET label finds more than one of its three gold entities.
-`api_key` is clean but partial — one of three, no noise. `password` and
-`access_token` are both weak — one of three each, with one and two false
-positives respectively. `secret` and `recovery_code`, dropped above, found
-nothing at all. Nothing in this table argues that SECRET is in good shape;
-narrowing its labels only trims which of several weak options gets sent.
+**Secrets are the weakest area measured, and among the highest-stakes types
+to get right.** No SECRET label finds more than one of its three gold
+entities. `api_key` is clean but partial — one of three, no noise.
+`password` and `access_token` are both weak — one of three each, with one
+and two false positives respectively. `secret` and `recovery_code`, dropped
+above, found nothing at all. Nothing in this table argues that SECRET is in
+good shape; narrowing its labels only trims which of several weak options
+gets sent.
 
 **`username` finds every gold entity and produces 27 false positives doing
 it** — the most raw noise measured for any label. `government_id` and `city`

@@ -251,7 +251,8 @@ def doctor(ctx: typer.Context) -> None:
     typer.echo(f"device     {resolved.describe()}")
     if not resolved.torch_available:
         typer.secho(
-            "torch      not installed — install with: pip install -e '.[model]'",
+            "torch      not installed — pipx: pipx inject privaparse "
+            "\"gliner2[local]\"; checkout: pip install -e '.[model]'",
             fg=typer.colors.YELLOW,
         )
     elif not resolved.cuda_available:

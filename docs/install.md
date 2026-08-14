@@ -74,11 +74,11 @@ when you expected CUDA, the torch swap did not take.
 Nothing is compiled in. The device is read at engine construction:
 
 ```bash
-PRIVAPARSE_DEVICE=cuda privaparse demo brief.md
+privaparse --device cuda demo brief.md
 ```
 
 ```bash
-PRIVAPARSE_DEVICE=cpu privaparse demo brief.md
+privaparse --device cpu demo brief.md
 ```
 
 `auto` picks CUDA when it is usable and CPU otherwise. An *explicit* `cuda` on a

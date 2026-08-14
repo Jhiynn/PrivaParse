@@ -1,24 +1,25 @@
 # Testing
 
 ```bash
-.venv/Scripts/python -m pytest
+pytest
 ```
 
 The default run skips everything that needs model weights and finishes in
 about twenty seconds. To include the model tests:
 
 ```bash
-.venv/Scripts/python -m pytest -m model
+pytest -m model
 ```
 
-7/7 pass under the current 21-type catalogue, last checked in the same
-sandbox session the numbers above came from.
+7/7 pass under the current 21-type catalogue, last checked in the same GPU
+sandbox session that produced
+[benchmarks/detection-quality.md](benchmarks/detection-quality.md).
 
 Schema changes go through Alembic, because the vault holds data that cannot be
 regenerated:
 
 ```bash
-.venv/Scripts/alembic upgrade head
+alembic upgrade head
 ```
 
 ## What the default run covers
