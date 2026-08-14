@@ -42,6 +42,7 @@ from privaparse.gateway.metrics import Metrics
 from privaparse.gateway.stream import max_placeholder_length, restore_sse
 from privaparse.gateway.stream_responses import restore_responses_sse
 from privaparse.gateway.upstream import Upstream
+from privaparse.parser.detector import GlinerUnavailableError
 
 logger = get_logger(__name__)
 
@@ -187,17 +188,24 @@ def create_app(
             # `pseudonymize_batch` runs the detector and hits the vault, both
             # blocking, so it goes to a worker thread rather than stalling
             # every other request on the loop.
-            batch = await run_in_threadpool(
-                lambda: engine.pseudonymize_batch(
-                    [node.text for node in nodes],
-                    detector=detector,
-                    # A chat client replays its history, so a placeholder that
-                    # survived unrestored comes back in. Refusing it would turn
-                    # one restoration miss into a conversation that can never
-                    # recover -- see pseudonymize_batch.
-                    adopt_placeholders=True,
+            try:
+                batch = await run_in_threadpool(
+                    lambda: engine.pseudonymize_batch(
+                        [node.text for node in nodes],
+                        detector=detector,
+                        # A chat client replays its history, so a placeholder
+                        # that survived unrestored comes back in. Refusing it
+                        # would turn one restoration miss into a conversation
+                        # that can never recover -- see pseudonymize_batch.
+                        adopt_placeholders=True,
+                    )
                 )
-            )
+            except GlinerUnavailableError as exc:
+                # A genuine server-side misconfiguration, not a transient
+                # failure -- 500, not 503, so an OpenAI-compatible client does
+                # not retry a condition that only an operator can fix.
+                logger.error("detection is unavailable: %s", exc)
+                return _error(500, str(exc), "privaparse_model_unavailable")
             outbound = write_back(body, nodes, batch.texts)
             mapping_id = batch.mapping_id
             entities = len(batch.placeholders)
@@ -268,17 +276,23 @@ def create_app(
         mapping_id: str | None = None
         entities = 0
         if nodes:
-            batch = await run_in_threadpool(
-                lambda: engine.pseudonymize_batch(
-                    [node.text for node in nodes],
-                    detector=detector,
-                    # A chat client replays its history, so a placeholder that
-                    # survived unrestored comes back in. Refusing it would turn
-                    # one restoration miss into a conversation that can never
-                    # recover -- see pseudonymize_batch.
-                    adopt_placeholders=True,
+            try:
+                batch = await run_in_threadpool(
+                    lambda: engine.pseudonymize_batch(
+                        [node.text for node in nodes],
+                        detector=detector,
+                        # A chat client replays its history, so a placeholder
+                        # that survived unrestored comes back in. Refusing it
+                        # would turn one restoration miss into a conversation
+                        # that can never recover -- see pseudonymize_batch.
+                        adopt_placeholders=True,
+                    )
                 )
-            )
+            except GlinerUnavailableError as exc:
+                # See the matching handler in chat_completions: 500, not 503
+                # -- this does not resolve on retry.
+                logger.error("detection is unavailable: %s", exc)
+                return _error(500, str(exc), "privaparse_model_unavailable")
             outbound = write_back(body, nodes, batch.texts)
             mapping_id = batch.mapping_id
             entities = len(batch.placeholders)

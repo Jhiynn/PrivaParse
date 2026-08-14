@@ -7,7 +7,13 @@ is about the plumbing that combines detectors, which every concrete detector
 
 from __future__ import annotations
 
-from privaparse.parser.detector import CompositeDetector, StaticDetector
+import sys
+
+import pytest
+
+from privaparse.app.config import Settings
+from privaparse.app.device import resolve_device
+from privaparse.parser.detector import CompositeDetector, StaticDetector, build_default_detector
 from privaparse.parser.types import Span
 
 
@@ -69,3 +75,31 @@ def test_composite_detect_many_matches_detect_called_separately():
 def test_static_detector_detect_many_is_a_loop_over_detect():
     detector = StaticDetector([Span(0, 2, "ab", "A")])
     assert detector.detect_many(["ab", "x"]) == [detector.detect("ab"), detector.detect("x")]
+
+
+# --- the GLiNER2-absent guard -----------------------------------------------
+
+
+@pytest.mark.parametrize("mode", ["hybrid", "gliner"])
+def test_missing_gliner2_raises_a_friendly_runtime_error(monkeypatch, mode) -> None:
+    """The user-visible contract: build a detector without the model backend
+    installed, get a ``RuntimeError`` with install guidance -- not a raw
+    ``ModuleNotFoundError`` with no explanation.
+
+    ``gliner2`` is actually installed on the machine running this suite (it is
+    what makes ``pytest -m model`` possible), so its absence has to be
+    simulated rather than uninstalled. Setting the ``sys.modules`` entry to
+    ``None`` makes the import machinery treat the name as blocked and raise
+    ``ModuleNotFoundError`` on the next ``import gliner2`` -- exactly what a
+    real "not installed" environment produces -- and ``monkeypatch`` restores
+    whatever was there afterwards.
+    """
+    monkeypatch.setitem(sys.modules, "gliner2", None)
+    settings = Settings(detector=mode, device="cpu", warmup=False)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        build_default_detector(settings, resolve_device(settings))
+
+    message = str(excinfo.value)
+    assert "pip install -e '.[model]'" in message
+    assert "--detector regex" in message

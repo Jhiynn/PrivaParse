@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import re
+import sys
 
 from starlette.testclient import TestClient
 
@@ -362,3 +363,70 @@ def test_the_gateway_does_not_log_the_credential(settings, fake_detector, upstre
     client.get("/v1/models", headers={"authorization": "Bearer sk-secret"})
 
     assert "sk-secret" not in stream.getvalue()
+
+
+def test_gliner2_unavailable_is_refused_with_500_and_the_guidance(
+    settings, upstream, monkeypatch
+):
+    """A remote client cannot read the server log, so an uncaught RuntimeError
+    from the detector build must not surface as a bare 500 -- it has to come
+    back as the OpenAI error envelope, carrying the install guidance.
+
+    `gliner2` is actually installed on this machine; its absence is simulated
+    the same way `tests/test_detector.py` does it, by blocking the import via
+    `sys.modules` under `monkeypatch` rather than uninstalling anything. No
+    `fake_detector` is injected here -- the whole point is to let the engine
+    build its own detector lazily on the first request and hit the real,
+    unpatched `_build_gliner_detector`.
+    """
+    from privaparse.engine import PrivaParseEngine
+
+    monkeypatch.setitem(sys.modules, "gliner2", None)
+    hybrid = settings.model_copy(update={"detector": "hybrid"})
+    engine = PrivaParseEngine(hybrid, configure_logs=False)
+    client = TestClient(create_app(hybrid, engine=engine, upstream=upstream))
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "Hallo Max Mustermann"}],
+        },
+    )
+
+    assert response.status_code == 500
+    error = response.json()["error"]
+    assert error["type"] == "privaparse_model_unavailable"
+    assert "pip install -e '.[model]'" in error["message"]
+    assert "--detector regex" in error["message"]
+    # Fails closed, same as the UnscannableField refusal above: nothing about
+    # this request reached the provider.
+    assert upstream.requests == []
+
+
+def test_gliner2_unavailable_fails_closed_when_streaming_too(
+    settings, upstream, monkeypatch
+):
+    """Streaming and non-streaming chat requests share the same detection call
+    before the route ever branches on `stream`, so the guard above has to
+    cover this path too -- this proves it does, rather than assuming it.
+    """
+    from privaparse.engine import PrivaParseEngine
+
+    monkeypatch.setitem(sys.modules, "gliner2", None)
+    hybrid = settings.model_copy(update={"detector": "hybrid"})
+    engine = PrivaParseEngine(hybrid, configure_logs=False)
+    client = TestClient(create_app(hybrid, engine=engine, upstream=upstream))
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "gpt-4o",
+            "stream": True,
+            "messages": [{"role": "user", "content": "Hallo Max Mustermann"}],
+        },
+    )
+
+    assert response.status_code == 500
+    assert response.json()["error"]["type"] == "privaparse_model_unavailable"
+    assert upstream.requests == []

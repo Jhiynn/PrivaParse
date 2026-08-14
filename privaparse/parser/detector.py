@@ -23,9 +23,20 @@ if TYPE_CHECKING:  # pragma: no cover
 
 log = get_logger("detector")
 
+
+class GlinerUnavailableError(RuntimeError):
+    """Raised when a detector mode needs GLiNER2 and it is not installed.
+
+    A precise subclass rather than a bare ``RuntimeError`` so a caller -- the
+    gateway, in particular -- can catch exactly this and nothing else. Every
+    other failure while building or running the model still surfaces as
+    whatever it actually is.
+    """
+
 __all__ = [
     "CompositeDetector",
     "Detector",
+    "GlinerUnavailableError",
     "RegexDetector",
     "StaticDetector",
     "build_default_detector",
@@ -204,10 +215,16 @@ def _build_gliner_detector(
 ) -> Detector:
     try:
         from privaparse.parser.gliner_detector import GlinerDetector
+
+        # The import above succeeds even without GLiNER2 installed --
+        # `gliner_detector` only imports `gliner2` lazily, inside
+        # `GlinerDetector._load_model`. Construction has to happen inside this
+        # same `try` so that lazy import, and the ImportError it can raise, is
+        # actually covered by the handler below.
+        return GlinerDetector(settings, device, progress=progress)
     except ImportError as exc:  # pragma: no cover - exercised by install state
-        raise RuntimeError(
+        raise GlinerUnavailableError(
             "The GLiNER2 backend is not installed. Either install it with\n"
             "    pip install -e '.[model]'\n"
-            "or run with PRIVAPARSE_DETECTOR=regex for email and phone only."
+            "or run with --detector regex for email and phone only."
         ) from exc
-    return GlinerDetector(settings, device, progress=progress)

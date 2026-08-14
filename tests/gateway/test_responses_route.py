@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 from starlette.testclient import TestClient
 
 from privaparse.engine import PrivaParseEngine
@@ -139,3 +141,49 @@ def test_a_streamed_answer_is_restored(settings, fake_detector, upstream):
     )
     assert text == "Hallo Max Mustermann"
     assert "Max Mustermann" not in upstream.last["input"][0]["content"]
+
+
+def test_gliner2_unavailable_is_refused_with_500_and_the_guidance(
+    settings, upstream, monkeypatch
+):
+    """The Responses route reaches detection the same way Chat Completions
+    does, so it needs the same guard -- see the matching test in
+    `test_server.py` for the full rationale.
+
+    No `fake_detector` is injected: the engine has to build its own detector
+    lazily, on the first request, so this exercises the real (patched)
+    `_build_gliner_detector`.
+    """
+    monkeypatch.setitem(sys.modules, "gliner2", None)
+    hybrid = settings.model_copy(update={"detector": "hybrid"})
+    engine = PrivaParseEngine(hybrid, configure_logs=False)
+    client = TestClient(create_app(hybrid, engine=engine, upstream=upstream))
+
+    response = client.post(RESPONSES_PATH, json=_ASK)
+
+    assert response.status_code == 500
+    error = response.json()["error"]
+    assert error["type"] == "privaparse_model_unavailable"
+    assert "pip install -e '.[model]'" in error["message"]
+    assert "--detector regex" in error["message"]
+    assert upstream.requests == []
+
+
+def test_gliner2_unavailable_fails_closed_when_streaming_too(
+    settings, upstream, monkeypatch
+):
+    """Codex streams by default (see test_a_streamed_answer_is_restored
+    above), and detection happens before the route branches on `stream` --
+    so a client that never turns streaming off must still get the envelope,
+    not a broken event-stream.
+    """
+    monkeypatch.setitem(sys.modules, "gliner2", None)
+    hybrid = settings.model_copy(update={"detector": "hybrid"})
+    engine = PrivaParseEngine(hybrid, configure_logs=False)
+    client = TestClient(create_app(hybrid, engine=engine, upstream=upstream))
+
+    response = client.post(RESPONSES_PATH, json={**_ASK, "stream": True})
+
+    assert response.status_code == 500
+    assert response.json()["error"]["type"] == "privaparse_model_unavailable"
+    assert upstream.requests == []
