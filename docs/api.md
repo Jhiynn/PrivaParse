@@ -7,9 +7,10 @@ another language without an LLM in the loop and without going through the
 provider — each route is a thin adapter over an engine method, and every
 response comes from that method, not from a model.
 
-Like the gateway, this API binds loopback only. See
-[No authentication](#no-authentication) at the end for why that is the whole
-access-control story.
+Like the gateway, this API is the same process: same bind rule, same
+authentication once a key is configured. See
+[Authentication](#authentication) at the end for the header, the exemption,
+and the 401 shape.
 
 | Method | Path |
 | --- | --- |
@@ -296,15 +297,41 @@ That's the line for what a caller can log or forward and what it can't:
 `detect` and `reverse` responses can't; `pseudonymize` can't only if
 `include_spans` was set; everything else always can.
 
-## No authentication
+## Authentication
 
-There isn't any, and the reason is the same one the gateway relies on:
-`privaparse serve` refuses to bind anything but loopback (`127.0.0.1` /
-`localhost`), so no request reaches these routes from anywhere but this
-machine. Reachability is the access control. The vault behind both APIs
-stores plaintext values and has no per-user access control of its own — see
+None of this needs a key by default. `PRIVAPARSE_API_KEY` is empty unless an
+operator sets one, and empty means no authentication at all — the default,
+and the right one while `privaparse serve` stays bound to loopback
+(`127.0.0.1` / `localhost`), where reachability is the access control.
+
+Once a key is configured, every route above requires it, presented as the
+`X-PrivaParse-Key` header — the same rule the OpenAI-shaped routes on this
+same process follow, because this is one process and one middleware, not
+two. `GET /healthz` is the one exception, left open because the container
+healthcheck curls it without a key. A missing or wrong key gets a 401 in
+the same envelope every other error on this page uses, and the message
+never says what was presented:
+
+```json
+{
+  "error": {
+    "message": "this gateway requires a key. Present it as the X-PrivaParse-Key header.",
+    "type": "invalid_api_key"
+  }
+}
+```
+
+The header is deliberately not `Authorization`: this process also forwards
+requests to a model provider, and that header carries the caller's own
+provider credential through untouched. Reusing it for this key would either
+break that forwarding or send PrivaParse's own key to the provider instead.
+
+The vault behind both APIs stores plaintext values and has no per-user
+access control of its own — a key is one shared secret, not a scoping
+mechanism, so anyone who holds it can call `/privaparse/reverse` for
+anything the vault has ever stored, not just what their own requests
+produced. See
 [Restoration puts real PII into the client](gateway.md#restoration-puts-real-pii-into-the-client)
-for what that means for a request that does leave the machine, and
-[SECURITY.md](../SECURITY.md) for the full threat model, including what's
-explicitly out of scope. Reach this API from another machine over an SSH
-tunnel, not by binding a wider address.
+and [Binding beyond loopback](gateway.md#binding-beyond-loopback) for what a
+wider bind changes, and [SECURITY.md](../SECURITY.md#threat-model) for the
+full threat model, including what's explicitly out of scope.

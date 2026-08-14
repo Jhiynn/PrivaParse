@@ -33,7 +33,7 @@ before.
 
 ## Threat model
 
-Two things are true about this tool by design, and worth reading before you
+Three things are true about this tool by design, and worth reading before you
 point it at anything you care about:
 
 **The vault stores plaintext PII on disk.** `privaparse.db` is a local
@@ -54,9 +54,39 @@ the provider. See
 for what that means concretely, including why a server-side client changes
 the picture.
 
-**Out of scope:** this tool does not defend against an attacker who already
-has read access to the machine it runs on. The vault has no encryption and
-no per-user access control in Phase 1 — a local file-read primitive already
-wins against it, and that is a design boundary, not an oversight. What
-PrivaParse protects is the network hop to a model provider. It does not, and
-is not intended to, protect the machine itself.
+**A configured key is what stands between a reachable gateway and every
+mapping the vault has ever issued — and it is one key, not a permission
+system.** `privaparse serve` still refuses to bind anything but loopback on
+its own; setting `PRIVAPARSE_API_KEY` is what lifts that refusal, and from
+that point every route requires the key, presented as `X-PrivaParse-Key` —
+see [Binding beyond loopback](docs/gateway.md#binding-beyond-loopback). This
+used to be moot: a loopback-only bind meant the only way to reach the API at
+all was already being on the machine, which is a strictly stronger position
+than holding a key. That is no longer the whole story once the bind is
+wider, and three things follow from it, none of them solved by the key
+merely existing:
+
+- **One key, one trust level.** There is no per-caller scoping, and this
+  design does not add one. Whoever holds the key can call
+  `/privaparse/reverse` and read back everything the vault has ever
+  pseudonymised, not only what their own requests produced. Handing the key
+  to one integration hands it the whole vault.
+- **A Docker network is not a security boundary.** Putting the gateway on a
+  compose network so one container can reach it does not limit who else
+  can. Any sibling service on that network reaches the API the same way —
+  including one added to it later, by someone who never read this file and
+  has no reason to expect a de-pseudonymisation endpoint sitting on the
+  network they just joined.
+- **Binding beyond loopback puts a de-pseudonymisation endpoint on a
+  network, full stop.** The key is the only thing in front of it: not a
+  firewall rule, not TLS, not a per-route permission. Generate it randomly,
+  give it to as few processes as the deployment actually needs, and treat a
+  leak of it as a leak of the vault, because that is what it is.
+
+**Out of scope, unchanged by any of the above:** an attacker who already has
+read access to the machine PrivaParse runs on. The vault has no encryption
+in Phase 1 — a local file-read primitive wins against it no matter what
+stands in front of the network. What PrivaParse protects is the hop to a
+model provider, and, once a key is configured, the hop to the gateway
+itself. Neither protection extends to the machine the vault lives on, and
+that is a design boundary, not an oversight.

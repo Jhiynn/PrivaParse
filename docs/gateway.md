@@ -138,12 +138,70 @@ real PII in them, on that host and in front of whoever else uses it. The tool
 protects the hop to the model provider. It does nothing about the hop to the
 client, because there is no such hop when the client is you.
 
-For the same reason `serve` refuses any bind address that is not loopback. The
-vault behind the gateway stores plaintext values and has no per-user access
-control — it was built for one person on one machine — so a port the network
-can reach is a vault the network can read back, whether or not the reader sent
-the request that filled it. Reach it from another machine over an SSH tunnel,
-not by binding a wider address.
+For a related reason, `serve` refuses a bind address that is not loopback,
+unless a key is configured — see [Binding beyond loopback](#binding-beyond-loopback)
+below. The vault behind the gateway stores plaintext values and has no
+per-user access control — it was built for one person on one machine — so a
+port the network can reach is a vault the network can read back, whether or
+not the reader sent the request that filled it. Reaching it from another
+machine over an SSH tunnel still needs nothing extra; bind wider only once
+you have a reason to and a key to go with it.
+
+## Binding beyond loopback
+
+`--host` still refuses anything but loopback on its own — that part hasn't
+changed. What changed is that the refusal now has an escape hatch: set
+`PRIVAPARSE_API_KEY` and `serve` will bind a wider address. From that point,
+every route this process serves — the OpenAI-shaped ones above and the
+[direct API](api.md) — requires that same value, presented as the
+`X-PrivaParse-Key` header, or a 401. Loopback still needs nothing, exactly as
+before. See [Authentication](api.md#authentication) for the header and the
+error shape, and [SECURITY.md](../SECURITY.md#threat-model) for what the key
+does and does not buy — a shared key is not a per-caller permission system,
+and a Docker network is not a security boundary on its own.
+
+The case this unlocks is a sibling container reaching the gateway by service
+name, instead of a client on the same machine reaching it over loopback:
+
+```yaml
+services:
+  privaparse:
+    image: privaparse:full
+    environment:
+      PRIVAPARSE_API_KEY: ${PRIVAPARSE_API_KEY:?set a shared secret}
+    command: ["privaparse", "serve", "--host", "0.0.0.0", "--port", "8787"]
+    volumes:
+      - privaparse-vault:/data
+
+  agent:
+    image: curlimages/curl
+    environment:
+      PRIVAPARSE_API_KEY: ${PRIVAPARSE_API_KEY:?set a shared secret}
+    depends_on:
+      - privaparse
+    command:
+      - sh
+      - -c
+      - >
+        curl -sS http://privaparse:8787/v1/chat/completions
+        -H "Content-Type: application/json"
+        -H "X-PrivaParse-Key: $PRIVAPARSE_API_KEY"
+        -d '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "hi"}]}'
+
+volumes:
+  privaparse-vault:
+```
+
+Both services read the same secret from one place — a compose `.env` file,
+not committed — so it is set once. `privaparse` binds `0.0.0.0` inside its
+own container, which is still "wider than loopback" as far as
+`_check_bind_address` is concerned, so this file refuses to start without
+`PRIVAPARSE_API_KEY` set; an empty value doesn't count as set either. On the
+network Compose creates for this file, `agent` reaches `privaparse` by
+service name — nothing outside these two containers can, unless a `ports:`
+mapping is added, which this fragment deliberately omits. This omits the
+upstream credential (`Authorization`) for brevity; see the top of this page
+for why `OPENAI_API_KEY` passes through untouched regardless.
 
 ## Known gaps
 
