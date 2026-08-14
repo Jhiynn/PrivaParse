@@ -194,6 +194,19 @@ class Settings(BaseSettings):
                 "directly from raw random bytes. A key must be text -- base64- or "
                 "hex-encode random bytes before using them as the key."
             ) from exc
+        if v != v.strip():
+            # HTTP strips optional whitespace from a header field value, so a
+            # key with leading or trailing whitespace can never be presented
+            # back to the gateway -- every request would 401 while the error
+            # tells the operator to send a header they are, in fact, sending.
+            # A whitespace-only value is the sharp edge of this: it is
+            # truthy, so it would otherwise unlock a non-loopback bind
+            # (`_check_bind_address`) while authenticating nobody at all.
+            raise ValueError(
+                "PRIVAPARSE_API_KEY has leading or trailing whitespace, which "
+                "HTTP strips from header values -- this key could never be "
+                "presented back to the gateway. Trim it."
+            )
         return v
 
     @property

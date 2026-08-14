@@ -9,15 +9,21 @@
 #   docker build --target slim -t privaparse:slim .
 #   docker build --target full -t privaparse:full .
 #
-# Run it. The gateway binds loopback and refuses anything else, because the
-# vault beside it holds plaintext values and has no per-user access control:
+# Run it. The gateway binds loopback and refuses anything else by default,
+# because the vault beside it holds plaintext values and has no per-user
+# access control:
 #
 #   docker run --rm --network host -v privaparse-vault:/data privaparse:full
 #
 # `--network host` is what makes a loopback bind inside the container reachable
-# from the host, and it is deliberately the only documented way in. Publishing
-# a port instead would mean binding 0.0.0.0 inside the container, and this
-# image has no way to ask for that.
+# from the host, and it is deliberately the only documented way in with no
+# further setup.
+#
+# A 0.0.0.0 bind is possible too, but only with a key: set
+# PRIVAPARSE_API_KEY and override CMD to add `--host 0.0.0.0`. That is what
+# lets a sibling container reach this one by service name on a Docker
+# network instead of `--network host` -- see the compose fragment at
+# docs/gateway.md#binding-beyond-loopback.
 
 FROM python:3.12-slim AS base
 

@@ -58,13 +58,18 @@ the picture.
 mapping the vault has ever issued — and it is one key, not a permission
 system.** `privaparse serve` still refuses to bind anything but loopback on
 its own; setting `PRIVAPARSE_API_KEY` is what lifts that refusal, and from
-that point every route requires the key, presented as `X-PrivaParse-Key` —
-see [Binding beyond loopback](docs/gateway.md#binding-beyond-loopback). This
+that point every route requires the key, presented as `X-PrivaParse-Key`,
+**except `GET /healthz`** — left open because the container healthcheck
+curls it without a key — see
+[Binding beyond loopback](docs/gateway.md#binding-beyond-loopback). This
 used to be moot: a loopback-only bind meant the only way to reach the API at
 all was already being on the machine, which is a strictly stronger position
 than holding a key. That is no longer the whole story once the bind is
 wider, and three things follow from it, none of them solved by the key
-merely existing:
+merely existing. The bind refusal itself lives in the `privaparse serve` CLI
+command, not in the gateway app it builds — a caller who constructs
+`create_app` directly and serves it themselves owns the bind decision, and
+gets only a log warning, not a guard, if they do it with no key configured:
 
 - **One key, one trust level.** There is no per-caller scoping, and this
   design does not add one. Whoever holds the key can call
@@ -82,6 +87,16 @@ merely existing:
   firewall rule, not TLS, not a per-route permission. Generate it randomly,
   give it to as few processes as the deployment actually needs, and treat a
   leak of it as a leak of the vault, because that is what it is.
+
+**There is no TLS anywhere in this design.** Not "the key doesn't give you
+TLS" as a caveat — there is no TLS to give, on any bind. On a non-loopback
+bind, the shared key and every restored answer this gateway hands back —
+real names, addresses, numbers, by definition — cross the network in
+plaintext, both directions. The compose example in
+[Binding beyond loopback](docs/gateway.md#binding-beyond-loopback) uses
+`http://` throughout for exactly this reason: it is what the gateway speaks.
+Anything beyond a container-local network wants a TLS terminator in front of
+it.
 
 **Out of scope, unchanged by any of the above:** an attacker who already has
 read access to the machine PrivaParse runs on. The vault has no encryption

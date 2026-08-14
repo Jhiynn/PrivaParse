@@ -522,6 +522,22 @@ def run(
 
     daemon: subprocess.Popen | None = None
     if not _gateway_ready(port):
+        if _gateway_requires_key(port):
+            # Something is already listening on this port, keyed, and this
+            # command has no way to speak to it: the child gets an OpenAI
+            # client, and that wire protocol has nowhere to carry
+            # X-PrivaParse-Key. Starting a second gateway would also just
+            # fail to bind the port, so this fails now with a message that
+            # says what is actually wrong instead of timing out later.
+            typer.secho(
+                f"a gateway is already listening on 127.0.0.1:{port} but requires "
+                "a key. The child this command starts speaks the OpenAI wire "
+                "protocol, which has nowhere to carry X-PrivaParse-Key, so it "
+                "cannot use that gateway. Stop it, or point --port at a "
+                "different one.",
+                fg=typer.colors.RED, err=True,
+            )
+            raise typer.Exit(code=1)
         typer.echo(f"starting a gateway on 127.0.0.1:{port} ...")
         daemon = _start_gateway(port)
         if not _await_gateway(port, wait):
@@ -551,10 +567,12 @@ def run(
 
 @gateway_app.command("stats")
 def gateway_stats(
+    ctx: typer.Context,
     port: int = typer.Option(DEFAULT_PORT, "--port"),
 ) -> None:
     """Counters from a running gateway. Prints no content, ever."""
-    body = _fetch_stats(port)
+    settings = load_settings(**ctx.obj[_OVERRIDES])
+    body = _fetch_stats(port, api_key=settings.api_key)
     cache = body.get("cache", {})
 
     typer.echo(f"requests          {body['requests']}")
@@ -657,18 +675,60 @@ def _serve(application, *, host: str, port: int) -> None:  # pragma: no cover - 
 
 
 def _gateway_ready(port: int) -> bool:
+    """True only if a gateway is listening on `port` AND usable by `run`.
+
+    Deliberately probes `/privaparse/stats`, not `/healthz`. `/healthz` is
+    the one route the auth middleware exempts -- the container healthcheck
+    needs it to work without a key -- so it reads as ready on a keyed
+    gateway even though the child `run` starts has no way to present that
+    key. Any other route tells the truth: a keyed gateway 401s it, and this
+    returns False, same as nothing listening at all. See
+    `_gateway_requires_key` for telling those two apart.
+    """
     import httpx
 
+    from privaparse.gateway.server import STATS_PATH
+
     try:
-        response = httpx.get(f"http://127.0.0.1:{port}/healthz", timeout=1.0)
+        response = httpx.get(f"http://127.0.0.1:{port}{STATS_PATH}", timeout=1.0)
     except httpx.HTTPError:
         return False
     return response.status_code == 200
 
 
+def _gateway_requires_key(port: int) -> bool:
+    """True if something is already listening on `port` but rejects an
+    unauthenticated request with a 401.
+
+    Called only after `_gateway_ready` says no, to tell "nothing is
+    listening, start one" apart from "a keyed gateway already occupies this
+    port" -- the second case is not fixable by starting a second gateway,
+    since that would just fail to bind.
+    """
+    import httpx
+
+    from privaparse.gateway.server import STATS_PATH
+
+    try:
+        response = httpx.get(f"http://127.0.0.1:{port}{STATS_PATH}", timeout=1.0)
+    except httpx.HTTPError:
+        return False
+    return response.status_code == 401
+
+
 def _start_gateway(port: int) -> subprocess.Popen:  # pragma: no cover - spawns a process
+    # This gateway is reachable only from this process tree -- `run` starts
+    # it for a child process that gets OPENAI_BASE_URL and nothing else. A
+    # key would buy nothing here (the only caller is this process's own
+    # child) and cannot work anyway: the child speaks the OpenAI wire
+    # protocol, which has no header for X-PrivaParse-Key. So the gateway
+    # `run` spawns for itself always comes up keyless on loopback,
+    # regardless of PRIVAPARSE_API_KEY in this process's own environment.
+    environment = dict(os.environ)
+    environment.pop("PRIVAPARSE_API_KEY", None)
     return subprocess.Popen(  # noqa: S603 -- fixed argv, this process's own entry point
-        [sys.executable, "-m", "privaparse.app.main", "serve", "--port", str(port)]
+        [sys.executable, "-m", "privaparse.app.main", "serve", "--port", str(port)],
+        env=environment,
     )
 
 
@@ -717,14 +777,39 @@ def _forward_signals_to(child: subprocess.Popen) -> dict:
     return previous
 
 
-def _fetch_stats(port: int) -> dict:
+def _fetch_stats(port: int, *, api_key: str = "") -> dict:
     import httpx
 
+    from privaparse.gateway.auth import HEADER
     from privaparse.gateway.server import STATS_PATH
 
+    headers = {HEADER: api_key} if api_key else {}
     try:
-        response = httpx.get(f"http://127.0.0.1:{port}{STATS_PATH}", timeout=2.0)
+        response = httpx.get(
+            f"http://127.0.0.1:{port}{STATS_PATH}", timeout=2.0, headers=headers
+        )
         response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        # `HTTPStatusError` is also an `HTTPError`, so this has to come
+        # first: a 401 means a gateway *is* there and answering, just not to
+        # this request, which is a different problem than nothing listening
+        # and deserves a different message.
+        if exc.response.status_code == 401:
+            typer.secho(
+                f"the gateway on 127.0.0.1:{port} requires a key, and "
+                "PRIVAPARSE_API_KEY is not set in this shell. Set it to the "
+                "same value the gateway was started with.",
+                fg=typer.colors.RED,
+                err=True,
+            )
+        else:
+            typer.secho(
+                f"the gateway on 127.0.0.1:{port} answered with "
+                f"{exc.response.status_code}: {exc}",
+                fg=typer.colors.RED,
+                err=True,
+            )
+        raise typer.Exit(code=1)
     except httpx.HTTPError:
         typer.secho(
             f"no privaparse gateway answering on 127.0.0.1:{port}. "

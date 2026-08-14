@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import shutil
 import sys
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -401,7 +404,7 @@ def test_run_with_no_command_says_so(workspace: Path, monkeypatch) -> None:
 
 
 def test_gateway_stats_prints_the_counters(workspace: Path, monkeypatch) -> None:
-    monkeypatch.setattr(main, "_fetch_stats", lambda port: {
+    monkeypatch.setattr(main, "_fetch_stats", lambda port, api_key="": {
         "requests": 2,
         "entities_per_request": 1.5,
         "pseudonymize_p50_ms": 12.3,
@@ -420,6 +423,74 @@ def test_gateway_stats_says_when_nothing_is_listening(workspace: Path) -> None:
 
     assert result.exit_code == 1
     assert "no privaparse gateway" in _said(result).lower()
+
+
+@contextlib.contextmanager
+def _live_gateway(settings):
+    """Serve `settings` on a real loopback socket, not an in-process ASGI
+    transport.
+
+    `_fetch_stats` does a real `httpx.get` against `127.0.0.1:<port>` -- the
+    defect this exists to catch (a keyed gateway 401ing a request that never
+    sent `X-PrivaParse-Key`) only exists on the wire. `TestClient`, used
+    everywhere else in this suite, talks to the ASGI app directly and cannot
+    stand in for it; the wholesale mock on `_fetch_stats` in the sibling test
+    above is exactly what let this go unnoticed in the first place.
+    """
+    import uvicorn
+
+    from privaparse.gateway.server import create_app
+
+    engine = PrivaParseEngine(settings, configure_logs=False)
+    application = create_app(settings, engine=engine)
+    config = uvicorn.Config(application, host="127.0.0.1", port=0, log_level="critical")
+    server = uvicorn.Server(config)
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    try:
+        deadline = time.monotonic() + 5.0
+        while not server.started and time.monotonic() < deadline:
+            time.sleep(0.01)
+        port = server.servers[0].sockets[0].getsockname()[1]
+        yield port
+    finally:
+        server.should_exit = True
+        thread.join(timeout=5)
+
+
+def test_gateway_stats_works_against_a_keyed_gateway_with_the_key_set(
+    settings, monkeypatch
+) -> None:
+    """The real `_fetch_stats` against a real keyed gateway, not the
+    wholesale mock `test_gateway_stats_prints_the_counters` uses. `main.py`
+    used to send no `X-PrivaParse-Key` at all, so this 401ed against any
+    keyed gateway -- and the mocked test above never could have caught it."""
+    key = "s3cret-not-a-real-key"
+    keyed_settings = settings.model_copy(update={"api_key": key})
+    monkeypatch.setenv("PRIVAPARSE_API_KEY", key)
+
+    with _live_gateway(keyed_settings) as port:
+        result = runner.invoke(app, ["gateway", "stats", "--port", str(port)])
+
+    assert result.exit_code == 0, _said(result)
+    assert "requests" in result.stdout
+
+
+def test_gateway_stats_reports_a_key_requirement_not_nothing_listening(settings) -> None:
+    """A keyed gateway that 401s a request is not the same problem as no
+    gateway at all, and used to be reported as exactly that -- `HTTPStatusError`
+    subclasses `httpx.HTTPError`, so the old blanket `except` swallowed the
+    401 into the "nothing is listening" message even though the gateway was
+    up, healthy, and answering."""
+    keyed_settings = settings.model_copy(update={"api_key": "s3cret-not-a-real-key"})
+
+    with _live_gateway(keyed_settings) as port:
+        result = runner.invoke(app, ["gateway", "stats", "--port", str(port)])
+
+    assert result.exit_code == 1
+    said = _said(result).lower()
+    assert "requires a key" in said
+    assert "no privaparse gateway" not in said
 
 
 def test_serve_refuses_a_public_bind_without_a_key(workspace: Path, monkeypatch) -> None:

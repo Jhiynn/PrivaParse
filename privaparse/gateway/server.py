@@ -127,7 +127,21 @@ def create_app(
     `engine` and `upstream` are injectable so the test suite needs neither a
     model nor a network; a production caller passes only `settings` and both
     are built for real.
+
+    Binding this app to anything but loopback is the caller's decision, not
+    this function's -- `privaparse serve` is the one place that owns
+    `_check_bind_address`, and a library user who calls this directly and
+    serves it with uvicorn on `0.0.0.0` walks past that guard entirely. An
+    empty `settings.api_key` is correct and expected on loopback, so this
+    does not refuse to build the app -- it only says, once, what the caller
+    is choosing.
     """
+    if not settings.api_key:
+        logger.warning(
+            "no PRIVAPARSE_API_KEY is configured: this app authenticates "
+            "nothing. Bind it to loopback only, or set an api_key before "
+            "serving it anywhere else can reach it."
+        )
     engine = engine if engine is not None else PrivaParseEngine(settings)
     # `settings.gateway_upstream` is the operator's knob for pointing at Azure
     # or a local vLLM server. Every test injects its own fake, so the real

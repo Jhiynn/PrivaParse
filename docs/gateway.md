@@ -154,11 +154,13 @@ changed. What changed is that the refusal now has an escape hatch: set
 `PRIVAPARSE_API_KEY` and `serve` will bind a wider address. From that point,
 every route this process serves — the OpenAI-shaped ones above and the
 [direct API](api.md) — requires that same value, presented as the
-`X-PrivaParse-Key` header, or a 401. Loopback still needs nothing, exactly as
-before. See [Authentication](api.md#authentication) for the header and the
-error shape, and [SECURITY.md](../SECURITY.md#threat-model) for what the key
-does and does not buy — a shared key is not a per-caller permission system,
-and a Docker network is not a security boundary on its own.
+`X-PrivaParse-Key` header, or a 401, except `GET /healthz`: left open because
+the container healthcheck curls it without a key. Loopback still needs
+nothing, exactly as before. See [Authentication](api.md#authentication) for
+the header and the error shape, and
+[SECURITY.md](../SECURITY.md#threat-model) for what the key does and does
+not buy — a shared key is not a per-caller permission system, and a Docker
+network is not a security boundary on its own.
 
 The case this unlocks is a sibling container reaching the gateway by service
 name, instead of a client on the same machine reaching it over loopback:
