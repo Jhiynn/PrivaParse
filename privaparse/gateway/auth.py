@@ -37,6 +37,10 @@ class ApiKeyMiddleware:
         self._exempt = exempt
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        # `scope["type"] != "http"` also exempts websocket and lifespan
+        # scopes. There is no WebSocketRoute anywhere in this app today, so
+        # this is latent rather than live -- but whoever adds one should know
+        # it would arrive here unauthenticated.
         if scope["type"] != "http" or not self._api_key or scope["path"] in self._exempt:
             await self.app(scope, receive, send)
             return
@@ -44,7 +48,20 @@ class ApiKeyMiddleware:
         presented = Headers(scope=scope).get(HEADER, "")
         # compare_digest, not ==, so a wrong key does not leak the right one
         # one character at a time to anyone who can measure the reply.
-        if not presented or not hmac.compare_digest(presented, self._api_key):
+        #
+        # Both sides go to bytes first: compare_digest raises TypeError on a
+        # `str` operand that is not ASCII-only, and Starlette decodes header
+        # bytes through latin-1 (Headers.__getitem__), which never fails --
+        # so a single raw byte above 0x7f in the header would otherwise
+        # surface as an unhandled 500 instead of the ordinary 401 every other
+        # bad credential gets. `presented` is re-encoded with latin-1, the
+        # exact inverse of that decode, so it round-trips the raw bytes the
+        # client sent losslessly and can never raise. `_api_key` is a normal
+        # operator-configured string, encoded as UTF-8 -- also incapable of
+        # raising, for any string Python can represent.
+        if not presented or not hmac.compare_digest(
+            presented.encode("latin-1"), self._api_key.encode("utf-8")
+        ):
             response = _error(
                 401,
                 "this gateway requires a key. Present it as the X-PrivaParse-Key header.",

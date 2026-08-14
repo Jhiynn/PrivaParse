@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
+
+import httpx
+
+from privaparse.engine import PrivaParseEngine
+from privaparse.gateway.server import create_app
+
 KEY = "s3cret-not-a-real-key"
 HEADER = "X-PrivaParse-Key"
 
@@ -51,6 +58,38 @@ def test_an_empty_key_setting_authenticates_nothing(empty_key_client):
     # "no key", not "the empty string is the key".
     assert empty_key_client.get("/privaparse/catalogue").status_code == 200
     assert empty_key_client.get("/privaparse/catalogue", headers={HEADER: ""}).status_code == 200
+
+
+def test_a_malformed_key_still_gets_401_not_500(settings, upstream):
+    """A raw byte above 0x7f in the header used to raise `TypeError` inside
+    `hmac.compare_digest` -- Starlette decodes header bytes through latin-1,
+    which never fails, so the middleware received a `str` compare_digest
+    then refused outright. `ServerErrorMiddleware` turned that into a bare
+    500 with no `_error()` envelope, on the one route standing in front of
+    `/privaparse/reverse`.
+
+    `TestClient` cannot exercise this: it validates headers client-side and
+    refuses to send the offending bytes before they ever reach the app. Only
+    a transport that skips that validation will actually deliver them, so
+    this drives the ASGI app directly through `httpx.ASGITransport` -- the
+    header value is passed as raw `bytes`, which httpx forwards unchecked,
+    rather than as `str`, which httpx would refuse to encode itself.
+    """
+    keyed_settings = settings.model_copy(update={"api_key": KEY})
+    engine = PrivaParseEngine(keyed_settings, configure_logs=False)
+    app = create_app(keyed_settings, engine=engine, upstream=upstream)
+
+    async def send_malformed_key() -> httpx.Response:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            return await client.get(
+                "/privaparse/catalogue",
+                headers=[(HEADER.encode("ascii"), b"\xff\xfeabc")],
+            )
+
+    response = asyncio.run(send_malformed_key())
+    assert response.status_code == 401
+    assert response.json()["error"]["type"] == "invalid_api_key"
 
 
 def test_the_two_credentials_do_not_cross(keyed_client, upstream):
