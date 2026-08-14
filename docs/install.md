@@ -13,6 +13,9 @@ for other platforms.
 pipx install "privaparse[gateway]"
 ```
 
+If `privaparse` isn't found afterwards, run `pipx ensurepath` and open a new
+shell.
+
 That gives you the CLI and the local gateway. Person detection needs the model
 backend, which pulls in PyTorch — roughly 2 GB:
 

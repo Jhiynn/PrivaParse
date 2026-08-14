@@ -32,6 +32,9 @@ back into whatever the model replies.
 pipx install "privaparse[gateway]"
 ```
 
+If `privaparse` isn't found afterwards, run `pipx ensurepath` and open a new
+shell.
+
 That gives you the CLI and the local gateway. Person detection needs the model
 backend, which pulls in PyTorch — roughly 2 GB:
 
@@ -56,14 +59,18 @@ privaparse --detector regex demo brief.md
 `demo` runs the whole round trip and prints every stage. Person detection
 needs the `[model]` extra; without it (the plain `[gateway]` install above),
 `--detector regex` keeps detection to email and phone — drop it once
-`[model]` is installed. The real workflow is two commands:
+`[model]` is installed. The real workflow is two commands, with your own
+trip to an LLM in between:
 
 ```bash
-privaparse pseudonymize brief.md -o brief.pseudo.md
+privaparse --detector regex pseudonymize brief.md -o brief.pseudo.md
 ```
 
+Send `brief.pseudo.md`'s contents to your LLM of choice and save its reply
+as `antwort.md`, then:
+
 ```bash
-privaparse reverse antwort.md -o antwort.klar.md
+privaparse --detector regex reverse antwort.md -o antwort.klar.md
 ```
 
 More commands, and the Python library, are in [docs/quickstart.md](docs/quickstart.md).

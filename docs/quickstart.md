@@ -16,14 +16,17 @@ fastest way to see whether the thing works on your documents. Person
 detection needs the `[model]` extra; without it, `--detector regex`
 limits detection to email and phone.
 
-The real workflow is two commands:
+The real workflow is two commands, with your own trip to an LLM in between:
 
 ```bash
-privaparse pseudonymize brief.md -o brief.pseudo.md
+privaparse --detector regex pseudonymize brief.md -o brief.pseudo.md
 ```
 
+Send `brief.pseudo.md`'s contents to your LLM of choice and save its reply
+as `antwort.md`, then:
+
 ```bash
-privaparse reverse antwort.md -o antwort.klar.md
+privaparse --detector regex reverse antwort.md -o antwort.klar.md
 ```
 
 `reverse` with no `--mapping` looks up the session that issued *every*
