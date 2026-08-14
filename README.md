@@ -147,6 +147,7 @@ throughput is in [docs/benchmarks/throughput.md](docs/benchmarks/throughput.md).
 | [Install](docs/install.md) | pipx and source installs, CPU/GPU, Docker |
 | [Quickstart](docs/quickstart.md) | `privaparse demo`, the CLI, the Python library |
 | [Gateway](docs/gateway.md) | The local OpenAI-compatible gateway |
+| [API](docs/api.md) | The direct HTTP API — detect, pseudonymise, reverse, catalogue, vault |
 | [Configuration](docs/configuration.md) | Every `PRIVAPARSE_*` setting |
 | [Architecture](docs/architecture.md) | The pipeline, the vault, Markdown handling |
 | [Testing](docs/testing.md) | Running the suite, coverage |
