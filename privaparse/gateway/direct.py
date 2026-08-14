@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
 DETECT_PATH = "/privaparse/detect"
 PSEUDONYMIZE_PATH = "/privaparse/pseudonymize"
+REVERSE_PATH = "/privaparse/reverse"
 
 
 class _BadRequest(ValueError):
@@ -116,7 +117,49 @@ def direct_routes(engine: PrivaParseEngine, detector: CachingDetector) -> list[R
             payload["spans"] = spans[0] if singular else spans
         return JSONResponse(payload)
 
+    async def reverse(request: Request) -> JSONResponse:
+        try:
+            body = await _read_json(request)
+        except _BadRequest as bad:
+            return _error(400, str(bad), "invalid_request_error")
+        if not isinstance(body, dict) or not isinstance(body.get("text"), str):
+            return _error(400, "`text` must be a string", "invalid_request_error")
+
+        text = body["text"]
+        mapping_id = body.get("mapping_id")
+        if mapping_id is not None and not isinstance(mapping_id, str):
+            return _error(400, "`mapping_id` must be a string", "invalid_request_error")
+
+        try:
+            if mapping_id is None:
+                # ReverseResult carries no mapping_id, so the caller-visible id
+                # has to come from the same discovery engine.reverse would do
+                # internally -- resolved here so it can be reported, then
+                # handed to engine.reverse so it does not have to repeat the
+                # lookup.
+                from privaparse.parser.reverse_mapper import find_mapping_for
+
+                with engine.database.session() as session:
+                    mapping_id = find_mapping_for(text, repo=engine.repository(session))
+            result = engine.reverse(
+                mapping_id, text, strict=bool(body.get("strict", False))
+            )
+        except LookupError as missing:
+            return _error(404, str(missing), "mapping_not_found")
+
+        return JSONResponse(
+            {
+                "text": result.text,
+                "mapping_id": mapping_id,
+                "restored": result.restored,
+                "recovered": result.recovered,
+                "foreign": result.foreign,
+                "unknown": result.unknown,
+            }
+        )
+
     return [
         Route(DETECT_PATH, detect, methods=["POST"]),
         Route(PSEUDONYMIZE_PATH, pseudonymize, methods=["POST"]),
+        Route(REVERSE_PATH, reverse, methods=["POST"]),
     ]

@@ -88,3 +88,49 @@ def test_pseudonymize_shares_one_mapping_across_texts(direct_client):
 
 def test_pseudonymize_rejects_a_bad_body(direct_client):
     assert direct_client.post("/privaparse/pseudonymize", json={}).status_code == 400
+
+
+def test_reverse_round_trips(direct_client):
+    original = "Schreiben Sie an max@test.de"
+    forward = direct_client.post("/privaparse/pseudonymize", json={"text": original}).json()
+
+    back = direct_client.post(
+        "/privaparse/reverse",
+        json={"text": forward["text"], "mapping_id": forward["mapping_id"]},
+    )
+    assert back.status_code == 200
+    assert back.json()["text"] == original
+    assert back.json()["restored"] == 1
+
+
+def test_reverse_finds_the_mapping_without_being_told(direct_client):
+    forward = direct_client.post(
+        "/privaparse/pseudonymize", json={"text": "max@test.de"}
+    ).json()
+
+    back = direct_client.post("/privaparse/reverse", json={"text": forward["text"]})
+    assert back.status_code == 200
+    assert back.json()["mapping_id"] == forward["mapping_id"]
+
+
+def test_reverse_fails_closed_across_two_mappings(direct_client):
+    one = direct_client.post("/privaparse/pseudonymize", json={"text": "max@test.de"}).json()
+    two = direct_client.post("/privaparse/pseudonymize", json={"text": "eva@test.de"}).json()
+
+    mixed = f"{one['text']} und {two['text']}"
+    back = direct_client.post("/privaparse/reverse", json={"text": mixed})
+    # Partial coverage matches nothing. This is what stops one caller reading
+    # another's values, so it is asserted here rather than trusted upstream.
+    assert back.status_code == 404
+    assert back.json()["error"]["type"] == "mapping_not_found"
+
+
+def test_reverse_rejects_an_unknown_mapping_id(direct_client):
+    back = direct_client.post(
+        "/privaparse/reverse", json={"text": "[[EMAIL_A1]]", "mapping_id": "nope"}
+    )
+    assert back.status_code == 404
+
+
+def test_reverse_requires_a_text(direct_client):
+    assert direct_client.post("/privaparse/reverse", json={}).status_code == 400
