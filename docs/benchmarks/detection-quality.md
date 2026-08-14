@@ -143,6 +143,36 @@ true. USERNAME and DATE_OF_BIRTH regressed on precision alone; both are
 more types" caveat on n=3 support), so one additional false positive each
 is the entire move — not a trend, but not hidden either.
 
+## An earlier, more flattering number
+
+Three PERSON measurements exist for this project, at three different
+corpus sizes and three different catalogue widths — a sequence, not two
+numbers in conflict:
+
+1. **38 documents, 3 labels (person, email, phone), 10 of them
+   negatives** — the project's original evaluation, before the entity
+   catalogue grew past those three types. PERSON: P 0.967 / R 0.983 /
+   F1 0.975.
+2. **91 documents, 21 enabled types, 35 labels** — measured 2026-08-10,
+   the run the "Old vs. new" table above calls "old". PERSON: P 0.973 /
+   R 0.961 / F1 0.967 (support 76).
+3. **124 documents, 21 enabled types, 31 labels** — the current run,
+   tabled at the top of this report. PERSON: P 0.969 / R 0.960 / F1
+   0.964 (support 99).
+
+An earlier note quoted only the first of these on its own, where it reads
+as the best PERSON has ever scored. That number is real; it describes a
+narrower configuration, not a better system. The real difference between
+the first two runs is not whether negatives existed — even at 3 labels,
+those 10 already caught two false positives (`de-009`'s "König von
+Spanien", `de-026`'s "vier Personen") — it is how much surface a false
+positive had to land on. At 35 labels, the same class of corpus catches
+23. Three labels give a false positive three ways to happen; thirty-five
+give it thirty-five. Read against that history, the current run's PERSON
+F1 of 0.964 is not a regression from 0.975 — it is the same kind of
+detector, scored under a catalogue that gives a false positive far more
+room to occur, and still clearing its own pre-registered bar.
+
 ## Per model label
 
 Recall is not shown: gold entities carry a placeholder type, not a

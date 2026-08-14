@@ -99,7 +99,10 @@ recall drops below 0.90 or precision below 0.85.
 | PHONE | 0.818 | 1.000 | 0.900 | 18 |
 | IBAN | 1.000 | 1.000 | 1.000 | 6 |
 
-PERSON clears both floors comfortably — **fine-tuning not warranted.**
+PERSON clears both floors comfortably — **fine-tuning not warranted** — and
+has at every catalogue width measured, including an older, narrower one
+that scored it higher (see
+[why that isn't the better number](docs/benchmarks/detection-quality.md#an-earlier-more-flattering-number)).
 `fastino/gliner2-privacy-filter-PII-multi` is built on
 `microsoft/mdeberta-v3-base`, so German is not a special case for it. EMAIL
 and PHONE come from rules, not the model, so they are the control group:
