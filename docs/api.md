@@ -93,11 +93,12 @@ being dropped.
 
 Detects, replaces matches with placeholders (`[[EMAIL_A1]]`-shaped), and
 writes the mapping to the vault under one `mapping_id`. Also accepts either
-`text` or `texts` — but unlike `detect`, the response *key* changes to match:
-send `text`, get `text` back; send `texts`, get `texts` back. This is the
-opposite convention from `detect`, which keeps one key name and only changes
-the value's shape. Both are deliberate; there is no single rule that covers
-both routes.
+`text` or `texts`, and follows the same rule `detect` does: the response key
+is fixed — always `texts` — and its *shape* mirrors which form the caller
+used: a single string for `text`, an array of strings for `texts`. A key that
+changed name with arity would break a client the moment it switched from one
+text to several; a key whose value collapses is something a caller handles
+once, at the point it already knows which form it sent.
 
 ```bash
 curl -s http://127.0.0.1:8787/privaparse/pseudonymize \
@@ -107,7 +108,7 @@ curl -s http://127.0.0.1:8787/privaparse/pseudonymize \
 ```json
 {
   "mapping_id": "6d759980-0326-4c5a-a685-f61bb1353782",
-  "text": "Schreiben Sie an [[EMAIL_A1]]"
+  "texts": "Schreiben Sie an [[EMAIL_A1]]"
 }
 ```
 
@@ -139,7 +140,7 @@ curl -s http://127.0.0.1:8787/privaparse/pseudonymize \
 ```json
 {
   "mapping_id": "cfebc177-5171-4d62-8584-293597c0a328",
-  "text": "Schreiben Sie an [[EMAIL_A1]]",
+  "texts": "Schreiben Sie an [[EMAIL_A1]]",
   "spans": [
     {
       "start": 17, "end": 28, "text": "max@test.de",

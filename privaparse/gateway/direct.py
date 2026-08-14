@@ -160,10 +160,13 @@ def direct_routes(engine: PrivaParseEngine, detector: CachingDetector) -> list[R
         except AlreadyPseudonymizedError as exc:
             return _error(400, str(exc), "invalid_request_error")
 
+        # Fixed key, collapsing shape -- matches detect()'s "detections":
+        # a key that changes name breaks callers the moment they switch
+        # from one text to several, while a key whose value collapses is
+        # something they handle once, at the point they already know
+        # which form they sent. Do not swap this back to text/texts.
         payload: dict[str, Any] = {"mapping_id": result.mapping_id}
-        payload["text" if singular else "texts"] = (
-            result.texts[0] if singular else result.texts
-        )
+        payload["texts"] = result.texts[0] if singular else result.texts
         if include_spans:
             spans = [[_resolved_span_json(r) for r in group] for group in result.spans]
             payload["spans"] = spans[0] if singular else spans

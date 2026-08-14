@@ -57,8 +57,8 @@ def test_pseudonymize_replaces_and_returns_a_mapping_id(direct_client):
     assert response.status_code == 200
     body = response.json()
     assert body["mapping_id"]
-    assert "max@test.de" not in body["text"]
-    assert "[[EMAIL_" in body["text"]
+    assert "max@test.de" not in body["texts"]
+    assert "[[EMAIL_" in body["texts"]
 
 
 def test_pseudonymize_does_not_leak_personal_data_by_default(direct_client):
@@ -105,7 +105,7 @@ def test_reverse_round_trips(direct_client):
 
     back = direct_client.post(
         "/privaparse/reverse",
-        json={"text": forward["text"], "mapping_id": forward["mapping_id"]},
+        json={"text": forward["texts"], "mapping_id": forward["mapping_id"]},
     )
     assert back.status_code == 200
     assert back.json()["text"] == original
@@ -117,7 +117,7 @@ def test_reverse_finds_the_mapping_without_being_told(direct_client):
         "/privaparse/pseudonymize", json={"text": "max@test.de"}
     ).json()
 
-    back = direct_client.post("/privaparse/reverse", json={"text": forward["text"]})
+    back = direct_client.post("/privaparse/reverse", json={"text": forward["texts"]})
     assert back.status_code == 200
     assert back.json()["mapping_id"] == forward["mapping_id"]
 
@@ -126,7 +126,7 @@ def test_reverse_fails_closed_across_two_mappings(direct_client):
     one = direct_client.post("/privaparse/pseudonymize", json={"text": "max@test.de"}).json()
     two = direct_client.post("/privaparse/pseudonymize", json={"text": "eva@test.de"}).json()
 
-    mixed = f"{one['text']} und {two['text']}"
+    mixed = f"{one['texts']} und {two['texts']}"
     back = direct_client.post("/privaparse/reverse", json={"text": mixed})
     # Partial coverage matches nothing. This is what stops one caller reading
     # another's values, so it is asserted here rather than trusted upstream.
@@ -206,12 +206,48 @@ def test_detect_and_pseudonymize_agree_on_a_code_fenced_document(direct_client):
     # so detect must not report it either.
     assert detected_texts == {"real@test.de"}
 
-    pseudo_text = pseudonymized.json()["text"]
+    pseudo_text = pseudonymized.json()["texts"]
     assert "real@test.de" not in pseudo_text
     # incode@test.de is inside the fence and is never touched -- that's
     # correct behaviour for pseudonymize. The point of this test is that
     # detect's report and pseudonymize's actual behaviour now agree about it.
     assert "incode@test.de" in pseudo_text
+
+
+def test_detect_and_pseudonymize_share_the_fixed_key_convention(direct_client):
+    """Neither route's response key depends on whether the caller sent
+    `text` or `texts` -- only the value's shape does. `pseudonymize` used to
+    switch between a `text` key and a `texts` key; now it follows `detect`'s
+    rule, so the same singular input collapses to a single item under a
+    fixed key on both routes, and the same plural input stays an array under
+    that same key on both.
+    """
+    singular = {"text": "max@test.de"}
+    plural = {"texts": ["max@test.de", "eva@test.de"]}
+
+    detect_one = direct_client.post("/privaparse/detect", json=singular).json()
+    detect_many = direct_client.post("/privaparse/detect", json=plural).json()
+    pseudo_one = direct_client.post("/privaparse/pseudonymize", json=singular).json()
+    pseudo_many = direct_client.post("/privaparse/pseudonymize", json=plural).json()
+
+    # The key itself never changes name with arity -- that is what used to
+    # differ between the two routes.
+    assert "detections" in detect_one
+    assert "detections" in detect_many
+    assert "texts" in pseudo_one
+    assert "texts" in pseudo_many
+
+    # The value collapses with arity instead: a flat list for `text` on
+    # detect, a bare string for `text` on pseudonymize; one more level of
+    # array for `texts` on both.
+    assert isinstance(detect_one["detections"], list)
+    assert detect_one["detections"] and isinstance(detect_one["detections"][0], dict)
+    assert isinstance(detect_many["detections"], list)
+    assert isinstance(detect_many["detections"][0], list)
+
+    assert isinstance(pseudo_one["texts"], str)
+    assert isinstance(pseudo_many["texts"], list)
+    assert len(pseudo_many["texts"]) == 2
 
 
 # --- bare 500s: a class of three, not the one that was known ---------------
@@ -284,7 +320,7 @@ def test_reverse_strict_true_rejects_a_foreign_placeholder_with_400(direct_clien
 
     response = direct_client.post(
         "/privaparse/reverse",
-        json={"text": one["text"], "mapping_id": two["mapping_id"], "strict": True},
+        json={"text": one["texts"], "mapping_id": two["mapping_id"], "strict": True},
     )
     assert response.status_code == 400
     error = response.json()["error"]
@@ -301,7 +337,7 @@ def test_reverse_treats_an_empty_mapping_id_as_absent(direct_client):
     ).json()
 
     response = direct_client.post(
-        "/privaparse/reverse", json={"text": forward["text"], "mapping_id": ""}
+        "/privaparse/reverse", json={"text": forward["texts"], "mapping_id": ""}
     )
     assert response.status_code == 200
     body = response.json()
@@ -347,7 +383,7 @@ def test_reverse_accepts_strict_as_an_explicit_false(direct_client):
     response = direct_client.post(
         "/privaparse/reverse",
         json={
-            "text": forward["text"],
+            "text": forward["texts"],
             "mapping_id": forward["mapping_id"],
             "strict": False,
         },
@@ -429,14 +465,14 @@ def test_reverse_reports_foreign_placeholders_without_strict(direct_client):
 
     response = direct_client.post(
         "/privaparse/reverse",
-        json={"text": one["text"], "mapping_id": two["mapping_id"]},
+        json={"text": one["texts"], "mapping_id": two["mapping_id"]},
     )
     assert response.status_code == 200
     body = response.json()
-    assert body["foreign"] == [one["text"]]
+    assert body["foreign"] == [one["texts"]]
     assert body["restored"] == 0
     # Nothing leaked: the foreign placeholder is left standing, not restored.
-    assert body["text"] == one["text"]
+    assert body["text"] == one["texts"]
 
 
 def test_reverse_reports_unknown_placeholders(direct_client):
@@ -500,7 +536,7 @@ def test_reverse_offloads_its_work_to_a_worker_thread(direct_client, monkeypatch
     calls = _spy_on_run_in_threadpool(monkeypatch)
     response = direct_client.post(
         "/privaparse/reverse",
-        json={"text": forward["text"], "mapping_id": forward["mapping_id"]},
+        json={"text": forward["texts"], "mapping_id": forward["mapping_id"]},
     )
     assert response.status_code == 200
     assert calls, "reverse must run its vault lookups through run_in_threadpool"
