@@ -1,0 +1,41 @@
+name: Feature request
+description: Propose a change to what PrivaParse does or how it does it.
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read the [Scope section of CONTRIBUTING.md](https://github.com/Jhiynn/PrivaParse/blob/main/CONTRIBUTING.md#scope)
+        first — some categories of request (OCR, PDF handling, cloud-hosted
+        detection, anything that sends text off the machine by default) are
+        out of scope by design, not by oversight.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What's missing or awkward today, and who runs into it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behaviour
+      description: What PrivaParse should do instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Gold evidence
+      description: >
+        If this touches detection (a new entity type, a threshold change, a
+        new validator), what gold evidence would show it works? A
+        precision/recall delta against `eval/gold/de_gold_source.md`,
+        produced by `privaparse eval`, is what CONTRIBUTING.md's evidence
+        rule asks a pull request to cite — sketching it here up front saves
+        a round trip later. Leave blank if the request doesn't touch
+        detection quality, throughput, or gateway fidelity.

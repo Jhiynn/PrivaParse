@@ -1,0 +1,80 @@
+name: Bug report
+description: Something in PrivaParse behaves differently from what the docs say.
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: never paste real personal data anywhere in this form,
+        including the reproduction field below. Use the project's own
+        synthetic corpus instead — the name `Max Mustermann`, an address on
+        the `beispiel.de` domain, and the standard example IBAN
+        `DE89 3704 0044 0532 0130 00`. See
+        [CONTRIBUTING.md](https://github.com/Jhiynn/PrivaParse/blob/main/CONTRIBUTING.md#never-paste-real-pii)
+        for the full rule and why it exists.
+
+  - type: input
+    id: version
+    attributes:
+      label: PrivaParse version
+      description: Output of `privaparse --version`, or the commit hash if running from source.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: Install method
+      options:
+        - pipx
+        - pip
+        - Docker
+        - source (editable install)
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: "privaparse doctor output"
+      description: >
+        Run `privaparse doctor` and paste its output. It reports the
+        resolved device, dtype, model, and vault path — the single most
+        useful diagnostic for this project, and usually the fastest way to
+        rule out an environment problem before it's mistaken for a bug.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: >
+        Steps or a minimal command to reproduce, with any input text drawn
+        from the synthetic corpus above. Never paste a real name, address,
+        IBAN, or any other real personal data here — not even redacted or
+        altered from something real. A bug report that leaks PII to
+        demonstrate a PII bug defeats the point of the tool. If the bug only
+        reproduces on real data, describe its shape (entity types, rough
+        length, formatting) instead of pasting it.
+      placeholder: |
+        privaparse pseudonymize input.txt
+    validations:
+      required: true
