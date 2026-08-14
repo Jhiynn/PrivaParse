@@ -134,3 +134,29 @@ def test_reverse_rejects_an_unknown_mapping_id(direct_client):
 
 def test_reverse_requires_a_text(direct_client):
     assert direct_client.post("/privaparse/reverse", json={}).status_code == 400
+
+
+def test_catalogue_lists_enabled_types(direct_client):
+    body = direct_client.get("/privaparse/catalogue").json()
+    names = [t["name"] for t in body["types"]]
+    assert "EMAIL" in names
+    assert all(t["enabled"] for t in body["types"])
+    email = next(t for t in body["types"] if t["name"] == "EMAIL")
+    assert "labels" in email and "threshold" in email
+
+
+def test_vault_reports_counts_and_no_values(direct_client):
+    direct_client.post("/privaparse/pseudonymize", json={"text": "max@test.de"})
+    response = direct_client.get("/privaparse/vault")
+    body = response.json()
+    assert body["mappings"] >= 1
+    assert body["entities"] >= 1
+    assert "by_type" in body
+    # Counts only. A stored value appearing here would defeat the point.
+    assert "max@test.de" not in response.text
+
+
+def test_gateway_stats_still_means_gateway_stats(direct_client):
+    # /privaparse/stats predates this work and must keep its meaning.
+    body = direct_client.get("/privaparse/stats").json()
+    assert "mappings" not in body

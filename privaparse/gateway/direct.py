@@ -26,6 +26,8 @@ if TYPE_CHECKING:
 DETECT_PATH = "/privaparse/detect"
 PSEUDONYMIZE_PATH = "/privaparse/pseudonymize"
 REVERSE_PATH = "/privaparse/reverse"
+CATALOGUE_PATH = "/privaparse/catalogue"
+VAULT_PATH = "/privaparse/vault"
 
 
 class _BadRequest(ValueError):
@@ -158,8 +160,40 @@ def direct_routes(engine: PrivaParseEngine, detector: CachingDetector) -> list[R
             }
         )
 
+    async def catalogue(request: Request) -> JSONResponse:
+        book = engine.catalogue
+        return JSONResponse(
+            {
+                "version": book.version,
+                "types": [
+                    {
+                        "name": t.name,
+                        "enabled": t.enabled,
+                        "reversible": t.reversible,
+                        "threshold": t.threshold,
+                        "labels": list(t.labels),
+                        "validator": t.validator,
+                    }
+                    for t in book.enabled
+                ],
+            }
+        )
+
+    async def vault(request: Request) -> JSONResponse:
+        stats = engine.vault_stats()
+        return JSONResponse(
+            {
+                "mappings": stats.mappings,
+                "entities": stats.entities,
+                "surface_forms": stats.surface_forms,
+                "by_type": dict(stats.by_type),
+            }
+        )
+
     return [
         Route(DETECT_PATH, detect, methods=["POST"]),
         Route(PSEUDONYMIZE_PATH, pseudonymize, methods=["POST"]),
         Route(REVERSE_PATH, reverse, methods=["POST"]),
+        Route(CATALOGUE_PATH, catalogue, methods=["GET"]),
+        Route(VAULT_PATH, vault, methods=["GET"]),
     ]
