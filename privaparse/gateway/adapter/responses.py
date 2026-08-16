@@ -184,7 +184,7 @@ def extract_request(body: Any, *, allow_images: bool = False) -> list[TextNode]:
 
 
 def _walk_input(value: Any, pointer: tuple[Any, ...], nodes: list[TextNode],
-                allow_images: bool = False) -> None:
+                allow_images: bool) -> None:
     if isinstance(value, str):
         nodes.append(TextNode(pointer, value))
         return
@@ -199,7 +199,7 @@ def _walk_input(value: Any, pointer: tuple[Any, ...], nodes: list[TextNode],
 
 
 def _walk_item(item: dict, pointer: tuple[Any, ...], nodes: list[TextNode],
-               allow_images: bool = False) -> None:
+               allow_images: bool) -> None:
     # `type` is optional on EasyInputMessage, so an item with a role and
     # content is a message even when nothing says so.
     kind = item.get("type")
@@ -299,7 +299,7 @@ def _walk_freeform(value: Any, pointer: tuple[Any, ...], nodes: list[TextNode]) 
 
 
 def _walk_content(value: Any, pointer: tuple[Any, ...], nodes: list[TextNode],
-                  allow_images: bool = False) -> None:
+                  allow_images: bool) -> None:
     if value is None:
         return
     if isinstance(value, str):

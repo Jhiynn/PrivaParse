@@ -59,7 +59,9 @@ guarantees whatever protocol adapter it is pointed at — failing closed with a
 pointer and no value, the provider never seeing the name, the answer coming
 back restored, a body with no text at all forwarded without a mapping, one
 mapping per request, the hint exactly once and only when something was
-replaced, `gateway_allow_images`, 500 rather than 503 when detection is
+replaced, `gateway_allow_images` honoured with it on and refusing with it off,
+scoped to content parts either way, and read at the part rather than at its
+payload (the residual ADR-0002 names), 500 rather than 503 when detection is
 unavailable (with the install guidance, streaming and not), restoration never
 aborting, and a stream that ends without a terminal event losing nothing.
 Each is written once and run against every entry in `ADAPTERS`, so a rule

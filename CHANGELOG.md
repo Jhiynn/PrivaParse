@@ -8,6 +8,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `gateway_allow_images` means the same thing on every route. It was wired
+  into `/v1/responses` only, while `/v1/chat/completions` refused image parts
+  unconditionally: an operator who turned it on so their coding agent could
+  screenshot its own work got a working Codex session and a chat client that
+  still refused every image, with nothing explaining the difference. With the
+  setting on, **image and file parts now leave the machine unexamined on Chat
+  Completions too** — a content part the detector cannot read is forwarded to
+  the provider exactly as it was written, rather than stopping the request.
+  Text beside such a part in the same message is still pseudonymised. The
+  exception stays scoped to content parts and widens to nothing else: an
+  unknown request field, an unknown message field, and a non-string where text
+  belongs all still stop the request, on both protocols. Off by default, and
+  with it off both routes refuse as they always have. Asserted per adapter in
+  the conformance suite rather than per protocol, so the two cannot drift
+  again. What the opt-in skips is decided by a part's *type*, so a part of a
+  type the walk has never heard of is forwarded with whatever text it carries
+  — the residual is now named in ADR-0002 and asserted in the suite rather
+  than left to be found in a request log (#23).
 - A Responses stream that stops without releasing what the gateway is holding
   now hands it over instead of dropping it: the tail the hold-back kept out of
   the deltas in case it grew into a placeholder, and every fragment of a tool
@@ -72,12 +90,6 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `mypy` runs in CI over `privaparse/gateway`. The protocol adapter's callback
   types only make a mismatched walk an error if something checks them; nothing
   did, so the guarantee ADR-0003 rests on was not being enforced anywhere.
-
-### Known gaps
-
-- `gateway_allow_images` is honoured on `/v1/responses` and ignored on
-  `/v1/chat/completions`, which accepts the parameter without reading it.
-  Asserted as-is by the conformance suite so it cannot close silently (#31).
 
 ## [0.1.0] - 2026-08-14
 

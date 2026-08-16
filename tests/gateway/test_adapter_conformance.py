@@ -77,8 +77,25 @@ class Conformance:
     #: for. The value is a name, so the same case proves the refusal logs the
     #: pointer and never what was at it.
     unscannable: dict
-    #: A request whose content the detector cannot read -- an image part.
+    #: A request whose content the detector cannot read -- an image part --
+    #: beside text in the same message, so one body proves both halves of the
+    #: rule: the part is forwarded, the text next to it is still pseudonymised.
     with_image: dict
+    #: That part on its own, as it was written. What reaches the provider has
+    #: to equal this: the operator opted into forwarding it, not into a
+    #: rewrite of it.
+    unreadable_part: dict
+    #: A message whose field the walk has no rule for. The exception is scoped
+    #: to content parts, so this is still refused with the setting on.
+    unknown_message_field: dict
+    #: A text part holding a number where the protocol says a string. Refused
+    #: with the setting on too -- an unreadable *part* is waved through, a
+    #: malformed one never is.
+    not_a_string_where_text_belongs: dict
+    #: A content part of a type the walk has never heard of, carrying `REAL`.
+    #: The residual the opt-in carries: the skip is keyed on the part's type,
+    #: so this goes out with its text unscanned when the setting is on.
+    unknown_part_type_carrying_text: dict
     #: A request with nothing in it to replace, for the other half of the
     #: hint rule.
     nothing_to_replace: dict
@@ -88,6 +105,9 @@ class Conformance:
     #: The text as it was forwarded, read back out of the outbound body. Also
     #: the fake upstream's echo reader.
     sent_text: Callable[[dict], str]
+    #: The content parts of the message the request ended with, read back out
+    #: of the outbound body -- where a forwarded image part has to still be.
+    content_parts: Callable[[dict], list]
     #: A provider answer carrying that text -- the echo's writer. A real model
     #: repeats a placeholder back constantly, because it looks like a name to
     #: it, and that is the only way a test can see a placeholder it could not
@@ -103,9 +123,6 @@ class Conformance:
     #: as its own event, so what matters is the concatenation and not whether
     #: any single event carries the characters whole.
     streamed_text: Callable[[str], str]
-    #: Whether this protocol's request walk honours `allow_images` yet.
-    #: Chat Completions accepts the parameter and ignores it -- see #31.
-    honours_allow_images: bool
 
 
 def _chat_reply(text: str) -> dict:
@@ -130,6 +147,21 @@ def _chat_sent(body: dict) -> str:
     if isinstance(content, list):
         return " ".join(part["text"] for part in content if part.get("type") == "text")
     return content
+
+
+def _chat_parts(body: dict) -> list:
+    """The last message's content parts, or none if it carried a bare string."""
+    content = body["messages"][-1]["content"]
+    return content if isinstance(content, list) else []
+
+
+#: The image part the chat fixture set carries. Named rather than written
+#: twice: the assertion that it reaches the provider unmodified compares
+#: against this object, and two copies of a body could drift apart.
+CHAT_IMAGE_PART = {
+    "type": "image_url",
+    "image_url": {"url": "https://beispiel.de/bild.png"},
+}
 
 
 def _responses_reply(text: str) -> dict:
@@ -157,6 +189,22 @@ def _responses_sent(body: dict) -> str:
             part["text"] for part in content if part.get("type") in {"input_text", "text"}
         )
     return content
+
+
+def _responses_parts(body: dict) -> list:
+    """The last input item's content parts, or none if it was a bare string."""
+    content = body["input"][-1]["content"]
+    return content if isinstance(content, list) else []
+
+
+#: The Responses peer of `CHAT_IMAGE_PART`, and a different shape: this
+#: protocol's image part carries the URL as a bare string rather than nesting
+#: it in an object. Which is the reason the assertion compares parts through
+#: the fixture set instead of writing one protocol's shape into a rule.
+RESPONSES_IMAGE_PART = {
+    "type": "input_image",
+    "image_url": "https://beispiel.de/bild.png",
+}
 
 
 def _payloads(raw: str) -> list[Any]:
@@ -226,12 +274,24 @@ CONFORMANCE: dict[str, Conformance] = {
                     "role": "user",
                     "content": [
                         {"type": "text", "text": f"Hallo {REAL}"},
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": "https://beispiel.de/bild.png"},
-                        },
+                        CHAT_IMAGE_PART,
                     ],
                 }
+            ],
+        },
+        unreadable_part=CHAT_IMAGE_PART,
+        unknown_message_field={
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "Hallo", "some_new_field": OTHER}],
+        },
+        not_a_string_where_text_belongs={
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": [{"type": "text", "text": 42}]}],
+        },
+        unknown_part_type_carrying_text={
+            "model": "gpt-4o",
+            "messages": [
+                {"role": "user", "content": [{"type": "note", "text": f"Hallo {REAL}"}]}
             ],
         },
         nothing_to_replace={
@@ -240,13 +300,13 @@ CONFORMANCE: dict[str, Conformance] = {
         },
         no_text={"model": "gpt-4o", "messages": []},
         sent_text=_chat_sent,
+        content_parts=_chat_parts,
         answer_with=_chat_reply,
         answered_text=lambda reply: reply["choices"][0]["message"]["content"],
         truncated_stream=[
             b'data: {"choices":[{"index":0,"delta":{"content":"Ende [["}}]}\n\n'
         ],
         streamed_text=_chat_streamed,
-        honours_allow_images=False,
     ),
     "responses": Conformance(
         ask={
@@ -271,8 +331,40 @@ CONFORMANCE: dict[str, Conformance] = {
                     "role": "user",
                     "content": [
                         {"type": "input_text", "text": f"Hallo {REAL}"},
-                        {"type": "input_image", "image_url": "https://beispiel.de/bild.png"},
+                        RESPONSES_IMAGE_PART,
                     ],
+                }
+            ],
+        },
+        unreadable_part=RESPONSES_IMAGE_PART,
+        unknown_message_field={
+            "model": "gpt-5-codex",
+            "input": [
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": "Hallo",
+                    "some_new_field": OTHER,
+                }
+            ],
+        },
+        not_a_string_where_text_belongs={
+            "model": "gpt-5-codex",
+            "input": [
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": 42}],
+                }
+            ],
+        },
+        unknown_part_type_carrying_text={
+            "model": "gpt-5-codex",
+            "input": [
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "note", "text": f"Hallo {REAL}"}],
                 }
             ],
         },
@@ -282,6 +374,7 @@ CONFORMANCE: dict[str, Conformance] = {
         },
         no_text={"model": "gpt-5-codex", "input": []},
         sent_text=_responses_sent,
+        content_parts=_responses_parts,
         answer_with=_responses_reply,
         answered_text=lambda reply: reply["output"][0]["content"][0]["text"],
         truncated_stream=[
@@ -297,7 +390,6 @@ CONFORMANCE: dict[str, Conformance] = {
             )
         ],
         streamed_text=_responses_streamed,
-        honours_allow_images=True,
     ),
 }
 
@@ -474,10 +566,12 @@ def test_the_hint_is_added_once_and_only_when_something_was_replaced(
 def test_gateway_allow_images_is_honoured(settings, fake_detector, upstream, adapter):
     """One setting, one meaning, on every route the gateway serves.
 
-    An operator sets `gateway_allow_images` once and it is documented as a
-    global rule. The Chat Completions walk does not implement it yet (#31);
-    that gap is asserted rather than skipped, so the day it closes this test
-    fails and the flag comes out with the branch.
+    An operator sets `gateway_allow_images` once, and it is documented as a
+    global rule. It reached one route out of two for a year, so what it means
+    is asserted here rather than per protocol: the part the detector cannot
+    read goes to the provider exactly as it was written, and the text beside
+    it in the same message is pseudonymised all the same. The opt-in buys
+    forwarding one part unexamined -- never a request that went unscanned.
     """
     permissive = settings.model_copy(update={"gateway_allow_images": True})
     client, _ = _built(permissive, fake_detector, upstream)
@@ -486,14 +580,94 @@ def test_gateway_allow_images_is_honoured(settings, fake_detector, upstream, ada
 
     response = client.post(adapter.path, json=case.with_image)
 
-    if case.honours_allow_images:
-        assert response.status_code == 200
-        # Forwarded unexamined, which is what the operator asked for -- and
-        # the text alongside it was still pseudonymised.
-        assert REAL not in json.dumps(upstream.last, ensure_ascii=False)
-    else:
-        assert response.status_code == 502
-        assert upstream.requests == []
+    assert response.status_code == 200
+    # Unmodified: forwarded is what the operator asked for, not rewritten.
+    assert case.unreadable_part in case.content_parts(upstream.last)
+    # And the text next to it was still replaced, in the same message.
+    assert REAL not in json.dumps(upstream.last, ensure_ascii=False)
+    assert "[[PERSON_" in case.sent_text(upstream.last)
+
+
+def test_with_the_setting_off_an_unreadable_part_stops_the_request(
+    settings, fake_detector, upstream, adapter
+):
+    """The default, on every route: a screenshot is not sent unexamined.
+
+    `settings` leaves `gateway_allow_images` at its default. The reason it is
+    the default is in the setting's own description -- a coding agent
+    screenshots its own work, and a screenshot can show every value that was
+    just pseudonymised out of the text beside it.
+    """
+    client, _ = _built(settings, fake_detector, upstream)
+    case = _case(adapter)
+
+    response = client.post(adapter.path, json=case.with_image)
+
+    assert response.status_code == 502
+    assert upstream.requests == []
+
+
+def test_the_opt_in_is_read_at_the_part_and_never_at_its_payload(
+    settings, fake_detector, upstream, adapter
+):
+    """The residual the opt-in carries, asserted rather than left to be found.
+
+    What the setting skips is a content part whose *type* is not a text type,
+    and a part of a type the walk has never heard of is skipped on that same
+    rule -- text and all. Keying the skip on a list of known image and file
+    types instead would mean the next part type a provider ships breaking
+    every operator who opted in, which is the outage the opt-in exists to end.
+
+    So this test asserts a value reaching the provider unscanned. It is the
+    only place in the suite that does, it is reachable only by an operator who
+    turned the setting on, and it is written down here rather than left in a
+    request log for somebody to find (ADR-0002).
+    """
+    permissive = settings.model_copy(update={"gateway_allow_images": True})
+    client, engine = _built(permissive, fake_detector, upstream)
+    case = _case(adapter)
+
+    response = client.post(adapter.path, json=case.unknown_part_type_carrying_text)
+
+    assert response.status_code == 200
+    # Nothing was scanned, so nothing was replaced and no mapping was opened:
+    # the body goes out exactly as it arrived, name included.
+    assert upstream.last == case.unknown_part_type_carrying_text
+    assert REAL in json.dumps(upstream.last, ensure_ascii=False)
+    assert engine.recent_mappings(limit=10) == []
+
+
+@pytest.mark.parametrize(
+    "body_for",
+    [
+        pytest.param(lambda case: case.unscannable, id="an unknown request field"),
+        pytest.param(
+            lambda case: case.unknown_message_field, id="an unknown message field"
+        ),
+        pytest.param(
+            lambda case: case.not_a_string_where_text_belongs,
+            id="a non-string where text belongs",
+        ),
+    ],
+)
+def test_the_exception_is_scoped_to_content_parts(
+    settings, fake_detector, upstream, adapter, body_for
+):
+    """One hole in the allow-list, of exactly one shape, on every protocol.
+
+    `gateway_allow_images` waves through a *content part* the detector cannot
+    read. Everything else the walk has no rule for still stops the request --
+    otherwise the setting would read, to the operator who turned it on for
+    screenshots, as a general permission to forward what the gateway does not
+    understand. That is the opposite of what ADR-0002 decided.
+    """
+    permissive = settings.model_copy(update={"gateway_allow_images": True})
+    client, _ = _built(permissive, fake_detector, upstream)
+
+    response = client.post(adapter.path, json=body_for(_case(adapter)))
+
+    assert response.status_code == 502
+    assert upstream.requests == []
 
 
 @pytest.mark.parametrize("streaming", [False, True], ids=["buffered", "streaming"])
