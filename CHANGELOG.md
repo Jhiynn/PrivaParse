@@ -26,6 +26,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   pseudonymisation and everything it issued; *session* now means a database
   session and nothing else. The *vault* names the local database as a whole
   rather than one table. No behaviour change.
+- The two protocol adapters are peers: each now holds the walk over its own
+  protocol, and both name their walks `extract_request` and `extract_answer`
+  rather than one pair borrowing the Responses API's own field names. The
+  extraction seam keeps only what no protocol owns and imports no adapter.
+  No behaviour change.
 
 ## [0.1.0] - 2026-08-14
 

@@ -4,17 +4,13 @@ import json
 
 import pytest
 
-from privaparse.gateway.extract import (
-    UnscannableField,
-    extract,
-    extract_response,
-    write_back,
-)
+from privaparse.gateway.adapter.openai import extract_answer, extract_request
+from privaparse.gateway.extract import UnscannableField, write_back
 
 
 def test_string_content_is_found():
     body = {"messages": [{"role": "user", "content": "Max Mustermann"}]}
-    assert [n.text for n in extract(body)] == ["Max Mustermann"]
+    assert [n.text for n in extract_request(body)] == ["Max Mustermann"]
 
 
 def test_array_content_finds_every_text_part():
@@ -22,7 +18,7 @@ def test_array_content_finds_every_text_part():
         {"type": "text", "text": "erste"},
         {"type": "text", "text": "zweite"},
     ]}]}
-    assert [n.text for n in extract(body)] == ["erste", "zweite"]
+    assert [n.text for n in extract_request(body)] == ["erste", "zweite"]
 
 
 def test_tool_call_arguments_are_walked_as_json():
@@ -30,7 +26,7 @@ def test_tool_call_arguments_are_walked_as_json():
         {"id": "1", "type": "function", "function": {
             "name": "send", "arguments": '{"to": "max@test.de", "count": 3}'}}
     ]}]}
-    found = [n.text for n in extract(body)]
+    found = [n.text for n in extract_request(body)]
     assert "max@test.de" in found
 
 
@@ -40,7 +36,7 @@ def test_a_number_leaf_in_tool_arguments_is_walked_too():
         {"id": "1", "type": "function", "function": {
             "name": "dial", "arguments": '{"number": 4917012345}'}}
     ]}]}
-    assert "4917012345" in [n.text for n in extract(body)]
+    assert "4917012345" in [n.text for n in extract_request(body)]
 
 
 def test_a_boolean_leaf_is_not_scanned():
@@ -50,7 +46,7 @@ def test_a_boolean_leaf_is_not_scanned():
         {"id": "1", "type": "function", "function": {
             "name": "send", "arguments": '{"urgent": true, "draft": false}'}}
     ]}]}
-    assert extract(body) == []
+    assert extract_request(body) == []
 
 
 def test_json_keys_are_not_scanned():
@@ -59,14 +55,14 @@ def test_json_keys_are_not_scanned():
         {"id": "1", "type": "function", "function": {
             "name": "send", "arguments": '{"Max Mustermann": "value"}'}}
     ]}]}
-    assert [n.text for n in extract(body)] == ["value"]
+    assert [n.text for n in extract_request(body)] == ["value"]
 
 
 def test_an_unknown_field_carrying_a_string_is_refused():
     body = {"messages": [{"role": "user", "content": "hallo"}],
             "some_new_field": "Max Mustermann"}
     with pytest.raises(UnscannableField) as excinfo:
-        extract(body)
+        extract_request(body)
     assert "some_new_field" in str(excinfo.value)
 
 
@@ -75,7 +71,7 @@ def test_an_image_part_is_refused():
         {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBOR"}}
     ]}]}
     with pytest.raises(UnscannableField):
-        extract(body)
+        extract_request(body)
 
 
 def test_a_non_text_part_is_refused_even_when_it_carries_no_string():
@@ -90,13 +86,13 @@ def test_a_non_text_part_is_refused_even_when_it_carries_no_string():
         {"type": "input_audio", "input_audio": {"sample_rate": 16000}}
     ]}]}
     with pytest.raises(UnscannableField):
-        extract(body)
+        extract_request(body)
 
 
 def test_known_non_text_fields_are_ignored_without_complaint():
     body = {"model": "gpt-4o", "temperature": 0.7, "stream": True,
             "messages": [{"role": "user", "content": "hallo"}]}
-    assert [n.text for n in extract(body)] == ["hallo"]
+    assert [n.text for n in extract_request(body)] == ["hallo"]
 
 
 def test_a_tools_declaration_is_forwarded_without_being_scanned():
@@ -121,7 +117,7 @@ def test_a_tools_declaration_is_forwarded_without_being_scanned():
             }}
         ],
     }
-    assert [n.text for n in extract(body)] == ["hallo"]
+    assert [n.text for n in extract_request(body)] == ["hallo"]
 
 
 def test_write_back_leaves_a_tools_declaration_exactly_as_it_arrived():
@@ -129,7 +125,7 @@ def test_write_back_leaves_a_tools_declaration_exactly_as_it_arrived():
         "messages": [{"role": "user", "content": "Max Mustermann"}],
         "tools": [{"type": "function", "function": {"name": "send", "description": "Send"}}],
     }
-    out = write_back(body, extract(body), ["[[PERSON_A1]]"])
+    out = write_back(body, extract_request(body), ["[[PERSON_A1]]"])
     assert out["tools"] == body["tools"]
 
 
@@ -138,7 +134,7 @@ def test_write_back_round_trips_and_reserialises_tool_arguments():
         {"id": "1", "type": "function", "function": {
             "name": "send", "arguments": '{"to": "max@test.de"}'}}
     ]}]}
-    nodes = extract(body)
+    nodes = extract_request(body)
     out = write_back(body, nodes, ["[[EMAIL_A1]]"])
     assert json.loads(
         out["messages"][0]["tool_calls"][0]["function"]["arguments"]
@@ -157,7 +153,7 @@ def test_an_unknown_field_nested_inside_a_message_is_refused():
         {"role": "user", "content": "hallo", "some_future_field": "Max Mustermann"}
     ]}
     with pytest.raises(UnscannableField) as excinfo:
-        extract(body)
+        extract_request(body)
     assert "some_future_field" in str(excinfo.value)
 
 
@@ -167,7 +163,7 @@ def test_the_pointer_of_a_refusal_locates_the_field():
         {"role": "user", "content": "hallo", "surprise": "Max Mustermann"},
     ]}
     with pytest.raises(UnscannableField) as excinfo:
-        extract(body)
+        extract_request(body)
     assert excinfo.value.pointer == ("messages", 1, "surprise")
 
 
@@ -184,7 +180,7 @@ def test_a_person_written_into_a_tool_description_is_forwarded():
             "tools": [{"type": "function", "function": {
                 "name": "send_mail", "description": "Send mail to Max Mustermann"}}]}
 
-    nodes = extract(body)
+    nodes = extract_request(body)
 
     assert [n.text for n in nodes] == ["hallo"]
     assert "Max Mustermann" in write_back(body, nodes, ["hallo"])["tools"][0]["function"][
@@ -198,7 +194,7 @@ def test_the_deprecated_functions_field_is_still_refused():
     body = {"messages": [{"role": "user", "content": "hallo"}],
             "functions": [{"name": "send_mail", "description": "Send mail"}]}
     with pytest.raises(UnscannableField):
-        extract(body)
+        extract_request(body)
 
 
 def test_a_string_hidden_under_an_ignored_field_is_still_ignored():
@@ -206,11 +202,11 @@ def test_a_string_hidden_under_an_ignored_field_is_still_ignored():
     body = {"messages": [{"role": "user", "content": "hallo"}],
             "response_format": {"type": "json_schema", "json_schema": {
                 "name": "reply", "schema": {"type": "object"}}}}
-    assert [n.text for n in extract(body)] == ["hallo"]
+    assert [n.text for n in extract_request(body)] == ["hallo"]
 
 
 def test_an_empty_message_list_yields_nothing():
-    assert extract({"model": "gpt-4o", "messages": []}) == []
+    assert extract_request({"model": "gpt-4o", "messages": []}) == []
 
 
 def test_a_null_content_is_not_walked():
@@ -219,13 +215,13 @@ def test_a_null_content_is_not_walked():
         {"id": "1", "type": "function", "function": {
             "name": "ping", "arguments": "{}"}}
     ]}]}
-    assert [n.text for n in extract(body)] == []
+    assert [n.text for n in extract_request(body)] == []
 
 
 def test_a_participant_name_is_scanned_rather_than_waved_through():
     """`name` is client-supplied and holds a person often enough to matter."""
     body = {"messages": [{"role": "user", "name": "Max Mustermann", "content": "hallo"}]}
-    assert [n.text for n in extract(body)] == ["Max Mustermann", "hallo"]
+    assert [n.text for n in extract_request(body)] == ["Max Mustermann", "hallo"]
 
 
 # --- write-back ------------------------------------------------------------
@@ -233,7 +229,7 @@ def test_a_participant_name_is_scanned_rather_than_waved_through():
 
 def test_write_back_replaces_plain_content():
     body = {"messages": [{"role": "user", "content": "Hallo Max"}]}
-    out = write_back(body, extract(body), ["Hallo [[PERSON_A1]]"])
+    out = write_back(body, extract_request(body), ["Hallo [[PERSON_A1]]"])
     assert out["messages"][0]["content"] == "Hallo [[PERSON_A1]]"
     assert body["messages"][0]["content"] == "Hallo Max"
 
@@ -244,7 +240,7 @@ def test_write_back_keeps_an_untouched_number_a_number():
         {"id": "1", "type": "function", "function": {
             "name": "dial", "arguments": '{"number": 4917012345, "count": 3}'}}
     ]}]}
-    nodes = extract(body)
+    nodes = extract_request(body)
     replacements = ["[[PHONE_A1]]" if n.text == "4917012345" else n.text for n in nodes]
     out = write_back(body, nodes, replacements)
     arguments = json.loads(out["messages"][0]["tool_calls"][0]["function"]["arguments"])
@@ -256,7 +252,7 @@ def test_write_back_refuses_a_replacement_count_that_does_not_match():
     """Misaligned replacements would silently scramble the request."""
     body = {"messages": [{"role": "user", "content": "hallo"}]}
     with pytest.raises(ValueError):
-        write_back(body, extract(body), [])
+        write_back(body, extract_request(body), [])
 
 
 def test_write_back_handles_two_nodes_in_one_arguments_string():
@@ -264,13 +260,13 @@ def test_write_back_handles_two_nodes_in_one_arguments_string():
         {"id": "1", "type": "function", "function": {
             "name": "send", "arguments": '{"to": "max@test.de", "body": "Max hier"}'}}
     ]}]}
-    nodes = extract(body)
+    nodes = extract_request(body)
     out = write_back(body, nodes, ["[[EMAIL_A1]]", "[[PERSON_A1]] hier"])
     arguments = json.loads(out["messages"][0]["tool_calls"][0]["function"]["arguments"])
     assert arguments == {"to": "[[EMAIL_A1]]", "body": "[[PERSON_A1]] hier"}
 
 
-def test_write_back_covers_every_node_extract_produced():
+def test_write_back_covers_every_node_the_request_walk_produced():
     """Extraction and write-back walk the same tree, so nothing is stranded."""
     body = {"model": "gpt-4o", "messages": [
         {"role": "system", "content": "Du bist hilfreich."},
@@ -280,7 +276,7 @@ def test_write_back_covers_every_node_extract_produced():
             {"id": "1", "type": "function", "function": {
                 "name": "send", "arguments": '{"to": "max@test.de", "n": 2}'}}]},
     ]}
-    nodes = extract(body)
+    nodes = extract_request(body)
     out = write_back(body, nodes, [f"<{i}>" for i in range(len(nodes))])
     serialised = json.dumps(out)
     for i in range(len(nodes)):
@@ -296,7 +292,7 @@ def test_response_extraction_finds_content_and_tool_arguments():
             {"id": "1", "type": "function", "function": {
                 "name": "send", "arguments": '{"to": "[[EMAIL_A1]]"}'}}]},
         "finish_reason": "tool_calls"}]}
-    assert [n.text for n in extract_response(body)] == [
+    assert [n.text for n in extract_answer(body)] == [
         "Hallo [[PERSON_A1]]", "[[EMAIL_A1]]"
     ]
 
@@ -306,17 +302,17 @@ def test_response_extraction_ignores_what_it_does_not_know():
     so an unknown field is skipped rather than refused."""
     body = {"some_future_top_level": "x", "choices": [
         {"message": {"content": "ok", "some_future_field": "y"}}]}
-    assert [n.text for n in extract_response(body)] == ["ok"]
+    assert [n.text for n in extract_answer(body)] == ["ok"]
 
 
 def test_response_extraction_survives_a_shape_it_did_not_expect():
     for body in ({}, {"choices": None}, {"choices": [None]},
                  {"choices": [{"message": None}]}, {"choices": "nonsense"}):
-        assert extract_response(body) == []
+        assert extract_answer(body) == []
 
 
 def test_a_restored_response_writes_back_through_the_same_machinery():
     body = {"choices": [{"message": {"role": "assistant", "content": "Hallo [[PERSON_A1]]"}}]}
-    out = write_back(body, extract_response(body), ["Hallo Max Mustermann"])
+    out = write_back(body, extract_answer(body), ["Hallo Max Mustermann"])
     assert out["choices"][0]["message"]["content"] == "Hallo Max Mustermann"
     assert body["choices"][0]["message"]["content"] == "Hallo [[PERSON_A1]]"
