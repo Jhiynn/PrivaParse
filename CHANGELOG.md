@@ -6,7 +6,31 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- A Responses stream that stops without releasing what the gateway is holding
+  now hands it over instead of dropping it: the tail the hold-back kept out of
+  the deltas in case it grew into a placeholder, and every fragment of a tool
+  call whose arguments were still accumulating. Covers a connection that drops
+  mid-answer, a stream whose bytes simply run out, and a terminal event that
+  arrives with no `.done` before it — in the last case the held events go out
+  in front of the terminal event, where a client is still reading. The Chat
+  Completions path has flushed both since it shipped (#17).
+- Events the gateway inserts into a Responses stream are renumbered, so a
+  client never sees one `sequence_number` twice or a count that stops rising
+  where something was inserted.
+
+### Changed
+
+- Documentation, docstrings and test names say *mapping* where they meant a
+  pseudonymisation and everything it issued; *session* now means a database
+  session and nothing else. The *vault* names the local database as a whole
+  rather than one table. No behaviour change.
+- The two protocol adapters are peers: each now holds the walk over its own
+  protocol, and both name their walks `extract_request` and `extract_answer`
+  rather than one pair borrowing the Responses API's own field names. The
+  extraction seam keeps only what no protocol owns and imports no adapter.
+  No behaviour change.
 
 ## [0.1.0] - 2026-08-14
 

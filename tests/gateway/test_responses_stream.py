@@ -128,6 +128,40 @@ def test_two_output_items_hold_back_separately():
     assert _text(raw) == f"nichts{REAL}"
 
 
+def test_a_stream_that_ends_mid_placeholder_loses_nothing():
+    """No `.done`, no terminal event, the connection simply stopped. Whatever
+    the hold-back was sitting on was paid for and is still the caller's, and it
+    has to arrive framed the way a client dispatching on `event:` can see it --
+    nothing else in the stream carries those characters."""
+    raw = _run([_event(_delta("Hallo [[PERSON_"))])
+
+    assert _text(raw) == "Hallo [[PERSON_"
+    assert b"event: response.output_text.delta\n" in raw
+
+
+def test_a_dropped_connection_still_delivers_what_was_held():
+    """The failure the flush exists for. A connection that drops mid-answer
+    reaches this module as an exception, not as bytes that quietly run out --
+    and the held characters were paid for on that path too. The error still
+    has to travel: an answer cut short must not be reported as a whole one."""
+    async def dropping():
+        yield _event(_delta("Hallo [[PERSON_"))
+        raise RuntimeError("the connection went away")
+
+    out = []
+
+    async def drive():
+        async for piece in restore_responses_sse(
+            dropping(), restore=_swap, max_hold=40
+        ):
+            out.append(piece)
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(drive())
+
+    assert _text(b"".join(out)) == "Hallo [[PERSON_"
+
+
 # --- tool calls ------------------------------------------------------------
 
 
@@ -170,6 +204,23 @@ def test_tool_arguments_are_re_serialised_rather_than_pasted():
     assert json.loads(done[0]["arguments"]) == {"to": 'Max "Maxi" Mustermann'}
 
 
+def test_a_stream_that_stops_before_finishing_still_delivers_the_tool_call():
+    """The `.done` event never came. The fragments were suppressed on the way
+    in, so without this the call the provider was paid for is gone entirely."""
+    raw = _run([
+        _event({"type": "response.function_call_arguments.delta", "item_id": "fc_1",
+                "output_index": 0, "sequence_number": 1, "delta": '{"to": "'}),
+        _event({"type": "response.function_call_arguments.delta", "item_id": "fc_1",
+                "output_index": 0, "sequence_number": 2, "delta": '[[EMAIL_A2]]"}'}),
+    ])
+
+    deltas = [p for p in _payloads(raw)
+              if p["type"] == "response.function_call_arguments.delta"]
+    assert len(deltas) == 1
+    assert deltas[0]["item_id"] == "fc_1"
+    assert json.loads(deltas[0]["delta"]) == {"to": EMAIL}
+
+
 # --- the terminal event ----------------------------------------------------
 
 
@@ -186,6 +237,67 @@ def test_the_completed_event_has_its_whole_response_restored():
     ])
     completed = next(p for p in _payloads(raw) if p["type"] == "response.completed")
     assert completed["response"]["output"][0]["content"][0]["text"] == f"Hallo {REAL}"
+
+
+def test_a_tail_held_at_the_terminal_event_is_emitted_before_it():
+    """No `.done` closed the text, so the hold-back is still full when the
+    answer ends. Those characters belong to the deltas that came before, and a
+    client accumulating deltas has stopped by the time `response.completed`
+    has gone past -- so they go out in front of it, as they do at `.done`."""
+    raw = _run([
+        _event(_delta("Ende [[")),
+        _event({"type": "response.completed", "sequence_number": 9,
+                "response": {"output": []}}),
+    ])
+    kinds = [p["type"] for p in _payloads(raw)]
+    assert _text(raw) == "Ende [["
+    assert kinds.index("response.output_text.delta") < kinds.index(
+        "response.completed"
+    )
+
+
+def test_a_tool_call_left_open_at_the_terminal_event_is_delivered_before_it():
+    """`response.function_call_arguments.done` never came -- only the item
+    event and the terminal one. The fragments were suppressed on the way in,
+    so the whole call rides on the flush, and it has to arrive while the
+    client is still reading."""
+    raw = _run([
+        _event({"type": "response.function_call_arguments.delta", "item_id": "fc_1",
+                "output_index": 0, "sequence_number": 1,
+                "delta": '{"to": "[[EMAIL_A2]]"}'}),
+        _event({"type": "response.completed", "sequence_number": 2,
+                "response": {"output": []}}),
+    ])
+    kinds = [p["type"] for p in _payloads(raw)]
+    deltas = [p for p in _payloads(raw)
+              if p["type"] == "response.function_call_arguments.delta"]
+
+    assert len(deltas) == 1
+    assert json.loads(deltas[0]["delta"]) == {"to": EMAIL}
+    assert kinds.index("response.function_call_arguments.delta") < kinds.index(
+        "response.completed"
+    )
+
+
+def test_the_events_the_gateway_inserts_do_not_repeat_a_sequence_number():
+    """`sequence_number` numbers the events of one stream. This module emits
+    events the provider never sent, so passing the upstream numbers through
+    would hand a client the same number twice and a count that stops rising
+    exactly where something was inserted."""
+    raw = _run([
+        _event(_delta(f"Hallo {PLACEHOLDER[:6]}")),
+        _event({"type": "response.output_text.done", "item_id": "msg_1",
+                "output_index": 0, "content_index": 0, "sequence_number": 1,
+                "text": f"Hallo {PLACEHOLDER[:6]}"}),
+        _event({"type": "response.completed", "sequence_number": 2,
+                "response": {"output": []}}),
+    ])
+    numbers = [p["sequence_number"] for p in _payloads(raw)
+               if "sequence_number" in p]
+
+    assert len(numbers) > 3, "the module inserted at least one event here"
+    assert numbers == sorted(numbers)
+    assert len(set(numbers)) == len(numbers)
 
 
 # --- everything else -------------------------------------------------------

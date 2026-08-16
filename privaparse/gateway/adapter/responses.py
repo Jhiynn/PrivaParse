@@ -35,19 +35,18 @@ from __future__ import annotations
 
 from typing import Any
 
+from privaparse.gateway.adapter.shared import PLACEHOLDER_HINT
 from privaparse.gateway.extract import (
     TextNode,
     UnscannableField,
-    _refuse_if_text,
-    _walk_json_arguments,
-    _walk_json_value,
+    refuse_if_text,
+    walk_json_arguments,
+    walk_restorable_arguments,
 )
 
 __all__ = [
-    "INPUT_FIELD",
-    "INSTRUCTIONS_FIELD",
-    "extract_input",
-    "extract_output",
+    "extract_answer",
+    "extract_request",
     "with_placeholder_hint",
 ]
 
@@ -155,7 +154,7 @@ TEXT_PART_TYPES = frozenset({"input_text", "output_text", "text"})
 PART_TEXT_FIELD = "text"
 
 
-def extract_input(body: Any, *, allow_images: bool = False) -> list[TextNode]:
+def extract_request(body: Any, *, allow_images: bool = False) -> list[TextNode]:
     """Every scannable string in a Responses request. Fails closed.
 
     ``allow_images`` forwards parts the detector cannot read rather than
@@ -180,7 +179,7 @@ def extract_input(body: Any, *, allow_images: bool = False) -> list[TextNode]:
         elif key in IGNORED_REQUEST_FIELDS:
             continue
         else:
-            _refuse_if_text(value, pointer, "unknown request field")
+            refuse_if_text(value, pointer, "unknown request field")
     return nodes
 
 
@@ -228,7 +227,7 @@ def _walk_item(item: dict, pointer: tuple[Any, ...], nodes: list[TextNode],
             if key == "content":
                 _walk_content(value, field, nodes, allow_images)
             else:
-                _refuse_if_text(value, field, "unknown message field")
+                refuse_if_text(value, field, "unknown message field")
         return
 
     if kind == FUNCTION_CALL_ITEM:
@@ -237,9 +236,9 @@ def _walk_item(item: dict, pointer: tuple[Any, ...], nodes: list[TextNode],
             if key in IGNORED_ITEM_FIELDS:
                 continue
             if key == "arguments":
-                _walk_json_arguments(value, field, nodes)
+                walk_json_arguments(value, field, nodes)
             else:
-                _refuse_if_text(value, field, "unknown function call field")
+                refuse_if_text(value, field, "unknown function call field")
         return
 
     if kind == CUSTOM_TOOL_CALL_ITEM:
@@ -253,7 +252,7 @@ def _walk_item(item: dict, pointer: tuple[Any, ...], nodes: list[TextNode],
                 elif value is not None:
                     raise UnscannableField(field, "expected custom tool input to be a string")
             else:
-                _refuse_if_text(value, field, "unknown custom tool call field")
+                refuse_if_text(value, field, "unknown custom tool call field")
         return
 
     if kind in (FUNCTION_CALL_OUTPUT_ITEM, CUSTOM_TOOL_CALL_OUTPUT_ITEM):
@@ -271,7 +270,7 @@ def _walk_item(item: dict, pointer: tuple[Any, ...], nodes: list[TextNode],
                 elif value is not None:
                     raise UnscannableField(field, "expected a string or content list")
             else:
-                _refuse_if_text(value, field, "unknown function call output field")
+                refuse_if_text(value, field, "unknown function call output field")
         return
 
     raise UnscannableField(pointer, f"input item of type {kind!r} cannot be scanned")
@@ -332,7 +331,7 @@ def _walk_content(value: Any, pointer: tuple[Any, ...], nodes: list[TextNode],
                     raise UnscannableField(field, "expected the text part to be a string")
             else:
                 # `annotations` and `logprobs` ride along on output_text.
-                _refuse_if_text(sub, field, "unknown content part field")
+                refuse_if_text(sub, field, "unknown content part field")
 
 
 def with_placeholder_hint(body: dict) -> dict:
@@ -342,8 +341,6 @@ def with_placeholder_hint(body: dict) -> dict:
     system prompt is a larger liberty than adding to the list, and a bare
     string `input` has no instructions to edit anyway.
     """
-    from privaparse.gateway.adapter.openai import PLACEHOLDER_HINT
-
     if not isinstance(body, dict) or INPUT_FIELD not in body:
         return body
     existing = body[INPUT_FIELD]
@@ -362,7 +359,7 @@ def with_placeholder_hint(body: dict) -> dict:
 # --- the response direction, which never aborts ----------------------------
 
 
-def extract_output(body: Any) -> list[TextNode]:
+def extract_answer(body: Any) -> list[TextNode]:
     """Every restorable string in a Responses answer. Never raises.
 
     The same asymmetry the chat adapter has: refusing on the way out protects
@@ -396,15 +393,6 @@ def extract_output(body: Any) -> list[TextNode]:
             raw = item.get("arguments")
             if not isinstance(raw, str):
                 continue
-            root = at + ("arguments",)
-            try:
-                import json
-
-                parsed = json.loads(raw)
-            except ValueError:
-                # A truncated tool call still deserves its placeholders back.
-                nodes.append(TextNode(root, raw))
-                continue
-            _walk_json_value(parsed, root, root, nodes)
+            walk_restorable_arguments(raw, at + ("arguments",), nodes)
 
     return nodes

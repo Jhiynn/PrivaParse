@@ -212,7 +212,7 @@ def test_a_restored_tool_call_is_reserialised_as_json(settings, fake_detector, u
     def reply_for(body):
         # The placeholder this very request issued, put where a model puts it
         # when it decides to call a function. Reversing resolves against one
-        # session, so it has to come from this request and no other.
+        # mapping, so it has to come from this request and no other.
         placeholder = re.search(r"\[\[PERSON_[^\]]+\]\]", json.dumps(body)).group(0)
         return {"id": "chatcmpl-2", "choices": [{
             "index": 0, "finish_reason": "tool_calls", "message": {

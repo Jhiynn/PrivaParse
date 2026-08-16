@@ -4,7 +4,7 @@ Detection is the expensive half and depends only on the text and the
 catalogue, so it is cached. Resolution and the vault write are not, and the
 tests here exist mostly to hold that line: a cached block must still produce
 its own mapping, or `reverse` would resolve one request's answer against
-another request's session.
+another request's mapping.
 """
 
 from __future__ import annotations
@@ -255,7 +255,7 @@ def test_a_cached_block_never_reaches_the_detector(settings, fake_detector):
 
 def test_a_cached_block_still_gets_its_own_mapping(settings, fake_detector):
     """Only detection is cached. A second request that reuses the spans must
-    still write its own session, or `reverse` would resolve its answer against
+    still write its own mapping, or `reverse` would resolve its answer against
     a mapping it never issued."""
     engine = _engine(settings, CountingDetector(fake_detector))
     detector = CachingDetector(engine, DetectionCache(capacity=8))
