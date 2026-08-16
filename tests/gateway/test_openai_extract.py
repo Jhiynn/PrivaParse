@@ -89,6 +89,48 @@ def test_a_non_text_part_is_refused_even_when_it_carries_no_string():
         extract_request(body)
 
 
+def test_an_image_part_is_forwarded_when_the_operator_allows_it():
+    """The same opt-in the Responses walk has, and the same shape of it.
+
+    A coding agent screenshots its own work to check it. Refusing blocks that
+    outright; allowing it sends an image nobody scanned. What the operator
+    buys is the part being skipped -- the text beside it in the same message
+    is still walked, and still pseudonymised.
+    """
+    body = {"messages": [{"role": "user", "content": [
+        {"type": "text", "text": "Kontakt Max Mustermann"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBOR"}},
+    ]}]}
+
+    with pytest.raises(UnscannableField):
+        extract_request(body)
+
+    assert [n.text for n in extract_request(body, allow_images=True)] == [
+        "Kontakt Max Mustermann"
+    ]
+
+
+def test_the_image_exception_does_not_widen_to_anything_else():
+    """One hole, of one shape. Everything else still stops the request.
+
+    An unknown message field, and a content part whose `text` is not a
+    string: both are refused with the setting on, because what was opted into
+    is forwarding a part the detector cannot *read*, not forwarding whatever
+    the walk has no rule for.
+    """
+    unknown_field = {"messages": [
+        {"role": "user", "content": "hallo", "some_new_field": "Max Mustermann"}
+    ]}
+    not_a_string = {"messages": [
+        {"role": "user", "content": [{"type": "text", "text": 42}]}
+    ]}
+
+    with pytest.raises(UnscannableField):
+        extract_request(unknown_field, allow_images=True)
+    with pytest.raises(UnscannableField):
+        extract_request(not_a_string, allow_images=True)
+
+
 def test_known_non_text_fields_are_ignored_without_complaint():
     body = {"model": "gpt-4o", "temperature": 0.7, "stream": True,
             "messages": [{"role": "user", "content": "hallo"}]}

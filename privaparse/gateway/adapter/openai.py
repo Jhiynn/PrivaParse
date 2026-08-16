@@ -102,7 +102,9 @@ JSON_FUNCTION_FIELDS = frozenset({FUNCTION_ARGUMENTS_FIELD})
 
 # Multimodal content parts. Only a text part can be scanned; anything else --
 # an image, audio, a file reference -- is data the detector cannot read, so
-# `extract_request` refuses it rather than forwarding it unexamined.
+# `extract_request` refuses it rather than forwarding it unexamined. The one
+# way past that is the operator's own `gateway_allow_images`, which is the
+# allow-list's single deliberate hole and is scoped to these parts alone.
 PART_TYPE_FIELD = "type"
 TEXT_PART_TYPE = "text"
 TEXT_PART_FIELD = "text"
@@ -122,12 +124,11 @@ def extract_request(body: Any, *, allow_images: bool = False) -> list[TextNode]:
 
     Raises `UnscannableField` on anything the walk has no rule for.
 
-    ``allow_images`` is accepted because every protocol's request walk takes
-    it: a walk that quietly lacked the parameter is how the setting came to
-    reach one route and not the other. It does nothing here *yet* -- an image
-    part still stops the request on this protocol, exactly as it did before --
-    and making it work is a behaviour change with a privacy dimension, so it
-    ships as its own fix rather than inside a change of shape.
+    ``allow_images`` forwards a content part the detector cannot read rather
+    than refusing it -- see ``Settings.gateway_allow_images`` for what that
+    costs. It is scoped to content parts and to nothing else: an unknown
+    request field, an unknown message field and a non-string where text
+    belongs all still stop the request with it on.
     """
     if not isinstance(body, dict):
         raise UnscannableField((), "the request body is not a JSON object")
@@ -136,7 +137,7 @@ def extract_request(body: Any, *, allow_images: bool = False) -> list[TextNode]:
     for key, value in body.items():
         pointer = (key,)
         if key == MESSAGES_FIELD:
-            _walk_messages(value, pointer, nodes)
+            _walk_messages(value, pointer, nodes, allow_images)
         elif key in IGNORED_REQUEST_FIELDS:
             continue
         else:
@@ -144,7 +145,8 @@ def extract_request(body: Any, *, allow_images: bool = False) -> list[TextNode]:
     return nodes
 
 
-def _walk_messages(messages: Any, pointer: tuple[Any, ...], nodes: list[TextNode]) -> None:
+def _walk_messages(messages: Any, pointer: tuple[Any, ...], nodes: list[TextNode],
+                   allow_images: bool = False) -> None:
     if not isinstance(messages, list):
         raise UnscannableField(pointer, "expected a list of messages")
 
@@ -160,12 +162,13 @@ def _walk_messages(messages: Any, pointer: tuple[Any, ...], nodes: list[TextNode
             if key == TOOL_CALLS_FIELD:
                 _walk_tool_calls(value, field, nodes)
             elif key in TEXT_MESSAGE_FIELDS:
-                _walk_text_field(value, field, nodes)
+                _walk_text_field(value, field, nodes, allow_images)
             else:
                 refuse_if_text(value, field, "unknown message field")
 
 
-def _walk_text_field(value: Any, pointer: tuple[Any, ...], nodes: list[TextNode]) -> None:
+def _walk_text_field(value: Any, pointer: tuple[Any, ...], nodes: list[TextNode],
+                     allow_images: bool = False) -> None:
     """A message text field: a string, a list of content parts, or absent."""
     if value is None:
         return
@@ -173,12 +176,13 @@ def _walk_text_field(value: Any, pointer: tuple[Any, ...], nodes: list[TextNode]
         nodes.append(TextNode(pointer, value))
         return
     if isinstance(value, list):
-        _walk_content_parts(value, pointer, nodes)
+        _walk_content_parts(value, pointer, nodes, allow_images)
         return
     raise UnscannableField(pointer, "expected a string or a list of content parts")
 
 
-def _walk_content_parts(parts: list[Any], pointer: tuple[Any, ...], nodes: list[TextNode]) -> None:
+def _walk_content_parts(parts: list[Any], pointer: tuple[Any, ...], nodes: list[TextNode],
+                        allow_images: bool = False) -> None:
     for index, part in enumerate(parts):
         at = pointer + (index,)
         if not isinstance(part, dict):
@@ -188,6 +192,14 @@ def _walk_content_parts(parts: list[Any], pointer: tuple[Any, ...], nodes: list[
         if part_type != TEXT_PART_TYPE:
             # An image, an audio clip, a file reference: the detector cannot
             # read any of it, so forwarding it would send unexamined content.
+            if allow_images:
+                # Forwarded unexamined. The operator asked for that; see
+                # Settings.gateway_allow_images. The part is skipped whole
+                # rather than walked, so nothing inside it is scanned and
+                # nothing inside it is replaced -- it reaches the provider as
+                # it was written. Text in the same message is still walked,
+                # which is the next iteration of this loop.
+                continue
             raise UnscannableField(at, f"content part of type {part_type!r} cannot be scanned")
 
         for key, value in part.items():
@@ -195,7 +207,7 @@ def _walk_content_parts(parts: list[Any], pointer: tuple[Any, ...], nodes: list[
             if key == PART_TYPE_FIELD:
                 continue
             if key == TEXT_PART_FIELD:
-                _walk_text_field(value, field, nodes)
+                _walk_text_field(value, field, nodes, allow_images)
             else:
                 refuse_if_text(value, field, "unknown content part field")
 
