@@ -31,6 +31,39 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   rather than one pair borrowing the Responses API's own field names. The
   extraction seam keeps only what no protocol owns and imports no adapter.
   No behaviour change.
+- One route body serves every protocol. The two route functions — some
+  fifty-five of eighty lines identical, comments included — are one body over
+  a *protocol adapter*: a frozen value carrying the protocol's name, the path
+  it is served at, its request walk, its answer walk, its hint insertion and
+  its stream relay. The app mounts one route per entry in a single tuple of
+  adapters, so a third protocol is a value rather than a third copy of the
+  route, and a per-protocol difference has to be declared as a field. The
+  callable fields are declared as `typing.Protocol` callback types, which
+  makes a request walk that omits a parameter another's has a type error where
+  the adapter is built — the silence that let `gateway_allow_images` reach one
+  route out of two. Both routes answer exactly as they did (#21).
+- A refusal names the protocol that made it: the chat route logged `refused a
+  request` where the Responses route named itself, and an operator reading the
+  log could not tell which client had hit it.
+- The longest placeholder the catalogue can render is measured once, when the
+  app is built, rather than on every streaming request.
+- The rules a protocol adapter has to satisfy are asserted once and run against
+  every adapter: failing closed with a pointer and no value, one mapping per
+  request, the hint added exactly once and only when something was replaced,
+  `gateway_allow_images`, 500 rather than 503 when detection is unavailable,
+  restoration never aborting, and a stream that ends without a terminal event
+  losing nothing. Fixtures are keyed by adapter, and an adapter without a set
+  fails by name — so a third protocol cannot be mounted with no coverage and a
+  green suite (ADR-0003).
+- `mypy` runs in CI over `privaparse/gateway`. The protocol adapter's callback
+  types only make a mismatched walk an error if something checks them; nothing
+  did, so the guarantee ADR-0003 rests on was not being enforced anywhere.
+
+### Known gaps
+
+- `gateway_allow_images` is honoured on `/v1/responses` and ignored on
+  `/v1/chat/completions`, which accepts the parameter without reading it.
+  Asserted as-is by the conformance suite so it cannot close silently (#31).
 
 ## [0.1.0] - 2026-08-14
 

@@ -1,8 +1,13 @@
 """Starlette app: the process the rest of the gateway attaches to.
 
-`/healthz` proves the process is up, `/v1/models` proxies untouched, and
-`/v1/chat/completions` is the request path: extract every piece of text,
+`/healthz` proves the process is up, `/v1/models` proxies untouched, and one
+route per protocol adapter is the request path: extract every piece of text,
 pseudonymise all of it under one mapping, and forward only what came back.
+
+That path is written once, as a route body over an adapter, and mounted from
+`ADAPTERS`. It was two copies of one module before, and the copies drifted --
+so what a protocol is free to differ in is now the adapter's declared fields,
+and everything else is this file's and applies to all of them.
 
 The route fails closed. Anything an adapter's request walk cannot place stops
 the request where it stands, before a byte reaches the provider -- a 502
@@ -20,6 +25,7 @@ messages. Nothing else about a request is reused -- see `cache.py`.
 from __future__ import annotations
 
 import time
+from collections.abc import Awaitable, Callable
 
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
@@ -31,8 +37,12 @@ from starlette.routing import Route
 from privaparse.app.config import Settings
 from privaparse.app.logging import get_logger
 from privaparse.engine import PrivaParseEngine
-from privaparse.gateway.adapter import openai as chat_adapter
-from privaparse.gateway.adapter import responses as responses_adapter
+from privaparse.gateway.adapter.protocol import (
+    ADAPTERS,
+    RESPONSES,
+    AnswerWalk,
+    ProtocolAdapter,
+)
 from privaparse.gateway.auth import ApiKeyMiddleware
 from privaparse.gateway.cache import CachingDetector, DetectionCache
 from privaparse.gateway.direct import direct_routes
@@ -43,23 +53,25 @@ from privaparse.gateway.errors import (
 )
 from privaparse.gateway.extract import UnscannableField, write_back
 from privaparse.gateway.metrics import Metrics
-from privaparse.gateway.stream import max_placeholder_length, restore_sse
-from privaparse.gateway.stream_responses import restore_responses_sse
+from privaparse.gateway.stream import max_placeholder_length
 from privaparse.gateway.upstream import Upstream
 from privaparse.parser.detector import GlinerUnavailableError
 
+__all__ = ["RESPONSES_PATH", "STATS_PATH", "create_app"]
+
 logger = get_logger(__name__)
 
-_CHAT_PATH = "/v1/chat/completions"
-
-#: The Responses API. Codex CLI speaks only this one -- `wire_api = "chat"`
-#: was removed in February 2026 -- so a Chat Completions gateway cannot serve
-#: it at all.
-RESPONSES_PATH = "/v1/responses"
+#: The path itself belongs to the adapter now. It is still named here because
+#: the route tests reach for it from this module.
+RESPONSES_PATH = RESPONSES.path
 
 #: Namespaced so it can never collide with a path the provider defines.
 STATS_PATH = "/privaparse/stats"
 
+#: What `route_body_for` returns: the single request path, already bound to
+#: one adapter and ready to mount. Named because the glossary names it -- see
+#: CONTEXT.md, "Route body".
+RouteBody = Callable[[Request], Awaitable[Response]]
 
 
 async def _restore(
@@ -67,8 +79,8 @@ async def _restore(
     mapping_id: str,
     reply: dict,
     *,
+    walk: AnswerWalk,
     fuzzy: bool = False,
-    walk=chat_adapter.extract_answer,
 ) -> dict:
     """Put the real values back into the provider's answer.
 
@@ -153,6 +165,13 @@ def create_app(
     cache = DetectionCache(settings.gateway_cache)
     detector = CachingDetector(engine, cache)
     metrics = Metrics()
+    # The longest placeholder this catalogue can render, measured once. It is
+    # a property of the catalogue, which is fixed for the life of the app, so
+    # a streaming request that measured it again would walk the whole
+    # catalogue to arrive at the same number. The relay is handed the number
+    # rather than the catalogue: what it needs is a ceiling on the hold-back,
+    # and nothing about how placeholders are named.
+    max_hold = max_placeholder_length(engine.catalogue)
     # The direct API: PrivaParse's own capabilities over HTTP, not a proxy.
     # Bound to the same engine and detection cache as the request path above.
     direct = direct_routes(engine, detector)
@@ -172,171 +191,125 @@ def create_app(
         status, body, _headers = await upstream.get_json("/v1/models", request.headers)
         return JSONResponse(body, status_code=status)
 
-    async def chat_completions(request: Request) -> Response:
-        try:
-            body = await request.json()
-        except ValueError:
-            return malformed_body()
+    def route_body_for(adapter: ProtocolAdapter) -> RouteBody:
+        """The route body, bound to one protocol adapter.
 
-        streaming = bool(body.get("stream")) if isinstance(body, dict) else False
-
-        try:
-            nodes = chat_adapter.extract_request(body)
-        except UnscannableField as refusal:
-            # Fail closed. The pointer is logged and returned; the value that
-            # tripped it is in neither, which is the whole reason
-            # UnscannableField carries a pointer instead of a payload.
-            logger.warning("refused a request: %s", refusal)
-            return unscannable(refusal)
-
-        started = time.perf_counter()
-        outbound = body
-        mapping_id: str | None = None
-        entities = 0
-        if nodes:
-            # One batch, one mapping. Node by node would open a mapping per
-            # node, and the answer -- which mixes placeholders from all of
-            # them -- could not be reversed against any single one.
-            # `pseudonymize_batch` runs the detector and hits the vault, both
-            # blocking, so it goes to a worker thread rather than stalling
-            # every other request on the loop.
-            try:
-                batch = await run_in_threadpool(
-                    lambda: engine.pseudonymize_batch(
-                        [node.text for node in nodes],
-                        detector=detector,
-                        # A chat client replays its history, so a placeholder
-                        # that survived unrestored comes back in. Refusing it
-                        # would turn one restoration miss into a conversation
-                        # that can never recover -- see pseudonymize_batch.
-                        adopt_placeholders=True,
-                    )
-                )
-            except GlinerUnavailableError as exc:
-                logger.error("detection is unavailable: %s", exc)
-                return detection_unavailable(exc)
-            outbound = write_back(body, nodes, batch.texts)
-            mapping_id = batch.mapping_id
-            entities = len(batch.placeholders)
-            if settings.gateway_hint and entities:
-                # After write_back on purpose: the hint never reaches the
-                # detector, so it cannot be scanned or stored as an entity.
-                # Only when something was actually replaced -- otherwise the
-                # caller pays tokens for a request with nothing to protect.
-                outbound = chat_adapter.with_placeholder_hint(outbound)
-
-        # Recorded here rather than when the answer lands: this is PrivaParse's
-        # own share of the request, which is the part an operator can act on.
-        # A refusal above never reaches this line, so a 502 does not enter the
-        # average as a request that carried no entities.
-        metrics.record(entities=entities, seconds=time.perf_counter() - started)
-
-        if streaming:
-            relay = upstream.stream(_CHAT_PATH, outbound, request.headers)
-            if mapping_id is not None:
-                relay = restore_sse(
-                    relay,
-                    restore=_stream_restorer(
-                        engine, mapping_id, fuzzy=settings.gateway_fuzzy
-                    ),
-                    max_hold=max_placeholder_length(engine.catalogue),
-                    # A mangled placeholder is only restorable if it arrives in
-                    # one piece, and the strict hold-back only ever protects
-                    # `[[`. Widening it is what lets the tolerant matcher see
-                    # `[PERSON_A1]` whole instead of split across two events.
-                    lenient=settings.gateway_fuzzy,
-                )
-            return StreamingResponse(relay, media_type="text/event-stream")
-
-        status, reply, _headers = await upstream.post_json(
-            _CHAT_PATH, outbound, request.headers
-        )
-        if mapping_id is not None:
-            reply = await _restore(engine, mapping_id, reply, fuzzy=settings.gateway_fuzzy)
-        return JSONResponse(reply, status_code=status)
-
-    async def responses_endpoint(request: Request) -> Response:
-        """The Responses API, which is the only protocol Codex CLI speaks.
-
-        Same rules as the chat route -- one mapping per request, fail closed
-        outbound, never abort inbound -- over a different protocol.
+        Everything that is not one of the adapter's own slots is here and
+        exists once: reading the body, the refusal, the single mapping per
+        request, the metrics record, the streaming branch and the restore. A
+        protocol cannot opt out of any of it, which is the point -- the two
+        copies this replaces shipped disagreeing about one of them.
         """
-        try:
-            body = await request.json()
-        except ValueError:
-            return malformed_body()
 
-        streaming = bool(body.get("stream")) if isinstance(body, dict) else False
-
-        try:
-            nodes = responses_adapter.extract_request(
-                body, allow_images=settings.gateway_allow_images
-            )
-        except UnscannableField as refusal:
-            logger.warning("refused a responses request: %s", refusal)
-            return unscannable(refusal)
-
-        started = time.perf_counter()
-        outbound = body
-        mapping_id: str | None = None
-        entities = 0
-        if nodes:
+        async def route_body(request: Request) -> Response:
             try:
-                batch = await run_in_threadpool(
-                    lambda: engine.pseudonymize_batch(
-                        [node.text for node in nodes],
-                        detector=detector,
-                        # A chat client replays its history, so a placeholder
-                        # that survived unrestored comes back in. Refusing it
-                        # would turn one restoration miss into a conversation
-                        # that can never recover -- see pseudonymize_batch.
-                        adopt_placeholders=True,
+                body = await request.json()
+            except ValueError:
+                return malformed_body()
+
+            streaming = bool(body.get("stream")) if isinstance(body, dict) else False
+
+            try:
+                nodes = adapter.request_walk(
+                    body, allow_images=settings.gateway_allow_images
+                )
+            except UnscannableField as refusal:
+                # Fail closed. The pointer is logged and returned; the value
+                # that tripped it is in neither, which is the whole reason
+                # UnscannableField carries a pointer instead of a payload.
+                # The adapter is named so the log says which client hit this.
+                logger.warning("refused a %s request: %s", adapter.name, refusal)
+                return unscannable(refusal)
+
+            started = time.perf_counter()
+            outbound = body
+            mapping_id: str | None = None
+            entities = 0
+            if nodes:
+                # One batch, one mapping. Node by node would open a mapping
+                # per node, and the answer -- which mixes placeholders from
+                # all of them -- could not be reversed against any single one.
+                # `pseudonymize_batch` runs the detector and hits the vault,
+                # both blocking, so it goes to a worker thread rather than
+                # stalling every other request on the loop.
+                try:
+                    batch = await run_in_threadpool(
+                        lambda: engine.pseudonymize_batch(
+                            [node.text for node in nodes],
+                            detector=detector,
+                            # A chat client replays its history, so a
+                            # placeholder that survived unrestored comes back
+                            # in. Refusing it would turn one restoration miss
+                            # into a conversation that can never recover --
+                            # see pseudonymize_batch.
+                            adopt_placeholders=True,
+                        )
                     )
-                )
-            except GlinerUnavailableError as exc:
-                logger.error("detection is unavailable: %s", exc)
-                return detection_unavailable(exc)
-            outbound = write_back(body, nodes, batch.texts)
-            mapping_id = batch.mapping_id
-            entities = len(batch.placeholders)
-            if settings.gateway_hint and entities:
-                outbound = responses_adapter.with_placeholder_hint(outbound)
+                except GlinerUnavailableError as exc:
+                    logger.error("detection is unavailable: %s", exc)
+                    return detection_unavailable(exc)
+                outbound = write_back(body, nodes, batch.texts)
+                mapping_id = batch.mapping_id
+                entities = len(batch.placeholders)
+                if settings.gateway_hint and entities:
+                    # After write_back on purpose: the hint never reaches the
+                    # detector, so it cannot be scanned or stored as an
+                    # entity. Only when something was actually replaced --
+                    # otherwise the caller pays tokens for a request with
+                    # nothing to protect.
+                    outbound = adapter.hint_insertion(outbound)
 
-        metrics.record(entities=entities, seconds=time.perf_counter() - started)
+            # Recorded here rather than when the answer lands: this is
+            # PrivaParse's own share of the request, which is the part an
+            # operator can act on. A refusal above never reaches this line, so
+            # a 502 does not enter the average as a request that carried no
+            # entities.
+            metrics.record(entities=entities, seconds=time.perf_counter() - started)
 
-        if streaming:
-            relay = upstream.stream(RESPONSES_PATH, outbound, request.headers)
-            if mapping_id is not None:
-                relay = restore_responses_sse(
-                    relay,
-                    restore=_stream_restorer(
-                        engine, mapping_id, fuzzy=settings.gateway_fuzzy
-                    ),
-                    max_hold=max_placeholder_length(engine.catalogue),
-                    lenient=settings.gateway_fuzzy,
-                )
-            return StreamingResponse(relay, media_type="text/event-stream")
+            if streaming:
+                relay = upstream.stream(adapter.path, outbound, request.headers)
+                if mapping_id is not None:
+                    relay = adapter.stream_relay(
+                        relay,
+                        restore=_stream_restorer(
+                            engine, mapping_id, fuzzy=settings.gateway_fuzzy
+                        ),
+                        max_hold=max_hold,
+                        # A mangled placeholder is only restorable if it
+                        # arrives in one piece, and the strict hold-back only
+                        # ever protects `[[`. Widening it is what lets the
+                        # tolerant matcher see `[PERSON_A1]` whole instead of
+                        # split across two events.
+                        lenient=settings.gateway_fuzzy,
+                    )
+                return StreamingResponse(relay, media_type="text/event-stream")
 
-        status, reply, _headers = await upstream.post_json(
-            RESPONSES_PATH, outbound, request.headers
-        )
-        if mapping_id is not None:
-            reply = await _restore(
-                engine,
-                mapping_id,
-                reply,
-                fuzzy=settings.gateway_fuzzy,
-                walk=responses_adapter.extract_answer,
+            status, reply, _headers = await upstream.post_json(
+                adapter.path, outbound, request.headers
             )
-        return JSONResponse(reply, status_code=status)
+            if mapping_id is not None:
+                reply = await _restore(
+                    engine,
+                    mapping_id,
+                    reply,
+                    walk=adapter.answer_walk,
+                    fuzzy=settings.gateway_fuzzy,
+                )
+            return JSONResponse(reply, status_code=status)
+
+        return route_body
 
     app = Starlette(
         routes=[
             Route("/healthz", healthz, methods=["GET"]),
-            Route(RESPONSES_PATH, responses_endpoint, methods=["POST"]),
             Route(STATS_PATH, stats, methods=["GET"]),
             Route("/v1/models", list_models, methods=["GET"]),
-            Route("/v1/chat/completions", chat_completions, methods=["POST"]),
+            # One route per protocol adapter, and no route for a protocol
+            # that is not one. Adding a protocol is an entry in ADAPTERS.
+            *[
+                Route(adapter.path, route_body_for(adapter), methods=["POST"])
+                for adapter in ADAPTERS
+            ],
             *direct,
         ],
         # Added via the constructor argument, not by wrapping the returned

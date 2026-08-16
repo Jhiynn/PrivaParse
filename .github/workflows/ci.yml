@@ -21,8 +21,15 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-      - run: pip install -e ".[dev]"
+      # `[gateway]` as well as `[dev]`: mypy checks `privaparse/gateway`, and
+      # without starlette on the path every route in it is an unresolved
+      # import rather than a checked one.
+      - run: pip install -e ".[dev,gateway]"
       - run: ruff check .
+      # The protocol adapter's callback types are load-bearing (ADR-0003):
+      # this step is what makes a mismatched adapter an error instead of a
+      # silence. Configured in [tool.mypy].
+      - run: mypy
 
   test:
     strategy:
