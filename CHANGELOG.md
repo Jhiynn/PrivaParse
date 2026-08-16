@@ -37,6 +37,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Events the gateway inserts into a Responses stream are renumbered, so a
   client never sees one `sequence_number` twice or a count that stops rising
   where something was inserted.
+- A Chat Completions stream whose connection **drops** mid-answer now hands
+  over what was held back, as a stream whose bytes merely run out already did.
+  A provider connection that dies surfaces as an exception rather than as an
+  end of bytes, and on that path the held tail and any half-assembled tool call
+  were dropped. The Responses path has done this since #17; both now inherit it
+  from the one module that owns the flush, so the next protocol gets it without
+  writing it (#24).
 
 ### Changed
 
@@ -97,6 +104,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   with the residual above and with the text part types each route knows — those
   two sets differ, so a part type is unknown to one route's walk rather than to
   the gateway as a whole. Documentation only, no behaviour change (#34).
+- The SSE framing loop exists once. Decoding bytes the transport chopped
+  wherever it liked, splitting on the blank line, the `data:` prefix, the
+  `[DONE]` sentinel, parsing the payload and relaying anything unparsed byte
+  for byte were written twice — and the second copy then reached into the first
+  for six names, five of which were private. Both relays now supply only what
+  is theirs: what one parsed event means, and what they are still holding when
+  the stream stops. The four places a stream can stop — the bytes running out,
+  the connection raising, `[DONE]`, and a protocol's own terminal event — are
+  one list in one loop, so a protocol inherits the flush rather than writing
+  it. The hold-back, the vault lookup's two rules and the tool-argument
+  restoration move to a module of their own for the same reason: one relay was
+  importing them out of the other. The adapter's stream slot is unchanged and
+  still takes the whole relay, so SSE does not appear in the adapter contract
+  (#24, closes #8).
 - `mypy` runs in CI over `privaparse/gateway`. The protocol adapter's callback
   types only make a mismatched walk an error if something checks them; nothing
   did, so the guarantee ADR-0003 rests on was not being enforced anywhere.

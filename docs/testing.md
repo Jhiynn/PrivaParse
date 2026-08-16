@@ -74,6 +74,13 @@ is the text it restored — so no shared assertion reads a body positionally,
 and the fake upstream's echo mode takes its reader and writer from the set
 rather than assuming one protocol's shape.
 
+The streaming tests follow the same split the code does.
+`tests/gateway/test_restore.py` covers the hold-back and the vault lookup's two
+rules with plain strings, no events involved; `test_stream.py` and
+`test_responses_stream.py` cover what each protocol's relay does with them. The
+SSE framing they share has no test file of its own — it is exercised through
+both relays, which is the only way it is ever reached.
+
 What stays in `test_server.py` and `test_responses_route.py` is what is
 genuinely protocol-shaped: how a tool call is reserialised, where `usage`
 sits, where the hint lands, what a bare-string `input` does.

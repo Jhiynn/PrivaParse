@@ -53,7 +53,7 @@ from privaparse.gateway.errors import (
 )
 from privaparse.gateway.extract import UnscannableField, write_back
 from privaparse.gateway.metrics import Metrics
-from privaparse.gateway.stream import max_placeholder_length
+from privaparse.gateway.restore import max_placeholder_length
 from privaparse.gateway.upstream import Upstream
 from privaparse.parser.detector import GlinerUnavailableError
 
@@ -111,12 +111,12 @@ async def _restore(
         return reply
 
 
-def _stream_restorer(engine: PrivaParseEngine, mapping_id: str, *, fuzzy: bool = False):
-    """A `restore(text) -> text` for `restore_sse`, scoped to this request.
+def _vault_lookup(engine: PrivaParseEngine, mapping_id: str, *, fuzzy: bool = False):
+    """A `restore(text) -> text` for a stream relay, scoped to this request.
 
     The vault lookup is blocking, so it goes to a worker thread; a streamed
     answer arrives in many small pieces and doing it inline would block the
-    event loop once per piece. Failures are not caught here -- `restore_sse`
+    event loop once per piece. Failures are not caught here -- `restore.py`
     owns that rule, and catching it twice would hide which layer gave up.
     """
 
@@ -271,7 +271,7 @@ def create_app(
                 if mapping_id is not None:
                     relay = adapter.stream_relay(
                         relay,
-                        restore=_stream_restorer(
+                        restore=_vault_lookup(
                             engine, mapping_id, fuzzy=settings.gateway_fuzzy
                         ),
                         max_hold=max_hold,

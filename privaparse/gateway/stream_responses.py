@@ -10,8 +10,8 @@ may read any one of those, so all three are restored.
 Two different jobs follow from that:
 
 * a `.delta` carries a fragment, so it needs the hold-back -- the same buffer
-  the chat path uses, since that logic is about strings and knows nothing
-  about either protocol;
+  the chat path uses, out of `restore.py`, since that logic is about strings
+  and knows nothing about either protocol;
 * a `.done` carries the finished value, so it needs no buffering at all, only
   restoration.
 
@@ -24,49 +24,33 @@ Both of those rules wait for a `.done` that a stream is not obliged to send.
 A dropped connection or a proxy that closes early ends it mid-answer, and the
 held text and the collected arguments would then be dropped -- text the
 provider was already paid for, and a tool call whose fragments were suppressed
-on the way in precisely because a later event was going to carry them. So the
-stream is answered whenever it stops without releasing them, in events this
-module frames itself: when the bytes run out, when the connection drops, and
-in front of a terminal event or `[DONE]` that arrives with no `.done` before
-it -- past either of those, a client has stopped accumulating deltas.
+on the way in precisely because a later event was going to carry them. So this
+module supplies a flush, and `sse.py` decides when it runs: when the bytes run
+out, when the connection drops, at `[DONE]`, and in front of a terminal event.
+Past any of those a client has stopped accumulating deltas.
 
 Inserting events means the gateway, not the provider, decides what sequence
 the client reads, so `sequence_number` is reissued across the whole stream
 rather than passed through.
-
-The SSE framing loop below is close to the one in `stream.py`. It is repeated
-rather than shared: the chat path is the tested one that ships today, and a
-refactor that reached into it to serve a second protocol would put it at risk
-for twenty lines.
 """
 
 from __future__ import annotations
 
-import codecs
 import copy
-import json
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator
 from typing import Any
 
-from privaparse.app.logging import get_logger
-from privaparse.database.placeholder import contains_placeholder
 from privaparse.gateway.adapter.responses import extract_answer
 from privaparse.gateway.extract import write_back
-from privaparse.gateway.stream import (
-    _MAYBE_MANGLED_RE,
+from privaparse.gateway.restore import (
     HoldBack,
-    _encode,
-    _raw,
-    _reassemble,
-    _restore_arguments,
+    Restore,
+    guarded_restore,
+    restore_arguments,
 )
-
-logger = get_logger(__name__)
+from privaparse.gateway.sse import encode_event, relay_sse
 
 __all__ = ["restore_responses_sse"]
-
-_DATA_PREFIX = "data:"
-_DONE = "[DONE]"
 
 TEXT_DELTA = "response.output_text.delta"
 TEXT_DONE = "response.output_text.done"
@@ -81,15 +65,15 @@ TERMINAL = frozenset({
 })
 
 
-async def restore_responses_sse(
+def restore_responses_sse(
     chunks: AsyncIterator[bytes],
     *,
-    restore: Callable[[str], Awaitable[str]],
+    restore: Restore,
     max_hold: int,
     lenient: bool = False,
 ) -> AsyncIterator[bytes]:
     """Relay a Responses stream, putting real values back as it goes."""
-    decoder = codecs.getincrementaldecoder("utf-8")()
+    restored = guarded_restore(restore, lenient=lenient)
     holds: dict[Any, HoldBack] = {}
     arguments: dict[Any, str] = {}
     # The last delta event seen for each of the above, minus its `delta`. A
@@ -99,22 +83,7 @@ async def restore_responses_sse(
     # without them is text the client cannot place.
     text_frames: dict[Any, dict] = {}
     argument_frames: dict[Any, dict] = {}
-    pending = ""
     next_sequence = 0
-
-    async def restored(text: str) -> str:
-        if not text:
-            return text
-        worth_asking = contains_placeholder(text) or (
-            lenient and _MAYBE_MANGLED_RE.search(text) is not None
-        )
-        if not worth_asking:
-            return text
-        try:
-            return await restore(text)
-        except Exception:  # noqa: BLE001 - a streamed answer is never aborted
-            logger.warning("could not restore a streamed answer; placeholders stand")
-            return text
 
     def sequenced(payload: dict) -> dict:
         """Renumber an event, so the sequence the client reads is the one it got.
@@ -146,10 +115,10 @@ async def restore_responses_sse(
         if kind in (TEXT_DELTA, REFUSAL_DELTA):
             piece = payload.get("delta")
             if not isinstance(piece, str):
-                return [payload]
+                return [sequenced(payload)]
             text_frames[_text_key(payload)] = _frame(payload)
             payload["delta"] = await restored(hold_for(payload).feed(piece))
-            return [payload]
+            return [sequenced(payload)]
 
         if kind in (TEXT_DONE, REFUSAL_DONE):
             out: list[dict] = []
@@ -166,11 +135,11 @@ async def restore_responses_sse(
                 extra["delta"] = await restored(held)
                 extra.pop("text", None)
                 extra.pop("refusal", None)
-                out.append(extra)
+                out.append(sequenced(extra))
             for field in ("text", "refusal"):
                 if isinstance(payload.get(field), str):
                     payload[field] = await restored(payload[field])
-            out.append(payload)
+            out.append(sequenced(payload))
             return out
 
         if kind == ARGS_DELTA:
@@ -190,7 +159,7 @@ async def restore_responses_sse(
                 complete = arguments.get(key, "")
             arguments.pop(key, None)
             argument_frames.pop(key, None)
-            fixed = await _restore_arguments(complete, restored)
+            fixed = await restore_arguments(complete, restored)
             payload["arguments"] = fixed
             # One delta carrying the whole thing, for a client that accumulates
             # deltas and never reads the done event.
@@ -198,35 +167,32 @@ async def restore_responses_sse(
             whole["type"] = ARGS_DELTA
             whole["delta"] = fixed
             whole.pop("arguments", None)
-            return [whole, payload]
+            return [sequenced(whole), sequenced(payload)]
 
         if kind == ITEM_DONE:
             item = payload.get("item")
             if isinstance(item, dict):
                 payload["item"] = await _restore_item(item, restored)
-            return [payload]
+            return [sequenced(payload)]
 
         if kind in TERMINAL:
             answer = payload.get("response")
             if isinstance(answer, dict):
                 payload["response"] = await _restore_response(answer, restored)
-            return [payload]
+            return [sequenced(payload)]
 
-        return [payload]
+        return [sequenced(payload)]
 
-    async def tail() -> AsyncIterator[bytes]:
+    async def flush() -> AsyncIterator[bytes]:
         """Whatever is still being held when the stream stops, as its own event.
 
-        Reached when a provider stops without releasing what this module is
-        sitting on -- a dropped connection, a proxy that closes early, or a
-        terminal event that arrives with no `.done` before it. No `.done` is
-        coming to carry the held text out, and none is coming to release the
-        tool call whose fragments were suppressed on the way in. Both were
-        paid for.
+        No `.done` is coming to carry the held text out, and none is coming to
+        release the tool call whose fragments were suppressed on the way in.
+        Both were paid for.
 
-        Popping the frame is what makes this safe to call more than once: a
-        stream reaches it at `response.completed`, again at `[DONE]`, and
-        again when the bytes run out.
+        Popping the frame is what makes this safe to call more than once, which
+        `sse.py` does: a stream reaches it at `response.completed`, again at
+        `[DONE]`, and again when the bytes run out.
         """
         for key, hold in holds.items():
             frame = text_frames.pop(key, None)
@@ -241,78 +207,25 @@ async def restore_responses_sse(
                 continue
             # A delta, not a synthesised `.done`: the arguments may have
             # stopped mid-JSON, and an event named for completion would claim
-            # they did not. `_restore_arguments` restores either way.
+            # they did not. `restore_arguments` restores either way.
             yield _typed(sequenced({
                 **frame,
                 "type": ARGS_DELTA,
-                "delta": await _restore_arguments(collected, restored),
+                "delta": await restore_arguments(collected, restored),
             }))
 
-    try:
-        async for raw in chunks:
-            pending += decoder.decode(raw).replace("\r\n", "\n")
-            while "\n\n" in pending:
-                block, pending = pending.split("\n\n", 1)
-                lines = block.split("\n")
-                data = [
-                    line[len(_DATA_PREFIX):].lstrip()
-                    for line in lines
-                    if line.startswith(_DATA_PREFIX)
-                ]
-                if not data:
-                    yield _raw(block)
-                    continue
+    def ends_the_answer(payload: dict) -> bool:
+        """A terminal event is the last word, so the flush goes in front of it.
 
-                joined = "\n".join(data)
-                if joined.strip() == _DONE:
-                    # A client is entitled to stop reading here, so anything
-                    # still held has to go out in front of the sentinel.
-                    async for event in tail():
-                        yield event
-                    yield _raw(block)
-                    continue
+        Anything still held belongs to the deltas that came before it. Behind
+        it, it would arrive after the event that says there is no more, out of
+        sequence and past the point a client stops accumulating.
+        """
+        return payload.get("type") in TERMINAL
 
-                try:
-                    payload = json.loads(joined)
-                except ValueError:
-                    yield _raw(block)
-                    continue
-                if not isinstance(payload, dict):
-                    yield _raw(block)
-                    continue
-
-                if payload.get("type") in TERMINAL:
-                    # The answer is over. Anything still held belongs to the
-                    # deltas that came before this event, so it goes out in
-                    # front of it -- the same order `.done` already imposes.
-                    # Behind it, it would arrive after the event that says
-                    # there is no more, out of sequence and past the point a
-                    # client stops accumulating.
-                    async for event in tail():
-                        yield event
-
-                for index, out in enumerate(await rewrite(payload)):
-                    if index == 0:
-                        # Keep the original framing, `event:` line included --
-                        # clients dispatch on it.
-                        yield _reassemble(lines, sequenced(out))
-                    else:
-                        yield _encode(sequenced(out))
-    except Exception:
-        # The failure this module exists for. A provider connection that drops
-        # mid-answer surfaces here as an exception rather than as bytes that
-        # run out, and the held text and collected arguments are no less paid
-        # for on this path than on the clean one. Hand them over, then let the
-        # error travel: swallowing it would report a truncated answer as whole.
-        async for event in tail():
-            yield event
-        raise
-
-    pending += decoder.decode(b"", True)
-    if pending.strip():
-        yield pending.encode("utf-8")
-    async for event in tail():
-        yield event
+    return relay_sse(
+        chunks, rewrite=rewrite, flush=flush, ends_the_answer=ends_the_answer
+    )
 
 
 def _text_key(payload: dict) -> tuple:
@@ -332,11 +245,10 @@ def _typed(payload: dict[str, Any]) -> bytes:
     these events hold: one invisible to such a client would lose exactly what
     it was emitted to save.
     """
-    body = json.dumps(payload, ensure_ascii=False)
-    return f"event: {payload['type']}\ndata: {body}\n\n".encode()
+    return encode_event(payload, name=payload["type"])
 
 
-async def _restore_item(item: dict, restored) -> dict:
+async def _restore_item(item: dict, restored: Restore) -> dict:
     """One output item, restored in place: message content or tool arguments."""
     out = copy.deepcopy(item)
     content = out.get("content")
@@ -345,11 +257,11 @@ async def _restore_item(item: dict, restored) -> dict:
             if isinstance(part, dict) and isinstance(part.get("text"), str):
                 part["text"] = await restored(part["text"])
     if isinstance(out.get("arguments"), str):
-        out["arguments"] = await _restore_arguments(out["arguments"], restored)
+        out["arguments"] = await restore_arguments(out["arguments"], restored)
     return out
 
 
-async def _restore_response(answer: dict, restored) -> dict:
+async def _restore_response(answer: dict, restored: Restore) -> dict:
     """The whole response object, through the ordinary response walk."""
     nodes = extract_answer(answer)
     if not nodes:

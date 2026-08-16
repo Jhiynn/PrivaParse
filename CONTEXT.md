@@ -129,6 +129,18 @@ One piece of free text carried by a request, together with where in the body it
 came from.
 _Avoid_: field, message, chunk, block
 
+**Stream relay**:
+Everything one protocol does to a streamed answer: the upstream's bytes in, the
+bytes the client reads out. A slot on the protocol adapter, so a protocol that
+does not frame its stream as SSE supplies its own.
+_Avoid_: stream handler, SSE handler, stream restorer
+
+**Hold-back**:
+The tail of streamed text kept out of the stream until it either completes into
+a placeholder or proves it cannot become one. What a flush hands over when the
+stream stops first.
+_Avoid_: buffer, pending text, lookahead
+
 ## Evaluation
 
 **Gold set**:
