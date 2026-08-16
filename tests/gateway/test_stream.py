@@ -1,10 +1,11 @@
-"""Streaming restoration: a placeholder arrives split across events.
+"""The Chat Completions relay: a placeholder arrives split across events.
 
-The hold-back is the whole idea. `[[PERSON_A1]]` reaches the gateway as any
-number of pieces -- `[[PER`, `SON_`, `A1]]` -- and a restorer that looked at
-each piece alone would find nothing to restore in any of them and hand the
-caller a placeholder. So the tail of the buffer is held back until it either
-completes or can no longer become a placeholder.
+The hold-back is the whole idea, and it is tested on its own in
+`test_restore.py` -- `[[PERSON_A1]]` reaches the gateway as any number of
+pieces, and a restorer that looked at each piece alone would find nothing to
+restore in any of them. What is tested here is what this protocol's relay does
+with that: where a released piece rides, which chunk carries a held tail, and
+how a tool call assembled from fragments comes back out.
 
 There is no pytest-asyncio in this project, so the async generators are driven
 with `asyncio.run` rather than an async test function.
@@ -18,10 +19,9 @@ import json
 import pytest
 from starlette.testclient import TestClient
 
-from privaparse.app.catalogue import load_catalogue
 from privaparse.engine import PrivaParseEngine
 from privaparse.gateway.server import create_app
-from privaparse.gateway.stream import HoldBack, max_placeholder_length, restore_sse
+from privaparse.gateway.stream import restore_sse
 
 PLACEHOLDER = "[[PERSON_A1]]"
 REAL = "Max Mustermann"
@@ -97,59 +97,6 @@ def _content(raw: bytes) -> str:
     return "".join(piece for piece in pieces if isinstance(piece, str))
 
 
-# --- the hold-back ---------------------------------------------------------
-
-
-@pytest.mark.parametrize("cut", range(1, len(PLACEHOLDER)))
-def test_a_placeholder_is_never_released_in_two_pieces(cut: int):
-    """The property the whole design rests on: whatever the split, no release
-    ever contains part of a placeholder and not the rest."""
-    hold = HoldBack(max_hold=40)
-    released = [hold.feed(PLACEHOLDER[:cut]), hold.feed(PLACEHOLDER[cut:]), hold.flush()]
-
-    assert "".join(released) == PLACEHOLDER
-    for piece in released:
-        assert PLACEHOLDER in piece or "[[" not in piece
-
-
-def test_nothing_is_held_when_no_bracket_appears():
-    hold = HoldBack(max_hold=40)
-    assert hold.feed("Hallo, alles gut?") == "Hallo, alles gut?"
-    assert hold.flush() == ""
-
-
-def test_a_bracket_that_cannot_become_a_placeholder_is_released_at_once():
-    """Markdown, a wiki link, a Python list of lists: `[[` is not rare."""
-    hold = HoldBack(max_hold=40)
-    assert hold.feed("siehe [[dies hier]]") == "siehe [[dies hier]]"
-
-
-def test_a_trailing_bracket_is_held_until_it_is_settled():
-    hold = HoldBack(max_hold=40)
-    assert hold.feed("Hallo [[") == "Hallo "
-    assert hold.feed("wer?") == "[[wer?"
-
-
-def test_an_endless_run_of_capitals_is_released_at_the_cap():
-    """Held text that stays grammatical forever would stall the stream. The cap
-    is what bounds it -- past the longest placeholder the vault can build, the
-    text cannot be one."""
-    hold = HoldBack(max_hold=20)
-    assert hold.feed("[[" + "A" * 30) == "[[" + "A" * 30
-
-
-def test_flush_returns_a_half_finished_placeholder_rather_than_dropping_it():
-    hold = HoldBack(max_hold=40)
-    assert hold.feed("Hallo [[PERSON_") == "Hallo "
-    assert hold.flush() == "[[PERSON_"
-
-
-def test_the_cap_covers_the_longest_placeholder_the_catalogue_can_render():
-    catalogue = load_catalogue()
-    longest = max(len(placeholder.name) for placeholder in catalogue.enabled)
-    assert max_placeholder_length(catalogue) > longest + len("[[_A1]]")
-
-
 # --- the event stream ------------------------------------------------------
 
 
@@ -196,6 +143,29 @@ def test_the_finish_chunk_carries_whatever_is_still_held():
 def test_a_stream_that_ends_mid_placeholder_loses_nothing():
     raw = _run([_event(_chunk("Hallo [[PERSON_"))])
     assert _content(raw) == "Hallo [[PERSON_"
+
+
+def test_a_dropped_connection_still_delivers_what_was_held():
+    """The same stop, arriving as an exception rather than as bytes running out.
+
+    A provider connection that dies mid-answer surfaces here as a raised error,
+    and the held characters were paid for on that path too. The error still has
+    to travel: an answer cut short must not be reported as a whole one.
+    """
+    async def dropping():
+        yield _event(_chunk("Hallo [[PERSON_"))
+        raise RuntimeError("the connection went away")
+
+    out: list[bytes] = []
+
+    async def drive():
+        async for piece in restore_sse(dropping(), restore=_swap, max_hold=40):
+            out.append(piece)
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(drive())
+
+    assert _content(b"".join(out)) == "Hallo [[PERSON_"
 
 
 def test_an_empty_stream_produces_nothing():
