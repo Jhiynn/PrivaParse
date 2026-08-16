@@ -22,7 +22,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   belongs all still stop the request, on both protocols. Off by default, and
   with it off both routes refuse as they always have. Asserted per adapter in
   the conformance suite rather than per protocol, so the two cannot drift
-  again (#23).
+  again. What the opt-in skips is decided by a part's *type*, so a part of a
+  type the walk has never heard of is forwarded with whatever text it carries
+  — the residual is now named in ADR-0002 and asserted in the suite rather
+  than left to be found in a request log (#23).
+- A Responses stream that stops without releasing what the gateway is holding
   now hands it over instead of dropping it: the tail the hold-back kept out of
   the deltas in case it grew into a placeholder, and every fragment of a tool
   call whose arguments were still accumulating. Covers a connection that drops

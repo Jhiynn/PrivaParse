@@ -146,7 +146,7 @@ def extract_request(body: Any, *, allow_images: bool = False) -> list[TextNode]:
 
 
 def _walk_messages(messages: Any, pointer: tuple[Any, ...], nodes: list[TextNode],
-                   allow_images: bool = False) -> None:
+                   allow_images: bool) -> None:
     if not isinstance(messages, list):
         raise UnscannableField(pointer, "expected a list of messages")
 
@@ -168,7 +168,7 @@ def _walk_messages(messages: Any, pointer: tuple[Any, ...], nodes: list[TextNode
 
 
 def _walk_text_field(value: Any, pointer: tuple[Any, ...], nodes: list[TextNode],
-                     allow_images: bool = False) -> None:
+                     allow_images: bool) -> None:
     """A message text field: a string, a list of content parts, or absent."""
     if value is None:
         return
@@ -182,7 +182,7 @@ def _walk_text_field(value: Any, pointer: tuple[Any, ...], nodes: list[TextNode]
 
 
 def _walk_content_parts(parts: list[Any], pointer: tuple[Any, ...], nodes: list[TextNode],
-                        allow_images: bool = False) -> None:
+                        allow_images: bool) -> None:
     for index, part in enumerate(parts):
         at = pointer + (index,)
         if not isinstance(part, dict):
@@ -190,16 +190,20 @@ def _walk_content_parts(parts: list[Any], pointer: tuple[Any, ...], nodes: list[
 
         part_type = part.get(PART_TYPE_FIELD)
         if part_type != TEXT_PART_TYPE:
-            # An image, an audio clip, a file reference: the detector cannot
-            # read any of it, so forwarding it would send unexamined content.
             if allow_images:
                 # Forwarded unexamined. The operator asked for that; see
-                # Settings.gateway_allow_images. The part is skipped whole
-                # rather than walked, so nothing inside it is scanned and
-                # nothing inside it is replaced -- it reaches the provider as
-                # it was written. Text in the same message is still walked,
-                # which is the next iteration of this loop.
+                # Settings.gateway_allow_images. Skipped whole rather than
+                # walked, so nothing inside it is scanned and nothing inside
+                # it is replaced -- it reaches the provider as it was
+                # written. Text in the same message is still walked, which is
+                # the next turn of this loop. The rule is the part's *type*,
+                # not its payload, so a part of a type this walk does not
+                # know is skipped too, text and all -- the residual named in
+                # ADR-0002, and the price of not breaking every opted-in
+                # operator the next time a provider ships a part type.
                 continue
+            # An image, an audio clip, a file reference: the detector cannot
+            # read any of it, so forwarding it would send unexamined content.
             raise UnscannableField(at, f"content part of type {part_type!r} cannot be scanned")
 
         for key, value in part.items():

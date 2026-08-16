@@ -92,6 +92,10 @@ class Conformance:
     #: with the setting on too -- an unreadable *part* is waved through, a
     #: malformed one never is.
     not_a_string_where_text_belongs: dict
+    #: A content part of a type the walk has never heard of, carrying `REAL`.
+    #: The residual the opt-in carries: the skip is keyed on the part's type,
+    #: so this goes out with its text unscanned when the setting is on.
+    unknown_part_type_carrying_text: dict
     #: A request with nothing in it to replace, for the other half of the
     #: hint rule.
     nothing_to_replace: dict
@@ -151,16 +155,12 @@ def _chat_parts(body: dict) -> list:
     return content if isinstance(content, list) else []
 
 
-#: The image part the chat fixtures carry, named so the fixture set and the
-#: assertion cannot drift apart the way two copies of a body would.
+#: The image part the chat fixture set carries. Named rather than written
+#: twice: the assertion that it reaches the provider unmodified compares
+#: against this object, and two copies of a body could drift apart.
 CHAT_IMAGE_PART = {
     "type": "image_url",
     "image_url": {"url": "https://beispiel.de/bild.png"},
-}
-
-RESPONSES_IMAGE_PART = {
-    "type": "input_image",
-    "image_url": "https://beispiel.de/bild.png",
 }
 
 
@@ -195,6 +195,16 @@ def _responses_parts(body: dict) -> list:
     """The last input item's content parts, or none if it was a bare string."""
     content = body["input"][-1]["content"]
     return content if isinstance(content, list) else []
+
+
+#: The Responses peer of `CHAT_IMAGE_PART`, and a different shape: this
+#: protocol's image part carries the URL as a bare string rather than nesting
+#: it in an object. Which is the reason the assertion compares parts through
+#: the fixture set instead of writing one protocol's shape into a rule.
+RESPONSES_IMAGE_PART = {
+    "type": "input_image",
+    "image_url": "https://beispiel.de/bild.png",
+}
 
 
 def _payloads(raw: str) -> list[Any]:
@@ -278,6 +288,12 @@ CONFORMANCE: dict[str, Conformance] = {
             "model": "gpt-4o",
             "messages": [{"role": "user", "content": [{"type": "text", "text": 42}]}],
         },
+        unknown_part_type_carrying_text={
+            "model": "gpt-4o",
+            "messages": [
+                {"role": "user", "content": [{"type": "note", "text": f"Hallo {REAL}"}]}
+            ],
+        },
         nothing_to_replace={
             "model": "gpt-4o",
             "messages": [{"role": "user", "content": "Hallo"}],
@@ -339,6 +355,16 @@ CONFORMANCE: dict[str, Conformance] = {
                     "type": "message",
                     "role": "user",
                     "content": [{"type": "input_text", "text": 42}],
+                }
+            ],
+        },
+        unknown_part_type_carrying_text={
+            "model": "gpt-5-codex",
+            "input": [
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "note", "text": f"Hallo {REAL}"}],
                 }
             ],
         },
@@ -579,6 +605,36 @@ def test_with_the_setting_off_an_unreadable_part_stops_the_request(
 
     assert response.status_code == 502
     assert upstream.requests == []
+
+
+def test_the_opt_in_is_read_at_the_part_and_never_at_its_payload(
+    settings, fake_detector, upstream, adapter
+):
+    """The residual the opt-in carries, asserted rather than left to be found.
+
+    What the setting skips is a content part whose *type* is not a text type,
+    and a part of a type the walk has never heard of is skipped on that same
+    rule -- text and all. Keying the skip on a list of known image and file
+    types instead would mean the next part type a provider ships breaking
+    every operator who opted in, which is the outage the opt-in exists to end.
+
+    So this test asserts a value reaching the provider unscanned. It is the
+    only place in the suite that does, it is reachable only by an operator who
+    turned the setting on, and it is written down here rather than left in a
+    request log for somebody to find (ADR-0002).
+    """
+    permissive = settings.model_copy(update={"gateway_allow_images": True})
+    client, engine = _built(permissive, fake_detector, upstream)
+    case = _case(adapter)
+
+    response = client.post(adapter.path, json=case.unknown_part_type_carrying_text)
+
+    assert response.status_code == 200
+    # Nothing was scanned, so nothing was replaced and no mapping was opened:
+    # the body goes out exactly as it arrived, name included.
+    assert upstream.last == case.unknown_part_type_carrying_text
+    assert REAL in json.dumps(upstream.last, ensure_ascii=False)
+    assert engine.recent_mappings(limit=10) == []
 
 
 @pytest.mark.parametrize(

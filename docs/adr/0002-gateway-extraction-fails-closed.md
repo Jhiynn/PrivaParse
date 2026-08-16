@@ -28,3 +28,13 @@ squeamishness: a coding agent screenshots its own work, and a screenshot can
 show every value that was just pseudonymised out of the text. Nothing else is
 exempt — an unknown top-level field, an unknown message field, and a non-string
 where text was expected all still stop the request where it stands.
+
+The hole is read at the *part*, not at its payload, and that carries a
+residual: with the setting on, a content part whose type is not one of the
+protocol's text types is skipped whole, so a part of a type the walk has never
+heard of is forwarded along with whatever text it happens to carry. Keying the
+skip on a list of known image and file types instead would mean the next part
+type a provider ships breaking every operator who opted in — which is the
+outage the opt-in exists to end, reintroduced inside it. The conformance suite
+asserts this residual rather than leaving it to be discovered from a request
+log.
