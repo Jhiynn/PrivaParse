@@ -116,6 +116,23 @@ and B905 would be real improvements but are out of scope for a change that
 isn't allowed to alter behaviour; RUF005 is a style call with no defect).
 Read that comment before asking why a rule is off — it already answers it.
 
+## Types
+
+```bash
+mypy
+```
+
+Scoped to `privaparse/gateway` by `[tool.mypy] files` in `pyproject.toml`, and
+not repo-wide. That package is clean today, so the check starts where it can
+stay green rather than shipping with a baseline of exceptions nobody reads;
+`privaparse/parser` has two findings of its own that belong to detection.
+
+It is not decoration. `ProtocolAdapter` declares its callable fields as
+`typing.Protocol` callback types so that building an adapter whose request
+walk omits a parameter another's has is an *error* — and that error only
+exists if something checks it. `gateway_allow_images` reached one route out of
+two for exactly that reason. See ADR-0003.
+
 Formatting is not enforced, and that's deliberate rather than an oversight:
 no formatter has ever run across this tree, and turning one on now would
 rewrite every file for a purely stylistic reason disconnected from any
@@ -239,6 +256,9 @@ Before opening a pull request:
 
 - [ ] `pytest` passes (the default, non-model run)
 - [ ] `ruff check .` is clean
+- [ ] `mypy` is clean
+- [ ] A new protocol adapter has an entry in `CONFORMANCE`
+      (`tests/gateway/test_adapter_conformance.py`) — the suite names it if not
 - [ ] Documentation is updated for anything the change affects — a new
       setting, a new command, a new entity type, a changed default
 - [ ] Benchmarks are rerun and the relevant report under `docs/benchmarks/`

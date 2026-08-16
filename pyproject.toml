@@ -48,6 +48,11 @@ dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "ruff>=0.16",
+    # Not decoration: the protocol adapter's callable fields are declared as
+    # callback protocols precisely so an adapter that omits a parameter
+    # another's has is an error, and nothing raises that error unless a type
+    # checker runs. See [tool.mypy] and ADR-0003.
+    "mypy>=1.11",
 ]
 all = ["privaparse[model,gateway,dev]"]
 
@@ -74,6 +79,25 @@ markers = [
     "model: requires GLiNER2 weights on disk (slow, needs `pip install -e .[model]`)",
 ]
 addopts = "-m 'not model'"
+
+[tool.mypy]
+python_version = "3.11"
+# The gateway only, and deliberately so. `ProtocolAdapter` declares its
+# callable fields as `typing.Protocol` callback types so that building an
+# adapter with a mismatched walk is an error rather than a silence -- and that
+# error only exists if something checks it. This package is clean today, so
+# the check starts here and stays green rather than starting repo-wide with a
+# baseline of exceptions nobody reads.
+#
+# `privaparse/parser` has two findings of its own; they belong to detection
+# rather than to the gateway and are not this file's to fix.
+files = ["privaparse/gateway"]
+# starlette ships types; gliner2 and friends do not, and they are imported
+# transitively from `privaparse.engine`.
+ignore_missing_imports = true
+# Report on `files` only. Following imports into the parser would drag its
+# findings in through `engine.py` and fail the gateway for them.
+follow_imports = "silent"
 
 [tool.ruff]
 line-length = 100

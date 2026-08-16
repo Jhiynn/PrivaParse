@@ -47,6 +47,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   log could not tell which client had hit it.
 - The longest placeholder the catalogue can render is measured once, when the
   app is built, rather than on every streaming request.
+- The rules a protocol adapter has to satisfy are asserted once and run against
+  every adapter: failing closed with a pointer and no value, one mapping per
+  request, the hint added exactly once and only when something was replaced,
+  `gateway_allow_images`, 500 rather than 503 when detection is unavailable,
+  restoration never aborting, and a stream that ends without a terminal event
+  losing nothing. Fixtures are keyed by adapter, and an adapter without a set
+  fails by name — so a third protocol cannot be mounted with no coverage and a
+  green suite (ADR-0003).
+- `mypy` runs in CI over `privaparse/gateway`. The protocol adapter's callback
+  types only make a mismatched walk an error if something checks them; nothing
+  did, so the guarantee ADR-0003 rests on was not being enforced anywhere.
+
+### Known gaps
+
+- `gateway_allow_images` is honoured on `/v1/responses` and ignored on
+  `/v1/chat/completions`, which accepts the parameter without reading it.
+  Asserted as-is by the conformance suite so it cannot close silently (#31).
 
 ## [0.1.0] - 2026-08-14
 

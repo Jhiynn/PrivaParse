@@ -25,6 +25,7 @@ messages. Nothing else about a request is reused -- see `cache.py`.
 from __future__ import annotations
 
 import time
+from collections.abc import Awaitable, Callable
 
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
@@ -67,6 +68,10 @@ RESPONSES_PATH = RESPONSES.path
 #: Namespaced so it can never collide with a path the provider defines.
 STATS_PATH = "/privaparse/stats"
 
+#: What `route_body_for` returns: the single request path, already bound to
+#: one adapter and ready to mount. Named because the glossary names it -- see
+#: CONTEXT.md, "Route body".
+RouteBody = Callable[[Request], Awaitable[Response]]
 
 
 async def _restore(
@@ -186,8 +191,8 @@ def create_app(
         status, body, _headers = await upstream.get_json("/v1/models", request.headers)
         return JSONResponse(body, status_code=status)
 
-    def route_body(adapter: ProtocolAdapter):
-        """The request path, served over one protocol adapter.
+    def route_body_for(adapter: ProtocolAdapter) -> RouteBody:
+        """The route body, bound to one protocol adapter.
 
         Everything that is not one of the adapter's own slots is here and
         exists once: reading the body, the refusal, the single mapping per
@@ -196,7 +201,7 @@ def create_app(
         copies this replaces shipped disagreeing about one of them.
         """
 
-        async def endpoint(request: Request) -> Response:
+        async def route_body(request: Request) -> Response:
             try:
                 body = await request.json()
             except ValueError:
@@ -292,7 +297,7 @@ def create_app(
                 )
             return JSONResponse(reply, status_code=status)
 
-        return endpoint
+        return route_body
 
     app = Starlette(
         routes=[
@@ -302,7 +307,7 @@ def create_app(
             # One route per protocol adapter, and no route for a protocol
             # that is not one. Adding a protocol is an entry in ADAPTERS.
             *[
-                Route(adapter.path, route_body(adapter), methods=["POST"])
+                Route(adapter.path, route_body_for(adapter), methods=["POST"])
                 for adapter in ADAPTERS
             ],
             *direct,

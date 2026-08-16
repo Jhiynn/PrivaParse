@@ -2,10 +2,15 @@
 
 What each protocol does with a request is asserted next door, in
 `test_server.py` and `test_responses_route.py`. What this file asserts is the
-shape they now share: that a route exists for every adapter and for no protocol
-that is not one, that a refusal says which protocol refused, and that the
-catalogue is measured when the app is built rather than once per streamed
-answer.
+shape: that an adapter is a frozen value, that a route exists for every one of
+them and for no protocol that is not one, that the catalogue is measured when
+the app is built rather than once per streamed answer, and that a third
+protocol needs nothing but an entry in the tuple.
+
+The rules the route body then guarantees on top of any adapter -- failing
+closed, one mapping per request, the hint, `allow_images`, the 500, the
+restore, the stream flush -- are asserted once each and run against every
+adapter in `test_adapter_conformance.py`.
 
 The third adapter here is a fake, mounted for the length of one test. It is the
 point of the change rather than a convenience: if adding a protocol is a value,
@@ -32,23 +37,6 @@ from privaparse.gateway.server import create_app
 def _client(settings, detector, upstream, **kwargs) -> TestClient:
     engine = PrivaParseEngine(settings, detector=detector, configure_logs=False)
     return TestClient(create_app(settings, engine=engine, upstream=upstream, **kwargs))
-
-
-#: An unknown top-level field carrying text: the one refusal every protocol
-#: makes the same way. The value is a name, so the same case also shows that
-#: what reaches the log is the pointer and never what was at it.
-_UNSCANNABLE = {
-    "/v1/chat/completions": {
-        "model": "gpt-4o",
-        "messages": [{"role": "user", "content": "Hallo"}],
-        "some_new_field": "Erika Musterfrau",
-    },
-    "/v1/responses": {
-        "model": "gpt-5-codex",
-        "input": [{"type": "message", "role": "user", "content": "Hallo"}],
-        "some_new_field": "Erika Musterfrau",
-    },
-}
 
 
 def test_every_adapter_is_mounted_at_its_own_path(settings, fake_detector, upstream):
@@ -85,35 +73,6 @@ def test_no_protocol_is_served_that_is_not_an_adapter(settings, fake_detector, u
     }
 
     assert served == {adapter.path for adapter in ADAPTERS}
-
-
-@pytest.mark.parametrize("path", sorted(_UNSCANNABLE))
-def test_a_refusal_names_the_protocol_that_refused(settings, fake_detector, upstream, path):
-    """A refusal on any route says which protocol made it.
-
-    Reading the log after a refusal is how an operator tells a Codex problem
-    from a chat-client problem without reproducing it, and the two routes used
-    to log lines that did not agree on how to say so.
-
-    Captured through an explicit stream handler rather than caplog, for the
-    reason spelled out in test_server.py: `configure_logging` sets
-    `propagate=False` on the `privaparse` logger, so caplog stops seeing these
-    records as soon as anything else in the session has configured logging.
-    """
-    client = _client(settings, fake_detector, upstream)
-    adapter = next(one for one in ADAPTERS if one.path == path)
-
-    stream = io.StringIO()
-    configure_logging("DEBUG", stream=stream)
-    response = client.post(path, json=_UNSCANNABLE[path])
-
-    logged = stream.getvalue()
-    assert response.status_code == 502
-    assert upstream.requests == []
-    assert adapter.name in logged
-    # The pointer, and nothing that was at it.
-    assert "some_new_field" in logged
-    assert "Erika Musterfrau" not in logged
 
 
 def test_the_catalogue_is_measured_when_the_app_is_built(settings, fake_detector, upstream):

@@ -53,6 +53,16 @@ trip, and restoration. `tests/gateway/` covers the OpenAI-compatible surface:
 extraction, request routing, streaming, the detection cache, the fuzzy/hint
 fallbacks, the upstream relay, and metrics.
 
+One suite there is parametrised rather than per-protocol.
+`tests/gateway/test_adapter_conformance.py` holds the rules the route body
+guarantees whatever protocol adapter it is pointed at — failing closed, one
+mapping per request, the hint, `gateway_allow_images`, 500 rather than 503
+when detection is unavailable, restoration never aborting, and a stream that
+ends without a terminal event losing nothing. Each is written once and run
+against every entry in `ADAPTERS`, so a rule proven on one protocol cannot
+quietly go unproven on the next. Fixtures live in a `CONFORMANCE` table keyed
+by adapter path; an adapter with no entry fails by name.
+
 ## Evidence-guarding tests
 
 Two tests in the default run exist specifically to keep the documentation
