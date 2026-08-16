@@ -1,34 +1,38 @@
 """The seam that decides what leaves the machine.
 
-`extract` turns a request body into a flat, ordered list of `TextNode`s --
-every piece of free text the request carries, each with a pointer back to
-where it came from. `write_back` puts replacements into a copy of that body.
-Everything between the two is the caller's business: one `pseudonymize_batch`
-over `[n.text for n in nodes]` gives every node one mapping, which is what
-makes the answer reversible.
+Every protocol adapter's request walk turns a body into a flat, ordered list
+of `TextNode`s -- every piece of free text the request carries, each with a
+pointer back to where it came from -- and `write_back` puts replacements into
+a copy of that body. Everything between the two is the caller's business: one
+`pseudonymize_batch` over `[n.text for n in nodes]` gives every node one
+mapping, which is what makes the answer reversible.
 
-The walk is an allow-list in both directions. `adapter.openai` names the
-fields that hold text and the fields known to hold none; anything else that
-carries a string, at any depth, raises `UnscannableField`.
+This module holds what no protocol owns. The adapters hold the rest: each
+knows the fields of its own protocol that carry text and the fields known to
+carry none, and refuses anything else that carries a string, at any depth,
+with the `UnscannableField` defined here.
 
 That refusal will break the first time a provider adds a field, and it is
 still the right trade. A gateway that forwards what it does not understand
 leaks the moment a client adopts a new API feature, and does it silently --
 the failure mode is a request that looks like it worked.
 
-The response direction is the mirror image and deliberately asymmetric:
-`extract_response` never raises. A failure on the way out risks disclosure; a
-failure on the way back shows a placeholder, so the response walk skips what
-it does not recognise rather than aborting an answer the caller has already
-paid for.
+The response direction is the mirror image and deliberately asymmetric: an
+adapter's answer walk never raises. A failure on the way out risks
+disclosure; a failure on the way back shows a placeholder, so the answer walk
+skips what it does not recognise rather than aborting an answer the caller
+has already paid for.
 
-A second protocol adapter walks its own request rather than this one, and the
-pieces it needs to do that are public: `TextNode` and `UnscannableField` to
-speak the same language, `refuse_if_text` to apply the allow-list rule to a
-field with no rule of its own, and `walk_json_arguments` / `walk_json_value`
-to walk a serialised tool-call blob the way this walk does. That set is the
-front door -- an adapter reaching past it for something private is a sign the
-machinery it wants has not been named yet.
+An adapter walks its own protocol, and the pieces it needs to do that are
+public: `TextNode` and `UnscannableField` to speak the same language,
+`refuse_if_text` to apply the allow-list rule to a field with no rule of its
+own, and `walk_json_arguments` / `walk_json_value` to walk a serialised
+tool-call blob the way every protocol's tool calls have to be walked. That
+set is the front door -- an adapter reaching past it for something private is
+a sign the machinery it wants has not been named yet.
+
+Nothing here imports an adapter. The dependency runs one way, which is what
+keeps a protocol from becoming the special case the next one has to imitate.
 """
 
 from __future__ import annotations
@@ -38,13 +42,9 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from privaparse.gateway.adapter import openai as shape
-
 __all__ = [
     "TextNode",
     "UnscannableField",
-    "extract",
-    "extract_response",
     "refuse_if_text",
     "walk_json_arguments",
     "walk_json_value",
@@ -86,116 +86,7 @@ class TextNode:
     was_number: bool = False
 
 
-# --- the request direction, which fails closed -----------------------------
-
-
-def extract(body: Any) -> list[TextNode]:
-    """Every scannable string in `body`, in a stable order.
-
-    Raises `UnscannableField` on anything the walk has no rule for.
-    """
-    if not isinstance(body, dict):
-        raise UnscannableField((), "the request body is not a JSON object")
-
-    nodes: list[TextNode] = []
-    for key, value in body.items():
-        pointer = (key,)
-        if key == shape.MESSAGES_FIELD:
-            _walk_messages(value, pointer, nodes)
-        elif key in shape.IGNORED_REQUEST_FIELDS:
-            continue
-        else:
-            refuse_if_text(value, pointer, "unknown request field")
-    return nodes
-
-
-def _walk_messages(messages: Any, pointer: tuple[Any, ...], nodes: list[TextNode]) -> None:
-    if not isinstance(messages, list):
-        raise UnscannableField(pointer, "expected a list of messages")
-
-    for index, message in enumerate(messages):
-        at = pointer + (index,)
-        if not isinstance(message, dict):
-            raise UnscannableField(at, "expected a message object")
-
-        for key, value in message.items():
-            field = at + (key,)
-            if key in shape.IGNORED_MESSAGE_FIELDS:
-                continue
-            if key == shape.TOOL_CALLS_FIELD:
-                _walk_tool_calls(value, field, nodes)
-            elif key in shape.TEXT_MESSAGE_FIELDS:
-                _walk_text_field(value, field, nodes)
-            else:
-                refuse_if_text(value, field, "unknown message field")
-
-
-def _walk_text_field(value: Any, pointer: tuple[Any, ...], nodes: list[TextNode]) -> None:
-    """A message text field: a string, a list of content parts, or absent."""
-    if value is None:
-        return
-    if isinstance(value, str):
-        nodes.append(TextNode(pointer, value))
-        return
-    if isinstance(value, list):
-        _walk_content_parts(value, pointer, nodes)
-        return
-    raise UnscannableField(pointer, "expected a string or a list of content parts")
-
-
-def _walk_content_parts(parts: list[Any], pointer: tuple[Any, ...], nodes: list[TextNode]) -> None:
-    for index, part in enumerate(parts):
-        at = pointer + (index,)
-        if not isinstance(part, dict):
-            raise UnscannableField(at, "expected a content part object")
-
-        part_type = part.get(shape.PART_TYPE_FIELD)
-        if part_type != shape.TEXT_PART_TYPE:
-            # An image, an audio clip, a file reference: the detector cannot
-            # read any of it, so forwarding it would send unexamined content.
-            raise UnscannableField(at, f"content part of type {part_type!r} cannot be scanned")
-
-        for key, value in part.items():
-            field = at + (key,)
-            if key == shape.PART_TYPE_FIELD:
-                continue
-            if key == shape.TEXT_PART_FIELD:
-                _walk_text_field(value, field, nodes)
-            else:
-                refuse_if_text(value, field, "unknown content part field")
-
-
-def _walk_tool_calls(calls: Any, pointer: tuple[Any, ...], nodes: list[TextNode]) -> None:
-    if not isinstance(calls, list):
-        raise UnscannableField(pointer, "expected a list of tool calls")
-
-    for index, call in enumerate(calls):
-        at = pointer + (index,)
-        if not isinstance(call, dict):
-            raise UnscannableField(at, "expected a tool call object")
-
-        for key, value in call.items():
-            field = at + (key,)
-            if key in shape.IGNORED_TOOL_CALL_FIELDS:
-                continue
-            if key == shape.FUNCTION_FIELD:
-                _walk_function(value, field, nodes)
-            else:
-                refuse_if_text(value, field, "unknown tool call field")
-
-
-def _walk_function(function: Any, pointer: tuple[Any, ...], nodes: list[TextNode]) -> None:
-    if not isinstance(function, dict):
-        raise UnscannableField(pointer, "expected a function object")
-
-    for key, value in function.items():
-        field = pointer + (key,)
-        if key in shape.IGNORED_FUNCTION_FIELDS:
-            continue
-        if key in shape.JSON_FUNCTION_FIELDS:
-            walk_json_arguments(value, field, nodes)
-        else:
-            refuse_if_text(value, field, "unknown function field")
+# --- the machinery an adapter's walk is built from -------------------------
 
 
 def walk_json_arguments(raw: Any, pointer: tuple[Any, ...], nodes: list[TextNode]) -> None:
@@ -329,79 +220,3 @@ def _set(container: Any, pointer: tuple[Any, ...], value: Any) -> None:
         container = container[step]
     container[pointer[-1]] = value
 
-
-# --- the response direction, which never aborts ----------------------------
-
-
-def extract_response(body: Any) -> list[TextNode]:
-    """Every restorable string in a completion body. Never raises.
-
-    Where `extract` refuses what it cannot place, this skips it. The
-    asymmetry is the design: an unrecognised field on the way out might be a
-    name being disclosed, while on the way back it is at worst a placeholder
-    the user sees.
-    """
-    nodes: list[TextNode] = []
-    if not isinstance(body, dict):
-        return nodes
-
-    choices = body.get(shape.RESPONSE_CHOICES_FIELD)
-    if not isinstance(choices, list):
-        return nodes
-
-    for index, choice in enumerate(choices):
-        if not isinstance(choice, dict):
-            continue
-        message = choice.get(shape.RESPONSE_MESSAGE_FIELD)
-        if not isinstance(message, dict):
-            continue
-        at = (shape.RESPONSE_CHOICES_FIELD, index, shape.RESPONSE_MESSAGE_FIELD)
-        _collect_response_message(message, at, nodes)
-
-    return nodes
-
-
-def _collect_response_message(
-    message: dict, pointer: tuple[Any, ...], nodes: list[TextNode]
-) -> None:
-    for field in ("content", "refusal"):
-        value = message.get(field)
-        if isinstance(value, str):
-            nodes.append(TextNode(pointer + (field,), value))
-        elif isinstance(value, list):
-            for index, part in enumerate(value):
-                if not isinstance(part, dict):
-                    continue
-                text = part.get(shape.TEXT_PART_FIELD)
-                if isinstance(text, str):
-                    nodes.append(
-                        TextNode(pointer + (field, index, shape.TEXT_PART_FIELD), text)
-                    )
-
-    calls = message.get(shape.TOOL_CALLS_FIELD)
-    if not isinstance(calls, list):
-        return
-
-    for index, call in enumerate(calls):
-        if not isinstance(call, dict):
-            continue
-        function = call.get(shape.FUNCTION_FIELD)
-        if not isinstance(function, dict):
-            continue
-        raw = function.get(shape.FUNCTION_ARGUMENTS_FIELD)
-        if not isinstance(raw, str):
-            continue
-        root = pointer + (
-            shape.TOOL_CALLS_FIELD,
-            index,
-            shape.FUNCTION_FIELD,
-            shape.FUNCTION_ARGUMENTS_FIELD,
-        )
-        try:
-            parsed = json.loads(raw)
-        except ValueError:
-            # A truncated tool call still deserves its placeholders back, so
-            # the whole string is restored as text rather than dropped.
-            nodes.append(TextNode(root, raw))
-            continue
-        walk_json_value(parsed, root, root, nodes)

@@ -48,8 +48,8 @@ from privaparse.gateway.extract import (
 __all__ = [
     "INPUT_FIELD",
     "INSTRUCTIONS_FIELD",
-    "extract_input",
-    "extract_output",
+    "extract_answer",
+    "extract_request",
     "with_placeholder_hint",
 ]
 
@@ -157,7 +157,7 @@ TEXT_PART_TYPES = frozenset({"input_text", "output_text", "text"})
 PART_TEXT_FIELD = "text"
 
 
-def extract_input(body: Any, *, allow_images: bool = False) -> list[TextNode]:
+def extract_request(body: Any, *, allow_images: bool = False) -> list[TextNode]:
     """Every scannable string in a Responses request. Fails closed.
 
     ``allow_images`` forwards parts the detector cannot read rather than
@@ -362,7 +362,7 @@ def with_placeholder_hint(body: dict) -> dict:
 # --- the response direction, which never aborts ----------------------------
 
 
-def extract_output(body: Any) -> list[TextNode]:
+def extract_answer(body: Any) -> list[TextNode]:
     """Every restorable string in a Responses answer. Never raises.
 
     The same asymmetry the chat adapter has: refusing on the way out protects

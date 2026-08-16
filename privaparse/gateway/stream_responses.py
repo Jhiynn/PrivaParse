@@ -50,7 +50,7 @@ from typing import Any
 
 from privaparse.app.logging import get_logger
 from privaparse.database.placeholder import contains_placeholder
-from privaparse.gateway.adapter.responses import extract_output
+from privaparse.gateway.adapter.responses import extract_answer
 from privaparse.gateway.extract import write_back
 from privaparse.gateway.stream import (
     _MAYBE_MANGLED_RE,
@@ -351,7 +351,7 @@ async def _restore_item(item: dict, restored) -> dict:
 
 async def _restore_response(answer: dict, restored) -> dict:
     """The whole response object, through the ordinary response walk."""
-    nodes = extract_output(answer)
+    nodes = extract_answer(answer)
     if not nodes:
         return answer
     values = [await restored(node.text) for node in nodes]

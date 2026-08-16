@@ -4,9 +4,10 @@
 `/v1/chat/completions` is the request path: extract every piece of text,
 pseudonymise all of it under one mapping, and forward only what came back.
 
-The route fails closed. Anything the extraction seam cannot place stops the
-request where it stands, before a byte reaches the provider -- a 502 returned
-after forwarding would satisfy a status-code check and leak regardless.
+The route fails closed. Anything an adapter's request walk cannot place stops
+the request where it stands, before a byte reaches the provider -- a 502
+returned after forwarding would satisfy a status-code check and leak
+regardless.
 
 The answer is restored on the way back, and that half never aborts: a failure
 outbound risks disclosure, a failure inbound costs readability.
@@ -40,12 +41,7 @@ from privaparse.gateway.errors import (
     malformed_body,
     unscannable,
 )
-from privaparse.gateway.extract import (
-    UnscannableField,
-    extract,
-    extract_response,
-    write_back,
-)
+from privaparse.gateway.extract import UnscannableField, write_back
 from privaparse.gateway.metrics import Metrics
 from privaparse.gateway.stream import max_placeholder_length, restore_sse
 from privaparse.gateway.stream_responses import restore_responses_sse
@@ -72,7 +68,7 @@ async def _restore(
     reply: dict,
     *,
     fuzzy: bool = False,
-    walk=extract_response,
+    walk=shape.extract_answer,
 ) -> dict:
     """Put the real values back into the provider's answer.
 
@@ -185,7 +181,7 @@ def create_app(
         streaming = bool(body.get("stream")) if isinstance(body, dict) else False
 
         try:
-            nodes = extract(body)
+            nodes = shape.extract_request(body)
         except UnscannableField as refusal:
             # Fail closed. The pointer is logged and returned; the value that
             # tripped it is in neither, which is the whole reason
@@ -273,7 +269,7 @@ def create_app(
         streaming = bool(body.get("stream")) if isinstance(body, dict) else False
 
         try:
-            nodes = responses_shape.extract_input(
+            nodes = responses_shape.extract_request(
                 body, allow_images=settings.gateway_allow_images
             )
         except UnscannableField as refusal:
@@ -330,7 +326,7 @@ def create_app(
                 mapping_id,
                 reply,
                 fuzzy=settings.gateway_fuzzy,
-                walk=responses_shape.extract_output,
+                walk=responses_shape.extract_answer,
             )
         return JSONResponse(reply, status_code=status)
 
