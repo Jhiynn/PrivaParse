@@ -274,7 +274,11 @@ def test_the_second_request_is_pseudonymised_and_restored_like_the_first(
     counting = CountingDetector(fake_detector)
     engine = _engine(settings, counting)
     client = TestClient(create_app(settings, engine=engine, upstream=upstream))
-    upstream.echo = True
+    upstream.echo_with(
+        lambda sent: sent["messages"][-1]["content"],
+        lambda text: {"choices": [{"index": 0, "finish_reason": "stop",
+                                   "message": {"role": "assistant", "content": text}}]},
+    )
     body = {"model": "gpt-4o", "messages": [{"role": "user", "content": "Hallo Max Mustermann"}]}
 
     first = client.post("/v1/chat/completions", json=body)

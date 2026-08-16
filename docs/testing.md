@@ -55,13 +55,26 @@ fallbacks, the upstream relay, and metrics.
 
 One suite there is parametrised rather than per-protocol.
 `tests/gateway/test_adapter_conformance.py` holds the rules the route body
-guarantees whatever protocol adapter it is pointed at — failing closed, one
-mapping per request, the hint, `gateway_allow_images`, 500 rather than 503
-when detection is unavailable, restoration never aborting, and a stream that
-ends without a terminal event losing nothing. Each is written once and run
-against every entry in `ADAPTERS`, so a rule proven on one protocol cannot
-quietly go unproven on the next. Fixtures live in a `CONFORMANCE` table keyed
-by adapter path; an adapter with no entry fails by name.
+guarantees whatever protocol adapter it is pointed at — failing closed with a
+pointer and no value, the provider never seeing the name, the answer coming
+back restored, a body with no text at all forwarded without a mapping, one
+mapping per request, the hint exactly once and only when something was
+replaced, `gateway_allow_images`, 500 rather than 503 when detection is
+unavailable (with the install guidance, streaming and not), restoration never
+aborting, and a stream that ends without a terminal event losing nothing.
+Each is written once and run against every entry in `ADAPTERS`, so a rule
+proven on one protocol cannot quietly go unproven on the next.
+
+Fixtures live in a `CONFORMANCE` table keyed by adapter name; an adapter with
+no entry fails by name. A set carries sample bodies **and** accessors — given
+a forwarded request, where is the text the gateway sent; given a reply, where
+is the text it restored — so no shared assertion reads a body positionally,
+and the fake upstream's echo mode takes its reader and writer from the set
+rather than assuming one protocol's shape.
+
+What stays in `test_server.py` and `test_responses_route.py` is what is
+genuinely protocol-shaped: how a tool call is reserialised, where `usage`
+sits, where the hint lands, what a bare-string `input` does.
 
 ## Evidence-guarding tests
 

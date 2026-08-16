@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import copy
 import json
+from collections.abc import Callable
 
 import pytest
 from starlette.testclient import TestClient
@@ -9,6 +9,11 @@ from starlette.testclient import TestClient
 from privaparse.engine import PrivaParseEngine
 from privaparse.gateway.server import create_app
 from privaparse.gateway.upstream import Upstream
+
+#: Given a forwarded request, the text the gateway sent.
+EchoReader = Callable[[dict], str]
+#: Given that text, an answer carrying it in one protocol's own shape.
+EchoWriter = Callable[[str], dict]
 
 
 class FakeUpstream:
@@ -27,11 +32,18 @@ class FakeUpstream:
         #: Set by a test that wants to see how the gateway handles a provider
         #: error -- a rate limit, an auth failure -- rather than a completion.
         self.status: int = 200
-        #: When true, the reply's assistant content is whatever arrived in the
-        #: first message. A real model repeats a placeholder back at you
-        #: constantly -- it looks like a name to it -- and that is the only way
-        #: a test can see a placeholder it could not have known in advance.
-        self.echo: bool = False
+        #: A reader and a writer, set through `echo_with`: the reply carries
+        #: back whatever text arrived. A real model repeats a placeholder back
+        #: at you constantly -- it looks like a name to it -- and that is the
+        #: only way a test can see a placeholder it could not have known in
+        #: advance.
+        #:
+        #: Both halves come from the caller rather than from this class,
+        #: because where the text sits in a request and how an answer carries
+        #: it are the protocol's business. A fake that knew one protocol's
+        #: shape could only echo for that one, which is how an assertion comes
+        #: to exist for one adapter and not for its peer.
+        self.echo: tuple[EchoReader, EchoWriter] | None = None
         #: Optional callable(body) -> reply, for a test whose expected answer
         #: has to contain a placeholder only this request could have issued.
         self.reply_for = None
@@ -50,15 +62,19 @@ class FakeUpstream:
         }
         self.chunks: list[bytes] = []
 
+    def echo_with(self, read: EchoReader, write: EchoWriter) -> None:
+        """Answer every request with the text it carried, in `write`'s shape."""
+        self.echo = (read, write)
+
     async def post_json(self, path, body, headers):
         self.requests.append(json.loads(json.dumps(body)))
         self.headers.append(Upstream._headers(headers))
         reply = self.reply
         if self.reply_for is not None:
             reply = self.reply_for(body)
-        elif self.echo:
-            reply = copy.deepcopy(self.reply)
-            reply["choices"][0]["message"]["content"] = body["messages"][0]["content"]
+        elif self.echo is not None:
+            read, write = self.echo
+            reply = write(read(body))
         return self.status, reply, {"content-type": "application/json"}
 
     async def get_json(self, path, headers):
