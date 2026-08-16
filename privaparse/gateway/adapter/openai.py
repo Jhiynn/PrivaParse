@@ -12,6 +12,8 @@ Anything not named here that carries a string is refused by `extract` -- see
 
 from __future__ import annotations
 
+from privaparse.gateway.adapter.shared import PLACEHOLDER_HINT
+
 # Top-level request fields skipped whole. Several of them are strings or nest
 # strings, which is the point of listing them: `model` and `user` are
 # identifiers the provider needs verbatim, `stop` holds client-chosen
@@ -93,17 +95,6 @@ TEXT_PART_FIELD = "text"
 # places it tolerates.
 RESPONSE_CHOICES_FIELD = "choices"
 RESPONSE_MESSAGE_FIELD = "message"
-
-# The opt-in outbound hint. Deliberately short: it is prepended to somebody
-# else's prompt, and every token of it is billed to them. It names the shape
-# rather than explaining the scheme, because the provider does not need to be
-# told what the placeholders stand for.
-PLACEHOLDER_HINT = (
-    "Some values in this conversation are replaced by privacy placeholders of the "
-    "form [[TYPE_A1]]. Reproduce any such token exactly as written, character for "
-    "character, including both pairs of square brackets. Never translate, rename, "
-    "reformat, quote, split or omit one."
-)
 
 
 def with_placeholder_hint(body: dict) -> dict:
