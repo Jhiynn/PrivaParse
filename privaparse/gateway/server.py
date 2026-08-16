@@ -35,7 +35,11 @@ from privaparse.gateway.adapter import responses as responses_shape
 from privaparse.gateway.auth import ApiKeyMiddleware
 from privaparse.gateway.cache import CachingDetector, DetectionCache
 from privaparse.gateway.direct import direct_routes
-from privaparse.gateway.errors import _error
+from privaparse.gateway.errors import (
+    detection_unavailable,
+    malformed_body,
+    unscannable,
+)
 from privaparse.gateway.extract import (
     UnscannableField,
     extract,
@@ -176,7 +180,7 @@ def create_app(
         try:
             body = await request.json()
         except ValueError:
-            return _error(400, "the request body is not valid JSON", "invalid_request_error")
+            return malformed_body()
 
         streaming = bool(body.get("stream")) if isinstance(body, dict) else False
 
@@ -187,11 +191,7 @@ def create_app(
             # tripped it is in neither, which is the whole reason
             # UnscannableField carries a pointer instead of a payload.
             logger.warning("refused a request: %s", refusal)
-            return _error(
-                502,
-                f"privaparse cannot scan this request and will not forward it: {refusal}",
-                "privaparse_unscannable_field",
-            )
+            return unscannable(refusal)
 
         started = time.perf_counter()
         outbound = body
@@ -217,11 +217,8 @@ def create_app(
                     )
                 )
             except GlinerUnavailableError as exc:
-                # A genuine server-side misconfiguration, not a transient
-                # failure -- 500, not 503, so an OpenAI-compatible client does
-                # not retry a condition that only an operator can fix.
                 logger.error("detection is unavailable: %s", exc)
-                return _error(500, str(exc), "privaparse_model_unavailable")
+                return detection_unavailable(exc)
             outbound = write_back(body, nodes, batch.texts)
             mapping_id = batch.mapping_id
             entities = len(batch.placeholders)
@@ -271,7 +268,7 @@ def create_app(
         try:
             body = await request.json()
         except ValueError:
-            return _error(400, "the request body is not valid JSON", "invalid_request_error")
+            return malformed_body()
 
         streaming = bool(body.get("stream")) if isinstance(body, dict) else False
 
@@ -281,11 +278,7 @@ def create_app(
             )
         except UnscannableField as refusal:
             logger.warning("refused a responses request: %s", refusal)
-            return _error(
-                502,
-                f"privaparse cannot scan this request and will not forward it: {refusal}",
-                "privaparse_unscannable_field",
-            )
+            return unscannable(refusal)
 
         started = time.perf_counter()
         outbound = body
@@ -305,10 +298,8 @@ def create_app(
                     )
                 )
             except GlinerUnavailableError as exc:
-                # See the matching handler in chat_completions: 500, not 503
-                # -- this does not resolve on retry.
                 logger.error("detection is unavailable: %s", exc)
-                return _error(500, str(exc), "privaparse_model_unavailable")
+                return detection_unavailable(exc)
             outbound = write_back(body, nodes, batch.texts)
             mapping_id = batch.mapping_id
             entities = len(batch.placeholders)
