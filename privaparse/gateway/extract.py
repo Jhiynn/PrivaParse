@@ -26,10 +26,12 @@ has already paid for.
 An adapter walks its own protocol, and the pieces it needs to do that are
 public: `TextNode` and `UnscannableField` to speak the same language,
 `refuse_if_text` to apply the allow-list rule to a field with no rule of its
-own, and `walk_json_arguments` / `walk_json_value` to walk a serialised
-tool-call blob the way every protocol's tool calls have to be walked. That
-set is the front door -- an adapter reaching past it for something private is
-a sign the machinery it wants has not been named yet.
+own, and `walk_json_arguments` / `walk_restorable_arguments` /
+`walk_json_value` to walk a serialised tool-call blob -- strictly on the way
+out, forgivingly on the way back. Every protocol carries tool calls as a JSON
+string inside its JSON, so none of that is any one protocol's. That set is
+the front door -- an adapter reaching past it for something private is a sign
+the machinery it wants has not been named yet.
 
 Nothing here imports an adapter. The dependency runs one way, which is what
 keeps a protocol from becoming the special case the next one has to imitate.
@@ -48,6 +50,7 @@ __all__ = [
     "refuse_if_text",
     "walk_json_arguments",
     "walk_json_value",
+    "walk_restorable_arguments",
     "write_back",
 ]
 
@@ -109,6 +112,25 @@ def walk_json_arguments(raw: Any, pointer: tuple[Any, ...], nodes: list[TextNode
             pointer, f"arguments are not valid JSON ({type(error).__name__})"
         ) from error
     walk_json_value(parsed, pointer, pointer, nodes)
+
+
+def walk_restorable_arguments(
+    raw: str, root: tuple[Any, ...], nodes: list[TextNode]
+) -> None:
+    """A tool call's serialised arguments on the way back. Never raises.
+
+    The mirror of `walk_json_arguments`, and asymmetric for the same reason
+    the two directions are: where that one refuses a blob it cannot parse,
+    this restores the whole string as text. A tool call truncated by a
+    provider still deserves its placeholders back, and dropping it would cost
+    the caller an answer they have already paid for.
+    """
+    try:
+        parsed = json.loads(raw)
+    except ValueError:
+        nodes.append(TextNode(root, raw))
+        return
+    walk_json_value(parsed, root, root, nodes)
 
 
 def walk_json_value(
@@ -219,4 +241,3 @@ def _set(container: Any, pointer: tuple[Any, ...], value: Any) -> None:
     for step in pointer[:-1]:
         container = container[step]
     container[pointer[-1]] = value
-

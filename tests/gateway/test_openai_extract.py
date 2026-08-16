@@ -266,7 +266,7 @@ def test_write_back_handles_two_nodes_in_one_arguments_string():
     assert arguments == {"to": "[[EMAIL_A1]]", "body": "[[PERSON_A1]] hier"}
 
 
-def test_write_back_covers_every_node_extract_produced():
+def test_write_back_covers_every_node_the_request_walk_produced():
     """Extraction and write-back walk the same tree, so nothing is stranded."""
     body = {"model": "gpt-4o", "messages": [
         {"role": "system", "content": "Du bist hilfreich."},

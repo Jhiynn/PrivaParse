@@ -31,8 +31,8 @@ from starlette.routing import Route
 from privaparse.app.config import Settings
 from privaparse.app.logging import get_logger
 from privaparse.engine import PrivaParseEngine
-from privaparse.gateway.adapter import openai as shape
-from privaparse.gateway.adapter import responses as responses_shape
+from privaparse.gateway.adapter import openai as chat_adapter
+from privaparse.gateway.adapter import responses as responses_adapter
 from privaparse.gateway.auth import ApiKeyMiddleware
 from privaparse.gateway.cache import CachingDetector, DetectionCache
 from privaparse.gateway.direct import direct_routes
@@ -68,7 +68,7 @@ async def _restore(
     reply: dict,
     *,
     fuzzy: bool = False,
-    walk=shape.extract_answer,
+    walk=chat_adapter.extract_answer,
 ) -> dict:
     """Put the real values back into the provider's answer.
 
@@ -181,7 +181,7 @@ def create_app(
         streaming = bool(body.get("stream")) if isinstance(body, dict) else False
 
         try:
-            nodes = shape.extract_request(body)
+            nodes = chat_adapter.extract_request(body)
         except UnscannableField as refusal:
             # Fail closed. The pointer is logged and returned; the value that
             # tripped it is in neither, which is the whole reason
@@ -223,7 +223,7 @@ def create_app(
                 # detector, so it cannot be scanned or stored as an entity.
                 # Only when something was actually replaced -- otherwise the
                 # caller pays tokens for a request with nothing to protect.
-                outbound = shape.with_placeholder_hint(outbound)
+                outbound = chat_adapter.with_placeholder_hint(outbound)
 
         # Recorded here rather than when the answer lands: this is PrivaParse's
         # own share of the request, which is the part an operator can act on.
@@ -259,7 +259,7 @@ def create_app(
         """The Responses API, which is the only protocol Codex CLI speaks.
 
         Same rules as the chat route -- one mapping per request, fail closed
-        outbound, never abort inbound -- over a different shape.
+        outbound, never abort inbound -- over a different protocol.
         """
         try:
             body = await request.json()
@@ -269,7 +269,7 @@ def create_app(
         streaming = bool(body.get("stream")) if isinstance(body, dict) else False
 
         try:
-            nodes = responses_shape.extract_request(
+            nodes = responses_adapter.extract_request(
                 body, allow_images=settings.gateway_allow_images
             )
         except UnscannableField as refusal:
@@ -300,7 +300,7 @@ def create_app(
             mapping_id = batch.mapping_id
             entities = len(batch.placeholders)
             if settings.gateway_hint and entities:
-                outbound = responses_shape.with_placeholder_hint(outbound)
+                outbound = responses_adapter.with_placeholder_hint(outbound)
 
         metrics.record(entities=entities, seconds=time.perf_counter() - started)
 
@@ -326,7 +326,7 @@ def create_app(
                 mapping_id,
                 reply,
                 fuzzy=settings.gateway_fuzzy,
-                walk=responses_shape.extract_answer,
+                walk=responses_adapter.extract_answer,
             )
         return JSONResponse(reply, status_code=status)
 

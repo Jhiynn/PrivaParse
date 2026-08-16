@@ -2,9 +2,9 @@
 
 Everything the gateway knows about this one wire protocol -- where text sits
 in a request, where it sits in an answer -- lives here, the way the Responses
-adapter next door owns its own. The extraction seam holds what neither
-protocol owns: the text node, the refusal, the allow-list rule, the walk over
-a serialised tool-call blob, and the write-back.
+adapter next door owns its own. The extraction seam holds what no protocol
+owns: the text node, the refusal, the allow-list rule, the walks over a
+serialised tool-call blob, and the write-back.
 
 Two lists and one rule. `IGNORED_REQUEST_FIELDS` names the top-level fields
 that carry no scannable text; the message fields below name what is walked.
@@ -14,7 +14,6 @@ Anything not named here that carries a string is refused -- see
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from privaparse.gateway.adapter.shared import PLACEHOLDER_HINT
@@ -23,7 +22,7 @@ from privaparse.gateway.extract import (
     UnscannableField,
     refuse_if_text,
     walk_json_arguments,
-    walk_json_value,
+    walk_restorable_arguments,
 )
 
 __all__ = [
@@ -251,7 +250,7 @@ def with_placeholder_hint(body: dict) -> dict:
 
 
 def extract_answer(body: Any) -> list[TextNode]:
-    """Every restorable string in a completion body. Never raises.
+    """Every restorable string in a Chat Completions answer. Never raises.
 
     Where `extract_request` refuses what it cannot place, this skips it. The
     asymmetry is the design: an unrecognised field on the way out might be a
@@ -314,11 +313,4 @@ def _collect_response_message(
             FUNCTION_FIELD,
             FUNCTION_ARGUMENTS_FIELD,
         )
-        try:
-            parsed = json.loads(raw)
-        except ValueError:
-            # A truncated tool call still deserves its placeholders back, so
-            # the whole string is restored as text rather than dropped.
-            nodes.append(TextNode(root, raw))
-            continue
-        walk_json_value(parsed, root, root, nodes)
+        walk_restorable_arguments(raw, root, nodes)

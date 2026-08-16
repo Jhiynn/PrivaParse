@@ -33,7 +33,6 @@ pass, after a real Codex session found four of them one 502 at a time.
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from privaparse.gateway.adapter.shared import PLACEHOLDER_HINT
@@ -42,12 +41,10 @@ from privaparse.gateway.extract import (
     UnscannableField,
     refuse_if_text,
     walk_json_arguments,
-    walk_json_value,
+    walk_restorable_arguments,
 )
 
 __all__ = [
-    "INPUT_FIELD",
-    "INSTRUCTIONS_FIELD",
     "extract_answer",
     "extract_request",
     "with_placeholder_hint",
@@ -396,13 +393,6 @@ def extract_answer(body: Any) -> list[TextNode]:
             raw = item.get("arguments")
             if not isinstance(raw, str):
                 continue
-            root = at + ("arguments",)
-            try:
-                parsed = json.loads(raw)
-            except ValueError:
-                # A truncated tool call still deserves its placeholders back.
-                nodes.append(TextNode(root, raw))
-                continue
-            walk_json_value(parsed, root, root, nodes)
+            walk_restorable_arguments(raw, at + ("arguments",), nodes)
 
     return nodes
