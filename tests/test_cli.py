@@ -130,7 +130,7 @@ def test_detect_does_not_write_to_the_vault(workspace: Path) -> None:
     assert "entities      0" in stats.output
 
 
-def test_vault_mappings_lists_sessions_so_a_lost_id_is_recoverable(
+def test_vault_mappings_lists_mappings_so_a_lost_id_is_recoverable(
     workspace: Path,
 ) -> None:
     """Without this, losing the id printed by `pseudonymize` makes the document

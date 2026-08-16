@@ -4,7 +4,7 @@ Every request carries a value only it knows. The provider echoes placeholders
 back, so a caller only ever sees a real address again if restoration worked --
 and if it resolved against *its own* mapping. A response holding another
 request's address is the failure this exists to find: one shared vault, N
-concurrent sessions, and `reverse` scoped to exactly one of them.
+concurrent mappings, and `reverse` scoped to exactly one of them.
 
 This is what caught the registry race fixed in `parser/registry.py`: seven of
 twenty-four concurrent requests came back 500 on a cold process, because a

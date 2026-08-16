@@ -102,7 +102,7 @@ def test_reverse_reports_a_clean_run(engine: PrivaParseEngine, two_documents) ->
 # --- automatic mapping lookup ----------------------------------------------
 
 
-def test_omitting_the_mapping_finds_the_right_session(
+def test_omitting_the_mapping_finds_the_right_mapping(
     engine: PrivaParseEngine, two_documents
 ) -> None:
     """Managing ids by hand is friction, not a security property."""
@@ -116,10 +116,10 @@ def test_omitting_the_mapping_finds_the_right_session(
 def test_automatic_lookup_does_not_unmask_someone_elses_placeholder(
     engine: PrivaParseEngine, two_documents
 ) -> None:
-    """The point of the whole session mechanism.
+    """The point of the whole mapping mechanism.
 
-    A crafted file mixing in a foreign placeholder is covered by no session, so
-    the lookup refuses rather than quietly picking whichever session happens to
+    A crafted file mixing in a foreign placeholder is covered by no mapping, so
+    the lookup refuses rather than quietly picking whichever mapping happens to
     know that placeholder.
     """
     doc_a, doc_b = two_documents
@@ -142,11 +142,11 @@ def test_automatic_lookup_needs_something_to_look_up(engine: PrivaParseEngine) -
         engine.reverse(None, "Ein Text ganz ohne Platzhalter.")
 
 
-def test_automatic_lookup_prefers_the_newest_covering_session(
+def test_automatic_lookup_prefers_the_newest_covering_mapping(
     engine: PrivaParseEngine,
 ) -> None:
     """Re-running pseudonymize on the same document is common; the newest
-    session covering everything is the one the caller almost certainly means."""
+    mapping covering everything is the one the caller almost certainly means."""
     text = "Max Mustermann kam."
     first = engine.pseudonymize(text, source_name="a.md")
     second = engine.pseudonymize(text, source_name="a.md")

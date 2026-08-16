@@ -27,7 +27,8 @@ SOURCE_COREF = "coref"
 
 @dataclass(frozen=True, slots=True)
 class Span:
-    """A detected entity, addressed by character offsets into the source text.
+    """One detected occurrence of PII, addressed by character offsets into the
+    source text.
 
     Offsets always refer to the **original** document, never to a masked or
     chunked view — every producer is responsible for translating back before

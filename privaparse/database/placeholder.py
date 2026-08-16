@@ -1,6 +1,6 @@
 """Placeholder suffix generation and parsing.
 
-Suffixes come from a single counter shared by **all** entity types, so the
+Suffixes come from a single counter shared by **all** placeholder types, so the
 sequence runs ``PERSON_A1``, ``EMAIL_A2``, ``PHONE_A3``. A per-type counter
 would produce ``PERSON_A1`` / ``EMAIL_A1`` / ``PHONE_A1``, which reads as if
 those three belong to the same person. Phase 1 does no cross-type linking, so

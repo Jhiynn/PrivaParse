@@ -15,7 +15,7 @@ Four design decisions worth knowing about:
 **The vault is global.** A value gets the same placeholder in every document,
 forever. `Max Mustermann` is `[[PERSON_A1]]` today and next year.
 
-**Reversal is scoped to one session.** Because placeholders are stable they are
+**Reversal is scoped to one mapping.** Because placeholders are stable they are
 also guessable, so `reverse()` only resolves placeholders that *this* mapping
 issued. Anything else is left in place and reported. Without that, writing
 `[[PERSON_A47]]` into a document would read back a stranger's name.

@@ -86,7 +86,7 @@ anything, which does not fit in 8k.
 Every text-bearing field is extracted, pseudonymised under **one mapping per
 request**, and written back before anything is forwarded. One mapping matters:
 the answer mixes placeholders from every message, and `reverse` resolves
-against exactly one session.
+against exactly one mapping.
 
 **The request path fails closed.** A field the gateway has no rule for stops
 the request with a 502 and nothing reaches the provider — a gateway that
@@ -121,7 +121,7 @@ a repeated turn. Both scale linearly with payload size, so they extrapolate.
 
 The warm second is not detection — that is cached — it is span resolution and
 the vault writes behind it, which every request does because a mapping is what
-scopes an answer to one session. Full method, environment and caveats in
+scopes an answer to one mapping. Full method, environment and caveats in
 [benchmarks/gateway-latency.md](benchmarks/gateway-latency.md); the most
 important caveat is that the measurement ran on four cores, so the warm figure
 should improve on a workstation.

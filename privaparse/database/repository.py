@@ -28,7 +28,7 @@ _MAX_SUFFIX_RETRIES = 5
 
 @dataclass(frozen=True)
 class MappingSummary:
-    """One pseudonymisation session, described without revealing its contents."""
+    """One mapping, described without revealing its contents."""
 
     id: str
     created_at: datetime
@@ -221,7 +221,7 @@ class VaultRepository:
         return self.session.get(Mapping, mapping_id)
 
     def restore_table(self, mapping_id: str) -> dict[str, str]:
-        """``{placeholder: original spelling}`` for exactly this session.
+        """``{placeholder: original spelling}`` for exactly this mapping.
 
         Placeholders outside this mapping are deliberately absent — see the
         module docstring of :mod:`privaparse.database.models`.
@@ -242,11 +242,11 @@ class VaultRepository:
     def find_covering_mappings(
         self, placeholders: set[str], limit: int = 50
     ) -> list[MappingSummary]:
-        """Sessions that issued **every** placeholder in ``placeholders``.
+        """Mappings that issued **every** placeholder in ``placeholders``.
 
-        Requiring full coverage is what keeps this from weakening the session
+        Requiring full coverage is what keeps this from weakening the mapping
         boundary. A document carrying one placeholder from somewhere else — an
-        injected one, or a hallucinated one — is covered by no session at all,
+        injected one, or a hallucinated one — is covered by no mapping at all,
         so the search fails and the caller has to name a mapping explicitly.
         At that point the foreign placeholder is refused by the normal rule.
         """
@@ -296,7 +296,7 @@ class VaultRepository:
     def recent_mappings(
         self, limit: int = 20, match: str | None = None
     ) -> list[MappingSummary]:
-        """Recent sessions, newest first. Returns no stored values."""
+        """Recent mappings, newest first. Returns no stored values."""
         stmt = select(Mapping).order_by(Mapping.created_at.desc())
         if match:
             stmt = stmt.where(Mapping.source_name.ilike(f"%{match}%"))

@@ -100,7 +100,7 @@ def test_repeated_pseudonymisation_of_the_same_text_is_deterministic(
     second = engine.pseudonymize(beispiel_md)
 
     assert first.text == second.text
-    assert first.mapping_id != second.mapping_id  # separate sessions
+    assert first.mapping_id != second.mapping_id  # separate mappings
 
 
 def test_corrupt_span_offsets_abort_instead_of_damaging_the_document(

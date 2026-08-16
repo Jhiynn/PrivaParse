@@ -4,7 +4,7 @@ The rule that shapes this module: **a placeholder is only resolved for the
 document that was issued it.** The vault is global, so without that scope
 anyone who can call ``reverse()`` could write ``[[PERSON_A47]]`` into a document
 and read back the name of a person they have never seen. Placeholders from other
-sessions are left in place and reported, not resolved.
+mappings are left in place and reported, not resolved.
 """
 
 from __future__ import annotations
@@ -33,15 +33,15 @@ class UnknownMappingError(KeyError):
 
 
 class ForeignPlaceholderError(RuntimeError):
-    """Raised in strict mode when a placeholder belongs to another session."""
+    """Raised in strict mode when a placeholder belongs to another mapping."""
 
 
 class NoCoveringMappingError(LookupError):
-    """Raised when no single session issued every placeholder in the text."""
+    """Raised when no single mapping issued every placeholder in the text."""
 
 
 def find_mapping_for(text: str, *, repo: VaultRepository) -> str:
-    """Identify the session that issued every placeholder in ``text``.
+    """Identify the mapping that issued every placeholder in ``text``.
 
     Convenience, not a loophole. Full coverage is required, so a document
     carrying a placeholder from elsewhere matches nothing and the caller is
@@ -60,11 +60,11 @@ def find_mapping_for(text: str, *, repo: VaultRepository) -> str:
             f" {len(unknown)} placeholder(s) were never issued by this vault: "
             f"{', '.join(unknown[:5])}"
             if unknown
-            else " the placeholders are spread across several sessions"
+            else " the placeholders are spread across several mappings"
         )
         raise NoCoveringMappingError(
-            f"no single session issued all {len(wanted)} placeholder(s) in this text —"
-            f"{detail}. List sessions with: privaparse vault mappings"
+            f"no single mapping issued all {len(wanted)} placeholder(s) in this text —"
+            f"{detail}. List mappings with: privaparse vault mappings"
         )
 
     chosen = covering[0]
@@ -106,7 +106,7 @@ def _tolerant_pattern(placeholder: str) -> re.Pattern[str] | None:
 
     What is *not* loosened is which placeholders may match at all. The pattern
     is built from one entry of one mapping's restore table, so widening the
-    spelling cannot widen the reach: a placeholder this session never issued
+    spelling cannot widen the reach: a placeholder this mapping never issued
     has no pattern here and matches nothing however it is written.
 
     The type name and the suffix must both appear. Either alone is a word
@@ -146,7 +146,7 @@ def reverse_text(
     if repo.get_mapping(mapping_id) is None:
         raise UnknownMappingError(
             f"no mapping with id {mapping_id!r}. "
-            f"List the sessions this vault knows with: privaparse vault mappings"
+            f"List the mappings this vault knows with: privaparse vault mappings"
         )
 
     table = repo.restore_table(mapping_id)
@@ -191,7 +191,7 @@ def reverse_text(
         )
         if strict:
             raise ForeignPlaceholderError(
-                f"placeholders from another session appeared in this text: "
+                f"placeholders from another mapping appeared in this text: "
                 f"{', '.join(foreign)}"
             )
     if unknown:

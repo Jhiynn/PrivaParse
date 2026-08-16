@@ -147,7 +147,7 @@ def _validate(doc_id: str, text: str, entities: list[dict]) -> None:
                 f"is {sliced!r}, expected {entity['text']!r}"
             )
         if entity["type"] not in VALID_TYPES:
-            raise ValueError(f"{doc_id}: unknown entity type {entity['type']!r}")
+            raise ValueError(f"{doc_id}: unknown placeholder type {entity['type']!r}")
 
     ordered = sorted(entities, key=lambda e: e["start"])
     for left, right in itertools.pairwise(ordered):

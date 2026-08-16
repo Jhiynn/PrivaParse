@@ -1,8 +1,8 @@
-"""The entity catalogue: which placeholder types exist and how they behave.
+"""The catalogue: which placeholder types exist and how they behave.
 
-Everything about an entity type lives in one YAML file — the model labels that
-feed it, how its values are normalised, what may veto the model, its detection
-threshold and the quality bar the evaluation holds it to. Splitting those
+Everything about a placeholder type lives in one YAML file — the model labels
+that feed it, how its values are normalised, what may veto the model, its
+detection threshold and the bar the evaluation holds it to. Splitting those
 across code and config was the thing that made adding a fourth type a
 five-module edit.
 
