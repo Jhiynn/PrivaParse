@@ -117,10 +117,17 @@ RESPONSE_MESSAGE_FIELD = "message"
 # --- the request direction, which fails closed -----------------------------
 
 
-def extract_request(body: Any) -> list[TextNode]:
+def extract_request(body: Any, *, allow_images: bool = False) -> list[TextNode]:
     """Every scannable string in a Chat Completions request, in a stable order.
 
     Raises `UnscannableField` on anything the walk has no rule for.
+
+    ``allow_images`` is accepted because every protocol's request walk takes
+    it: a walk that quietly lacked the parameter is how the setting came to
+    reach one route and not the other. It does nothing here *yet* -- an image
+    part still stops the request on this protocol, exactly as it did before --
+    and making it work is a behaviour change with a privacy dimension, so it
+    ships as its own fix rather than inside a change of shape.
     """
     if not isinstance(body, dict):
         raise UnscannableField((), "the request body is not a JSON object")
