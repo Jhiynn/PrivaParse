@@ -92,11 +92,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   in the configuration reference — promised only "image and file parts the
   detector cannot read", which is narrower than the rule the code has and
   contradicted the adapter's own comment; it now states that the skip is keyed
-  on a content part's *type*, so a part of a type the walk has never heard of
-  is forwarded with whatever text it carries. `docs/gateway.md` had no entry for
-  the setting at all and now carries one in its forwarded-unscanned list, for
-  both routes and with the residual. Documentation only, no behaviour change
-  (#34).
+  on a content part's *type*. `docs/gateway.md` had no entry for the setting at
+  all and now carries one in its forwarded-unscanned list, for both routes,
+  with the residual above and with the text part types each route knows — those
+  two sets differ, so a part type is unknown to one route's walk rather than to
+  the gateway as a whole. Documentation only, no behaviour change (#34).
 - `mypy` runs in CI over `privaparse/gateway`. The protocol adapter's callback
   types only make a mismatched walk an error if something checks them; nothing
   did, so the guarantee ADR-0003 rests on was not being enforced anywhere.

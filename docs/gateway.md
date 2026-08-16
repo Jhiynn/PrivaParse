@@ -259,17 +259,22 @@ person to the provider.
 cannot read stops the request with a 502, the same as any other field the
 gateway has no rule for. `PRIVAPARSE_GATEWAY_ALLOW_IMAGES=1` forwards such a
 part unscanned instead — it reaches the provider exactly as it was written,
-while text parts beside it in the same message are still pseudonymised. This is
-the allow-list's one deliberate hole, and it is scoped to content parts:
-an unknown request field, an unknown message field and a non-string where text
-belongs all still stop the request with it on.
+while any text part alongside it is still pseudonymised. This is the
+allow-list's one deliberate hole and it is opt-in, and it is scoped to content
+parts: an unknown request field, an unknown field on a message or an input
+item, and a non-string where text belongs all still stop the request with it
+on.
 
-**What that opt-in skips is decided by a part's type, not by its payload.** So
-with the setting on, a part of a type this gateway has never heard of is
-forwarded too, along with whatever text it happens to carry — a residual worth
-knowing before turning it on. Keying the skip on a list of known image and file
-types instead would mean the next part type a provider ships breaking every
-operator who opted in, which is the outage the opt-in exists to end.
+**What that opt-in skips is decided by a part's type, not by its payload** —
+and each route knows its own text part types: `text` on Chat Completions,
+`input_text` / `output_text` / `text` on Responses. So with the setting on, a
+part of a type that route's walk has never heard of is forwarded too, along
+with whatever text it happens to carry. The two sets differ, so this is not one
+gateway-wide list: a part typed `input_text` is scanned on `/v1/responses` and
+forwarded unscanned on `/v1/chat/completions`. Worth knowing before turning it
+on. Keying the skip on a list of known image and file types instead would mean
+the next part type a provider ships breaking every operator who opted in, which
+is the outage the opt-in exists to end.
 
 **A streaming request cannot report an upstream error status.** The relay
 starts as soon as the provider responds, so a provider-side error arrives in
