@@ -55,6 +55,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   losing nothing. Fixtures are keyed by adapter, and an adapter without a set
   fails by name — so a third protocol cannot be mounted with no coverage and a
   green suite (ADR-0003).
+- Six rules that still lived twice join them. The two route test files carried
+  the same assertions under near-identical names — the provider never seeing
+  the name, the answer coming back restored, an unscannable field refused with
+  502 before anything is sent, a body with no text at all forwarded without a
+  mapping, and detection being unavailable refused with 500 and the install
+  guidance — which is why a divergence between the protocols was invisible to
+  the suite as well as to a reader: two passing tests look the same whether
+  they agree or not. A fixture set now carries accessors as well as sample
+  bodies — given a forwarded request, where is the text the gateway sent;
+  given a reply, where is the text it restored — so no shared assertion reads
+  a body positionally, and the fake upstream's echo takes its reader and
+  writer from the set rather than assuming one protocol's shape. What stays
+  per-adapter is what is genuinely protocol-shaped. Tests and docs only, no
+  behaviour change (#22).
 - `mypy` runs in CI over `privaparse/gateway`. The protocol adapter's callback
   types only make a mismatched walk an error if something checks them; nothing
   did, so the guarantee ADR-0003 rests on was not being enforced anywhere.
