@@ -1,8 +1,14 @@
-"""`POST /v1/responses` end to end: pseudonymise out, restore back."""
+"""What `POST /v1/responses` does that no other protocol does.
+
+The rules this route shares with every other one -- failing closed, the round
+trip, one mapping, the hint, detection being unavailable -- are asserted once
+in `test_adapter_conformance.py` and run against this adapter from there. What
+is left here is protocol-shaped: a top-level `instructions` string, a bare
+string `input`, the hint arriving as an input item, and the typed event
+stream.
+"""
 
 from __future__ import annotations
-
-import sys
 
 from starlette.testclient import TestClient
 
@@ -36,26 +42,6 @@ def _echo(body: dict) -> dict:
     }
 
 
-def test_the_provider_never_sees_the_name(settings, fake_detector, upstream):
-    upstream.reply_for = _echo
-    client = _client(settings, fake_detector, upstream)
-
-    client.post(RESPONSES_PATH, json=_ASK)
-
-    sent = upstream.last["input"][0]["content"]
-    assert "Max Mustermann" not in sent
-    assert "[[PERSON_" in sent
-
-
-def test_the_answer_comes_back_restored(settings, fake_detector, upstream):
-    upstream.reply_for = _echo
-    client = _client(settings, fake_detector, upstream)
-
-    answer = client.post(RESPONSES_PATH, json=_ASK).json()
-
-    assert answer["output"][0]["content"][0]["text"] == "Hallo Max Mustermann"
-
-
 def test_instructions_are_pseudonymised_too(settings, fake_detector, upstream):
     upstream.reply_for = _echo
     client = _client(settings, fake_detector, upstream)
@@ -65,21 +51,16 @@ def test_instructions_are_pseudonymised_too(settings, fake_detector, upstream):
     assert "Erika Musterfrau" not in upstream.last["instructions"]
 
 
-def test_an_unscannable_item_fails_closed(settings, fake_detector, upstream):
-    client = _client(settings, fake_detector, upstream)
-
-    response = client.post(RESPONSES_PATH, json={
-        "model": "gpt-5-codex",
-        "input": [{"type": "computer_call", "action": {"text": "Max Mustermann"}}],
-    })
-
-    assert response.status_code == 502
-    assert upstream.requests == []
-
-
-def test_a_request_with_nothing_to_protect_is_forwarded_untouched(
+def test_a_bare_string_input_is_forwarded_as_a_bare_string(
     settings, fake_detector, upstream
 ):
+    """`input` is a union whose first member is a plain string.
+
+    Protocol-shaped, not an invariant: what is under test is that a string
+    survives as a string rather than being reshaped into a list of items on
+    the way through. Chat Completions has no equivalent -- `messages` is
+    always a list.
+    """
     upstream.reply_for = _echo
     client = _client(settings, fake_detector, upstream)
 
@@ -141,49 +122,3 @@ def test_a_streamed_answer_is_restored(settings, fake_detector, upstream):
     )
     assert text == "Hallo Max Mustermann"
     assert "Max Mustermann" not in upstream.last["input"][0]["content"]
-
-
-def test_gliner2_unavailable_is_refused_with_500_and_the_guidance(
-    settings, upstream, monkeypatch
-):
-    """The Responses route reaches detection the same way Chat Completions
-    does, so it needs the same guard -- see the matching test in
-    `test_server.py` for the full rationale.
-
-    No `fake_detector` is injected: the engine has to build its own detector
-    lazily, on the first request, so this exercises the real (patched)
-    `_build_gliner_detector`.
-    """
-    monkeypatch.setitem(sys.modules, "gliner2", None)
-    hybrid = settings.model_copy(update={"detector": "hybrid"})
-    engine = PrivaParseEngine(hybrid, configure_logs=False)
-    client = TestClient(create_app(hybrid, engine=engine, upstream=upstream))
-
-    response = client.post(RESPONSES_PATH, json=_ASK)
-
-    assert response.status_code == 500
-    error = response.json()["error"]
-    assert error["type"] == "privaparse_model_unavailable"
-    assert "pip install -e '.[model]'" in error["message"]
-    assert "--detector regex" in error["message"]
-    assert upstream.requests == []
-
-
-def test_gliner2_unavailable_fails_closed_when_streaming_too(
-    settings, upstream, monkeypatch
-):
-    """Codex streams by default (see test_a_streamed_answer_is_restored
-    above), and detection happens before the route branches on `stream` --
-    so a client that never turns streaming off must still get the envelope,
-    not a broken event-stream.
-    """
-    monkeypatch.setitem(sys.modules, "gliner2", None)
-    hybrid = settings.model_copy(update={"detector": "hybrid"})
-    engine = PrivaParseEngine(hybrid, configure_logs=False)
-    client = TestClient(create_app(hybrid, engine=engine, upstream=upstream))
-
-    response = client.post(RESPONSES_PATH, json={**_ASK, "stream": True})
-
-    assert response.status_code == 500
-    assert response.json()["error"]["type"] == "privaparse_model_unavailable"
-    assert upstream.requests == []

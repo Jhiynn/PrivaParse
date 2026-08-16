@@ -3,19 +3,32 @@
 `test_protocol_adapter.py` next door asserts the *shape*: that an adapter is a
 frozen value, that a route exists for each one and for nothing else. This file
 asserts the *behaviour* the route body guarantees on top of whatever protocol
-it is pointed at -- the seven rules ADR-0003 lists, each written once and run
-once per adapter.
+it is pointed at -- each rule written once and run once per adapter.
 
 That is the point of the change #21 made. The two routes drifted because
 nothing forced a rule proven on one to be proven on the other; a rule asserted
 here cannot drift, because a new adapter runs it the day it joins `ADAPTERS`.
 
+Every rule here was, or would otherwise have been, written twice. The two
+route test files carried six of them under near-identical names, which is why
+a divergence between the protocols was invisible to the suite as well as to a
+reader: two passing tests look the same whether they agree or not. What stays
+per-adapter in `test_server.py` and `test_responses_route.py` is what is
+genuinely protocol-shaped -- where a hint lands, what a bare-string `input`
+does, how a tool call is reserialised.
+
 Fixtures live here rather than on the adapter, because a wire protocol should
 not have to carry a request body around in production so a test can find one.
-`CONFORMANCE` is keyed by adapter path, and
+`CONFORMANCE` is keyed by adapter name, and
 `test_every_adapter_has_a_conformance_set` fails by name when an adapter has
 no entry -- so a third protocol cannot be mounted with no coverage and a green
 suite.
+
+The assertions never read a body positionally. A fixture set carries both
+sample bodies and the accessors that go with them -- given a forwarded
+request, where is the text the gateway sent; given a reply, where is the text
+it restored -- so a protocol that puts its text somewhere else supplies an
+accessor rather than being reshaped to fit somebody else's field order.
 
 The corpus is the project's own, per CONTRIBUTING.md: `Max Mustermann`,
 `Erika Musterfrau`, `beispiel.de`. Nothing here is a real value.
@@ -25,6 +38,7 @@ from __future__ import annotations
 
 import io
 import json
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -37,7 +51,6 @@ from privaparse.engine import PrivaParseEngine
 from privaparse.gateway.adapter.protocol import ADAPTERS, ProtocolAdapter
 from privaparse.gateway.adapter.shared import PLACEHOLDER_HINT
 from privaparse.gateway.server import create_app
-from privaparse.parser.detector import GlinerUnavailableError
 
 REAL = "Max Mustermann"
 OTHER = "Erika Musterfrau"
@@ -69,12 +82,17 @@ class Conformance:
     #: A request with nothing in it to replace, for the other half of the
     #: hint rule.
     nothing_to_replace: dict
-    #: The text as it was forwarded, read back out of the outbound body.
+    #: A request carrying no text at all -- not "nothing worth replacing" but
+    #: nothing to walk: no text node, so no batch and no mapping either.
+    no_text: dict
+    #: The text as it was forwarded, read back out of the outbound body. Also
+    #: the fake upstream's echo reader.
     sent_text: Callable[[dict], str]
-    #: A provider answer that repeats the text it was sent. A real model does
-    #: this constantly -- a placeholder looks like a name to it -- and it is
-    #: the only way a test can see a placeholder it could not know in advance.
-    answer_for: Callable[[dict], dict]
+    #: A provider answer carrying that text -- the echo's writer. A real model
+    #: repeats a placeholder back constantly, because it looks like a name to
+    #: it, and that is the only way a test can see a placeholder it could not
+    #: have known in advance.
+    answer_with: Callable[[str], dict]
     #: The answer's text, read back out of the provider's reply.
     answered_text: Callable[[dict], str]
     #: A streamed answer that stops mid-candidate: no terminal event, no
@@ -90,15 +108,15 @@ class Conformance:
     honours_allow_images: bool
 
 
-def _chat_answer(body: dict) -> dict:
-    """Whatever text arrived, said back as an assistant message."""
+def _chat_reply(text: str) -> dict:
+    """`text`, said back as an assistant message."""
     return {
         "id": "chatcmpl-1",
         "object": "chat.completion",
         "choices": [
             {
                 "index": 0,
-                "message": {"role": "assistant", "content": _chat_sent(body)},
+                "message": {"role": "assistant", "content": text},
                 "finish_reason": "stop",
             }
         ],
@@ -114,7 +132,7 @@ def _chat_sent(body: dict) -> str:
     return content
 
 
-def _responses_answer(body: dict) -> dict:
+def _responses_reply(text: str) -> dict:
     return {
         "id": "resp_1",
         "object": "response",
@@ -124,9 +142,7 @@ def _responses_answer(body: dict) -> dict:
                 "type": "message",
                 "role": "assistant",
                 "id": "msg_1",
-                "content": [
-                    {"type": "output_text", "text": _responses_sent(body), "annotations": []}
-                ],
+                "content": [{"type": "output_text", "text": text, "annotations": []}],
             }
         ],
         "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
@@ -181,11 +197,12 @@ def _responses_event(payload: dict) -> bytes:
     )
 
 
-#: Every protocol the suite knows how to speak, keyed by the path its adapter
-#: is served at. A new adapter needs an entry here or
+#: Every protocol the suite knows how to speak, keyed by its adapter's name --
+#: the same name a refusal logs under, so a failing test id and a log line say
+#: the same word. A new adapter needs an entry here or
 #: `test_every_adapter_has_a_conformance_set` names it.
 CONFORMANCE: dict[str, Conformance] = {
-    "/v1/chat/completions": Conformance(
+    "chat completions": Conformance(
         ask={
             "model": "gpt-4o",
             "messages": [{"role": "user", "content": f"Hallo {REAL}"}],
@@ -221,8 +238,9 @@ CONFORMANCE: dict[str, Conformance] = {
             "model": "gpt-4o",
             "messages": [{"role": "user", "content": "Hallo"}],
         },
+        no_text={"model": "gpt-4o", "messages": []},
         sent_text=_chat_sent,
-        answer_for=_chat_answer,
+        answer_with=_chat_reply,
         answered_text=lambda reply: reply["choices"][0]["message"]["content"],
         truncated_stream=[
             b'data: {"choices":[{"index":0,"delta":{"content":"Ende [["}}]}\n\n'
@@ -230,7 +248,7 @@ CONFORMANCE: dict[str, Conformance] = {
         streamed_text=_chat_streamed,
         honours_allow_images=False,
     ),
-    "/v1/responses": Conformance(
+    "responses": Conformance(
         ask={
             "model": "gpt-5-codex",
             "input": [{"type": "message", "role": "user", "content": f"Hallo {REAL}"}],
@@ -262,8 +280,9 @@ CONFORMANCE: dict[str, Conformance] = {
             "model": "gpt-5-codex",
             "input": [{"type": "message", "role": "user", "content": "Hallo"}],
         },
+        no_text={"model": "gpt-5-codex", "input": []},
         sent_text=_responses_sent,
-        answer_for=_responses_answer,
+        answer_with=_responses_reply,
         answered_text=lambda reply: reply["output"][0]["content"][0]["text"],
         truncated_stream=[
             _responses_event(
@@ -284,7 +303,7 @@ CONFORMANCE: dict[str, Conformance] = {
 
 
 def _case(adapter: ProtocolAdapter) -> Conformance:
-    return CONFORMANCE[adapter.path]
+    return CONFORMANCE[adapter.name]
 
 
 def _built(settings, detector, upstream) -> tuple[TestClient, PrivaParseEngine]:
@@ -306,17 +325,17 @@ def test_every_adapter_has_a_conformance_set():
     """A protocol mounted with no conformance coverage fails here, by name.
 
     The rest of this file parametrises over `ADAPTERS`, so a missing entry
-    would already break it -- but as a `KeyError` inside seven unrelated
+    would already break it -- but as a `KeyError` inside a dozen unrelated
     tests. This one says which adapter and why.
     """
-    uncovered = [one.name for one in ADAPTERS if one.path not in CONFORMANCE]
+    uncovered = [one.name for one in ADAPTERS if one.name not in CONFORMANCE]
     assert uncovered == [], (
         f"no conformance fixtures for: {', '.join(uncovered)}. "
-        "Add an entry to CONFORMANCE keyed by the adapter's path."
+        "Add an entry to CONFORMANCE keyed by the adapter's name."
     )
 
 
-# --- the seven invariants --------------------------------------------------
+# --- the invariants --------------------------------------------------------
 
 
 def test_it_fails_closed_with_a_pointer_and_no_value(
@@ -343,7 +362,65 @@ def test_it_fails_closed_with_a_pointer_and_no_value(
     assert adapter.name in logged
     assert "some_new_field" in logged
     assert OTHER not in logged
+    # The caller is told which field stopped their request, and never what was
+    # in it -- the pointer travels, the value does not.
+    assert "some_new_field" in response.text
     assert OTHER not in response.text
+
+
+def test_the_provider_never_sees_the_name(settings, fake_detector, upstream, adapter):
+    """The half of the round trip that a leak would break.
+
+    Read through the fixture's own accessor rather than by index: the two
+    protocols put the text in different places, and an assertion that reached
+    into one of them positionally is how a rule came to be proven for one
+    adapter while quietly describing nothing on the other.
+    """
+    client, _ = _built(settings, fake_detector, upstream)
+    case = _case(adapter)
+    upstream.echo_with(case.sent_text, case.answer_with)
+
+    client.post(adapter.path, json=case.ask)
+
+    sent = case.sent_text(upstream.last)
+    assert REAL not in sent
+    assert "[[PERSON_" in sent
+
+
+def test_the_answer_comes_back_restored(settings, fake_detector, upstream, adapter):
+    """The other half: the provider saw a placeholder, the caller sees a name.
+
+    Both halves in one test on purpose -- restoring the answer is only worth
+    anything if the name never left in the first place.
+    """
+    client, _ = _built(settings, fake_detector, upstream)
+    case = _case(adapter)
+    upstream.echo_with(case.sent_text, case.answer_with)
+
+    response = client.post(adapter.path, json=case.ask)
+
+    assert case.answered_text(response.json()) == f"Hallo {REAL}"
+    assert REAL not in case.sent_text(upstream.last)
+
+
+def test_a_body_with_no_text_at_all_is_forwarded_without_a_mapping(
+    settings, fake_detector, upstream, adapter
+):
+    """Nothing to pseudonymise means nothing to record.
+
+    A mapping here would be one that issued no placeholders and can reverse
+    nothing -- a row in the most sensitive file the tool produces, standing
+    for a request that never needed one.
+    """
+    client, engine = _built(settings, fake_detector, upstream)
+    case = _case(adapter)
+
+    response = client.post(adapter.path, json=case.no_text)
+
+    assert response.status_code == 200
+    # Forwarded byte for byte: no hint, no rewrite, nothing added.
+    assert upstream.last == case.no_text
+    assert engine.recent_mappings(limit=10) == []
 
 
 def test_one_request_opens_one_mapping(settings, fake_detector, upstream, adapter):
@@ -354,7 +431,7 @@ def test_one_request_opens_one_mapping(settings, fake_detector, upstream, adapte
     """
     client, engine = _built(settings, fake_detector, upstream)
     case = _case(adapter)
-    upstream.reply_for = case.answer_for
+    upstream.echo_with(case.sent_text, case.answer_with)
 
     batches: list[list[str]] = []
     real = engine.pseudonymize_batch
@@ -382,7 +459,7 @@ def test_the_hint_is_added_once_and_only_when_something_was_replaced(
     hinted = settings.model_copy(update={"gateway_hint": True})
     client, _ = _built(hinted, fake_detector, upstream)
     case = _case(adapter)
-    upstream.reply_for = case.answer_for
+    upstream.echo_with(case.sent_text, case.answer_with)
 
     client.post(adapter.path, json=case.ask)
     with_entities = json.dumps(upstream.last, ensure_ascii=False)
@@ -405,7 +482,7 @@ def test_gateway_allow_images_is_honoured(settings, fake_detector, upstream, ada
     permissive = settings.model_copy(update={"gateway_allow_images": True})
     client, _ = _built(permissive, fake_detector, upstream)
     case = _case(adapter)
-    upstream.reply_for = case.answer_for
+    upstream.echo_with(case.sent_text, case.answer_with)
 
     response = client.post(adapter.path, json=case.with_image)
 
@@ -419,24 +496,45 @@ def test_gateway_allow_images_is_honoured(settings, fake_detector, upstream, ada
         assert upstream.requests == []
 
 
-def test_detection_being_unavailable_is_500_and_not_503(
-    settings, fake_detector, upstream, adapter
+@pytest.mark.parametrize("streaming", [False, True], ids=["buffered", "streaming"])
+def test_detection_being_unavailable_is_refused_with_500_and_the_guidance(
+    settings, upstream, monkeypatch, adapter, streaming
 ):
     """A server-side misconfiguration only an operator can fix.
 
-    503 invites an OpenAI-compatible client to retry a condition that will
-    not resolve on its own. Nothing is forwarded either way.
+    A remote client cannot read the server log, so an uncaught RuntimeError
+    from the detector build must not surface as a bare 500 -- it comes back as
+    the error envelope, carrying the install guidance. 500 and not 503: 503
+    invites an OpenAI-compatible client to retry a condition that will not
+    resolve on its own.
+
+    Both stream branches, because detection runs before the route body ever
+    branches on `stream` -- and a client that never turns streaming off (Codex
+    does not) would otherwise get a broken event-stream instead of the
+    envelope.
+
+    `gliner2` is actually installed here; its absence is simulated the way
+    `tests/test_detector.py` does it, by blocking the import through
+    `sys.modules`. No `fake_detector` is injected -- the whole point is to let
+    the engine build its own detector lazily on the first request and hit the
+    real, unpatched `_build_gliner_detector`.
     """
-    client, engine = _built(settings, fake_detector, upstream)
+    monkeypatch.setitem(sys.modules, "gliner2", None)
+    hybrid = settings.model_copy(update={"detector": "hybrid"})
+    engine = PrivaParseEngine(hybrid, configure_logs=False)
+    client = TestClient(create_app(hybrid, engine=engine, upstream=upstream))
     case = _case(adapter)
 
-    def unavailable(texts, **kwargs):
-        raise GlinerUnavailableError("the model is not installed")
-
-    engine.pseudonymize_batch = unavailable
-    response = client.post(adapter.path, json=case.ask)
+    response = client.post(adapter.path, json={**case.ask, "stream": streaming})
 
     assert response.status_code == 500
+    error = response.json()["error"]
+    # The literal wire string, not the constant: this is what a client's own
+    # error handling switches on, so a rename has to fail here.
+    assert error["type"] == "privaparse_model_unavailable"
+    assert "pip install -e '.[model]'" in error["message"]
+    assert "--detector regex" in error["message"]
+    # Fails closed, same as the refusal above: nothing reached the provider.
     assert upstream.requests == []
 
 
@@ -449,7 +547,7 @@ def test_restoration_never_aborts(settings, fake_detector, upstream, adapter):
     """
     client, engine = _built(settings, fake_detector, upstream)
     case = _case(adapter)
-    upstream.reply_for = case.answer_for
+    upstream.echo_with(case.sent_text, case.answer_with)
 
     def broken(*args, **kwargs):
         raise RuntimeError("the vault went away")
