@@ -130,11 +130,15 @@ class Settings(BaseSettings):
     )
     gateway_allow_images: bool = Field(
         default=False,
-        description="Forward image and file parts the detector cannot read, instead "
-        "of refusing the request. Off by default, and the reason is not squeamishness: "
-        "a coding agent screenshots its own work, and a screenshot can show every "
-        "value that was just pseudonymised out of the text. Turning this on means "
-        "images leave the machine unexamined. Codex cannot verify its output visually "
+        description="Forward content parts the detector cannot read -- an image, a "
+        "file reference -- instead of refusing the request, on every route the "
+        "gateway serves. What is skipped is decided by a part's type, not by its "
+        "payload, so a part of a type the walk has never heard of is forwarded too, "
+        "with whatever text it carries; text parts beside it in the same message are "
+        "still pseudonymised. Off by default, and the reason is not squeamishness: a "
+        "coding agent screenshots its own work, and a screenshot can show every value "
+        "that was just pseudonymised out of the text. Turning this on means those "
+        "parts leave the machine unexamined. Codex cannot verify its output visually "
         "without it.",
     )
     gateway_cache: int = Field(
