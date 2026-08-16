@@ -128,6 +128,17 @@ def test_two_output_items_hold_back_separately():
     assert _text(raw) == f"nichts{REAL}"
 
 
+def test_a_stream_that_ends_mid_placeholder_loses_nothing():
+    """No `.done`, no terminal event, the connection simply stopped. Whatever
+    the hold-back was sitting on was paid for and is still the caller's, and it
+    has to arrive framed the way a client dispatching on `event:` can see it --
+    nothing else in the stream carries those characters."""
+    raw = _run([_event(_delta("Hallo [[PERSON_"))])
+
+    assert _text(raw) == "Hallo [[PERSON_"
+    assert b"event: response.output_text.delta\n" in raw
+
+
 # --- tool calls ------------------------------------------------------------
 
 
@@ -168,6 +179,23 @@ def test_tool_arguments_are_re_serialised_rather_than_pasted():
     done = [p for p in _payloads(raw)
             if p["type"] == "response.function_call_arguments.done"]
     assert json.loads(done[0]["arguments"]) == {"to": 'Max "Maxi" Mustermann'}
+
+
+def test_a_stream_that_stops_before_finishing_still_delivers_the_tool_call():
+    """The `.done` event never came. The fragments were suppressed on the way
+    in, so without this the call the provider was paid for is gone entirely."""
+    raw = _run([
+        _event({"type": "response.function_call_arguments.delta", "item_id": "fc_1",
+                "output_index": 0, "sequence_number": 1, "delta": '{"to": "'}),
+        _event({"type": "response.function_call_arguments.delta", "item_id": "fc_1",
+                "output_index": 0, "sequence_number": 2, "delta": '[[EMAIL_A2]]"}'}),
+    ])
+
+    deltas = [p for p in _payloads(raw)
+              if p["type"] == "response.function_call_arguments.delta"]
+    assert len(deltas) == 1
+    assert deltas[0]["item_id"] == "fc_1"
+    assert json.loads(deltas[0]["delta"]) == {"to": EMAIL}
 
 
 # --- the terminal event ----------------------------------------------------
