@@ -78,11 +78,11 @@ def test_batch_refuses_text_that_already_contains_placeholders(engine):
 def test_empty_batch_creates_a_real_mapping_with_zero_entries(engine):
     """Ruled by the project owner: a falsy mapping_id (empty string, or None)
     is a trap specifically because ``PrivaParseEngine.reverse`` treats a
-    falsy id as "find whichever session issued every placeholder in this
-    text" rather than "this exact session, and nothing else". A caller handed
+    falsy id as "find whichever mapping issued every placeholder in this
+    text" rather than "this exact mapping, and nothing else". A caller handed
     a falsy id from an empty batch and then calling
     ``engine.reverse(empty.mapping_id, answer)`` would silently resolve
-    against some *other* session that happens to cover the text — reproduced
+    against some *other* mapping that happens to cover the text — reproduced
     below with a placeholder from a real, unrelated batch. A real mapping id
     that happens to have issued nothing behaves like every other mapping id
     instead: lookup is explicit, not a fallback search, and correctly

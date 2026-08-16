@@ -36,6 +36,31 @@ PATH_LIKE = re.compile(r"^[A-Za-z0-9_.\-/]+$")
 # rule, and a checker that fails on its own explanation is a checker nobody
 # keeps.
 DOC_PATH = re.compile(r"docs/[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*\.md")
+# A fence is a specimen, not a reference. The skill packs under `.agents/` show
+# the shape of a document by printing one -- a context map pointing at
+# `./src/billing/CONTEXT.md`, a ticket index whose href is the word `link` --
+# and those are templates for the repo that adopts the skill, never paths here.
+# Nothing outside a fence gets this exemption, so the 111 real links, including
+# every cross-reference inside the vendored packs, stay checked.
+FENCE = re.compile(r"^\s*(```|~~~)")
+
+
+def _unfenced(text: str) -> str:
+    """The document with fenced blocks blanked, line numbering preserved."""
+    kept, closer = [], None
+    for line in text.splitlines():
+        fence = FENCE.match(line)
+        if closer is None:
+            if fence:
+                closer = fence.group(1)
+                kept.append("")
+                continue
+            kept.append(line)
+        else:
+            if fence and line.strip().startswith(closer):
+                closer = None
+            kept.append("")
+    return "\n".join(kept)
 
 
 def _walk(suffixes: tuple[str, ...]) -> list[Path]:
@@ -56,7 +81,7 @@ def _identifier(path: Path) -> str:
 @pytest.mark.parametrize("markdown", _walk((".md",)), ids=_identifier)
 def test_markdown_links_resolve(markdown: Path) -> None:
     missing = []
-    for match in MARKDOWN_LINK.finditer(markdown.read_text(encoding="utf-8")):
+    for match in MARKDOWN_LINK.finditer(_unfenced(markdown.read_text(encoding="utf-8"))):
         target = match.group(1)
         if target.startswith(("http://", "https://", "mailto:", "#")):
             continue

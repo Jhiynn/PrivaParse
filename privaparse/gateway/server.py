@@ -198,7 +198,7 @@ def create_app(
         mapping_id: str | None = None
         entities = 0
         if nodes:
-            # One batch, one mapping. Node by node would open a session per
+            # One batch, one mapping. Node by node would open a mapping per
             # node, and the answer -- which mixes placeholders from all of
             # them -- could not be reversed against any single one.
             # `pseudonymize_batch` runs the detector and hits the vault, both

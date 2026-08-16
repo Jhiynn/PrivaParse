@@ -87,8 +87,8 @@ def test_the_provider_never_sees_the_name(settings, fake_detector, upstream):
 def test_one_request_gets_one_mapping(settings, fake_detector, upstream):
     """Every node shares a mapping, or the answer cannot be reversed.
 
-    `reverse()` resolves against exactly one session. If the handler
-    pseudonymised node by node, each node would open its own session and the
+    `reverse()` resolves against exactly one mapping. If the handler
+    pseudonymised node by node, each node would open its own mapping and the
     model's answer -- which mixes placeholders from all of them -- could not
     be restored against any single one of them.
     """
@@ -118,7 +118,7 @@ def test_a_body_with_no_text_at_all_is_forwarded_without_a_mapping(
     settings, fake_detector, upstream
 ):
     """No text means nothing to pseudonymise, and a vault entry for it would
-    be a session that issued no placeholders and can reverse nothing."""
+    be a mapping that issued no placeholders and can reverse nothing."""
     from privaparse.engine import PrivaParseEngine
 
     engine = PrivaParseEngine(settings, detector=fake_detector, configure_logs=False)

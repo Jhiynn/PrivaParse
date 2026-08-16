@@ -8,7 +8,7 @@ expensive half, and it depends on nothing but the text and the catalogue.
 **Only detection is cached.** Resolution, the vault write and the mapping row
 run on every request. That is not an oversight to optimise away later: a
 mapping is what ``reverse`` scopes an answer to, so a request that reused an
-earlier one would restore against a session it never issued.
+earlier one would restore against a mapping it never issued.
 
 The key is ``(catalogue fingerprint, sha256(text))``. The fingerprint is
 derived from the resolved catalogue rather than the file's mtime, because

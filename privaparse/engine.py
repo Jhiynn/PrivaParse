@@ -204,9 +204,9 @@ class PrivaParseEngine:
     ) -> ReverseResult:
         """Restore the placeholders this mapping issued — and only those.
 
-        ``mapping_id=None`` looks for the session that issued *every*
+        ``mapping_id=None`` looks for the mapping that issued *every*
         placeholder in the text. That is convenience, not a shortcut around the
-        session boundary: partial coverage matches nothing.
+        mapping boundary: partial coverage matches nothing.
         """
         from privaparse.parser.reverse_mapper import find_mapping_for, reverse_text
 
@@ -220,7 +220,7 @@ class PrivaParseEngine:
             return self.repository(session).stats()
 
     def recent_mappings(self, limit: int = 20, match: str | None = None):
-        """Recent sessions and their mapping ids. Reveals no stored values."""
+        """Recent mappings and their ids. Reveals no stored values."""
         with self.database.session() as session:
             return self.repository(session).recent_mappings(limit=limit, match=match)
 

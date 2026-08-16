@@ -197,7 +197,7 @@ values by guessing at a placeholder:
 ```json
 {
   "error": {
-    "message": "no single session issued all 2 placeholder(s) in this text — the placeholders are spread across several sessions. List sessions with: privaparse vault mappings",
+    "message": "no single mapping issued all 2 placeholder(s) in this text — the placeholders are spread across several mappings. List mappings with: privaparse vault mappings",
     "type": "mapping_not_found"
   }
 }
@@ -207,7 +207,7 @@ An unknown `mapping_id`, or a body with no `text`, are the other 400/404
 cases — same `mapping_not_found` / `invalid_request_error` envelope.
 
 **`strict: true`.** By default, a placeholder belonging to a different
-mapping (with `mapping_id` given explicitly, so no session lookup happens) is
+mapping (with `mapping_id` given explicitly, so no mapping lookup happens) is
 left in the text and reported in `foreign` — nothing leaks, it just isn't
 restored. Set `strict: true` and that same situation is a 400 instead,
 carrying the engine's own message, `type: "invalid_request_error"`:
@@ -215,7 +215,7 @@ carrying the engine's own message, `type: "invalid_request_error"`:
 ```json
 {
   "error": {
-    "message": "placeholders from another session appeared in this text: [[EMAIL_A1]]",
+    "message": "placeholders from another mapping appeared in this text: [[EMAIL_A1]]",
     "type": "invalid_request_error"
   }
 }
@@ -223,7 +223,7 @@ carrying the engine's own message, `type: "invalid_request_error"`:
 
 ## GET /privaparse/catalogue
 
-The enabled entity types and how each is configured — no request body. The
+The enabled placeholder types and how each is configured — no request body. The
 shipped catalogue has 21 enabled types; here's the shape, trimmed to two
 entries:
 
@@ -275,7 +275,7 @@ curl -s http://127.0.0.1:8787/privaparse/vault
 }
 ```
 
-`mappings` is the number of pseudonymisation sessions recorded; `entities` is
+`mappings` is the number of mappings recorded; `entities` is
 the number of distinct real-world values (a person, an email address) the
 vault has ever stored; `surface_forms` is the number of distinct textual
 variants seen for those entities. None of the three can be turned back into

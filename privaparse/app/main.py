@@ -25,7 +25,7 @@ app = typer.Typer(
 )
 vault_app = typer.Typer(help="Inspect the local vault.", no_args_is_help=True)
 app.add_typer(vault_app, name="vault")
-catalog_app = typer.Typer(help="Inspect and check the entity catalogue.", no_args_is_help=True)
+catalog_app = typer.Typer(help="Inspect and check the catalogue.", no_args_is_help=True)
 app.add_typer(catalog_app, name="catalog")
 gateway_app = typer.Typer(help="Inspect the running gateway.", no_args_is_help=True)
 app.add_typer(gateway_app, name="gateway")
@@ -111,17 +111,17 @@ def reverse(
         None,
         "--mapping",
         "-m",
-        help="Mapping id from pseudonymize. Omit to find the session that issued "
+        help="Mapping id from pseudonymize. Omit to find the mapping that issued "
         "every placeholder in the file.",
     ),
     out: Path | None = typer.Option(None, "-o", "--out"),
     strict: bool = typer.Option(
-        False, "--strict", help="Fail if the text carries placeholders from another session."
+        False, "--strict", help="Fail if the text carries placeholders from another mapping."
     ),
 ) -> None:
     """Restore original values in FILE.
 
-    With no --mapping, the session that issued every placeholder in the file is
+    With no --mapping, the mapping that issued every placeholder in the file is
     looked up. Partial coverage matches nothing, so this cannot be used to
     unmask placeholders from a document you did not pseudonymise yourself.
     """
@@ -431,10 +431,10 @@ def vault_mappings(
     ctx: typer.Context,
     limit: int = typer.Option(20, "--limit", "-n", min=1),
     match: str | None = typer.Option(
-        None, "--match", help="Only sessions whose source filename contains this."
+        None, "--match", help="Only mappings whose source filename contains this."
     ),
 ) -> None:
-    """List recent pseudonymisation sessions and their mapping ids.
+    """List recent mappings and their ids.
 
     Without this, losing the id printed by `pseudonymize` means the document
     cannot be reversed at all — even though the vault knows exactly which
@@ -453,7 +453,7 @@ def vault_mappings(
         typer.echo(
             f"{created:<20} {row.placeholders:>12}  {row.id:<38} {row.source_name or '-'}"
         )
-    typer.echo(f"\n{len(rows)} session(s). Reverse with: privaparse reverse FILE -m <MAPPING ID>")
+    typer.echo(f"\n{len(rows)} mapping(s). Reverse with: privaparse reverse FILE -m <MAPPING ID>")
 
 
 @vault_app.command("stats")

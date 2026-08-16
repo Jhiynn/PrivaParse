@@ -1,4 +1,4 @@
-"""Name-to-callable registries for the entity catalogue.
+"""Name-to-callable registries for the catalogue.
 
 A leaf module on purpose: it imports nothing from ``parser`` or ``app``, so the
 catalogue can validate the names a config file uses without dragging the

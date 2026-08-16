@@ -93,7 +93,7 @@ Which clients this works with today, what it costs, and its known gaps are in
 
 ## Evidence
 
-Phase 1 ships a 25-type entity catalogue — 21 enabled by default, three
+Phase 1 ships a catalogue of 25 placeholder types — 21 enabled by default, three
 disabled on measured false positives and one (COUNTRY) on judgement rather
 than evidence (see [docs/benchmarks/labels.md](docs/benchmarks/labels.md))
 — for plain text and Markdown, as a CLI and a Python library. No OCR, no PDF, no
@@ -104,7 +104,7 @@ cloud models.
 Measured on the German gold set in `eval/gold/` — **124 documents, 33 of them
 containing no PII at all** (a corpus of nothing but real PII can never produce
 a false positive, which is exactly where a wider catalogue turns out to
-struggle) — scored at the shipped catalogue's 21 enabled types. The threshold
+struggle) — scored at the shipped catalogue's 21 enabled types. PERSON's bar
 was fixed before this run: fine-tuning is warranted if PERSON partial-match
 recall drops below 0.90 or precision below 0.85.
 

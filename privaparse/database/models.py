@@ -3,7 +3,7 @@
 Four tables, and the reason for each:
 
 ``entities``
-    The vault itself. One row per distinct PII value, keyed by
+    The entities themselves. One row per distinct PII value, keyed by
     ``(type, normalized_value)``. This is what makes a placeholder stable across
     documents — the same person gets the same placeholder forever.
 
@@ -13,7 +13,7 @@ Four tables, and the reason for each:
     put back a specific spelling, not a normalized one.
 
 ``mappings``
-    One row per ``pseudonymize()`` call.
+    One row per ``pseudonymize()`` call. The four tables together are the vault.
 
 ``mapping_entries``
     Which placeholders a given document was actually issued, and which surface
@@ -103,7 +103,7 @@ class EntityValue(Base):
 
 
 class Mapping(Base):
-    """One pseudonymisation session."""
+    """One pseudonymisation and everything it issued."""
 
     __tablename__ = "mappings"
 

@@ -147,7 +147,7 @@ def test_reverse_rejects_an_unknown_mapping_id(direct_client):
     # message, and that is the only quoting that should survive.
     assert error["message"] == (
         "no mapping with id 'nope'. "
-        "List the sessions this vault knows with: privaparse vault mappings"
+        "List the mappings this vault knows with: privaparse vault mappings"
     )
 
 
@@ -325,7 +325,7 @@ def test_reverse_strict_true_rejects_a_foreign_placeholder_with_400(direct_clien
     assert response.status_code == 400
     error = response.json()["error"]
     assert error["type"] == "invalid_request_error"
-    assert "another session" in error["message"]
+    assert "another mapping" in error["message"]
 
 
 # --- mapping_id: "" must be treated as absent -------------------------------

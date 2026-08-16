@@ -7,7 +7,7 @@ them, so the caller sees a placeholder instead of their own data.
 Opt-in, and the reason it can be opt-in safely is scope: a tolerant pattern is
 built per placeholder *this mapping issued*, so the candidate set is the
 handful of tokens from one request. A mangled placeholder belonging to another
-session still matches nothing, which is the property the whole vault rests on
+mapping still matches nothing, which is the property the whole vault rests on
 and the one these tests exist to keep.
 """
 
@@ -72,13 +72,13 @@ def test_an_exact_placeholder_still_counts_as_exact(repo, issued):
     assert (result.restored, result.recovered) == (1, 0)
 
 
-def test_a_mangled_placeholder_from_another_session_is_not_restored(
+def test_a_mangled_placeholder_from_another_mapping_is_not_restored(
     repo, settings, fake_detector, issued
 ):
     """The property the vault rests on, checked against the loosened matcher.
 
     Fuzzy matching widens *how* a placeholder may be written, never *which*
-    placeholders a mapping may resolve. A session that never issued
+    placeholders a mapping may resolve. A mapping that never issued
     `[[PERSON_A1]]` must not restore it however it is spelled.
     """
     _mapping_id, _ = issued

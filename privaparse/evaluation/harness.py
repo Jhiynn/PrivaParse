@@ -1,7 +1,7 @@
 """Measure detection quality against the German gold set.
 
 The question this exists to answer is "do we need to fine-tune GLiNER2 for
-German?", and the answer is only worth anything if the threshold was fixed
+German?", and the answer is only worth anything if the bar was fixed
 *before* the numbers were seen. Each type's bar now lives in the catalogue
 (the `bar:` key in `privaparse/app/entities.default.yaml`), not here, so
 widening the catalogue never means widening this module to match — it already

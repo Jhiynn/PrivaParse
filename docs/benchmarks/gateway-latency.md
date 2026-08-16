@@ -62,9 +62,9 @@ should do, and is the useful property here: the numbers extrapolate.
 ## What the warm number is actually paying for
 
 Detection is cached; resolution is not, by design. A cached block still gets
-its own mapping, because `reverse` scopes an answer to exactly one session and
+its own mapping, because `reverse` scopes an answer to exactly one mapping and
 reusing a mapping would let one request's answer resolve against another
-request's session. So the warm second is not detection — it is 1,422 span
+request's mapping. So the warm second is not detection — it is 1,422 span
 resolutions and the vault writes behind them.
 
 That also sets where the next optimisation is, if one is wanted: the warm path

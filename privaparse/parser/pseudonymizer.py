@@ -1,4 +1,4 @@
-"""Replace detected entities with placeholders and record the session."""
+"""Replace detected spans with placeholders and record the mapping."""
 
 from __future__ import annotations
 
@@ -72,7 +72,7 @@ class BatchResult:
 
     The gateway in spec 2 sends one HTTP request carrying dozens of text nodes.
     They must share a mapping: the model's answer mixes placeholders from all
-    of them, and ``reverse()`` resolves against exactly one session.
+    of them, and ``reverse()`` resolves against exactly one mapping.
     """
 
     mapping_id: str
@@ -181,10 +181,10 @@ def pseudonymize_batch(
 
     An empty batch still creates a mapping row, with zero entries, rather
     than returning a sentinel. ``PrivaParseEngine.reverse`` treats a falsy
-    ``mapping_id`` as "find whichever session issued every placeholder in
+    ``mapping_id`` as "find whichever mapping issued every placeholder in
     this text" — so an empty string or ``None`` handed back here would make
     ``reverse(empty.mapping_id, answer)`` silently resolve against some
-    *other* session that happens to cover the text, not against this call at
+    *other* mapping that happens to cover the text, not against this call at
     all. A real id that happens to have issued nothing behaves like every
     other mapping id instead: ``reverse()`` against it correctly resolves
     nothing.

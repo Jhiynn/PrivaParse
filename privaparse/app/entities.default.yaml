@@ -1,4 +1,4 @@
-# The shipped entity catalogue.
+# The shipped catalogue.
 #
 # A user file (PRIVAPARSE_ENTITIES, ./privaparse.entities.yaml, or
 # ~/.config/privaparse/entities.yaml) is deep-merged ONTO this one. To remove a

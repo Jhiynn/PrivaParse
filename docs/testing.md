@@ -47,7 +47,7 @@ pytest --cov=privaparse --cov-report=term-missing
 
 ## What each suite covers
 
-`tests/` covers the library: the detector, the entity catalogue, the vault,
+`tests/` covers the library: the detector, the catalogue, the vault,
 placeholder generation, Markdown handling, the pseudonymize/reverse round
 trip, and restoration. `tests/gateway/` covers the OpenAI-compatible surface:
 extraction, request routing, streaming, the detection cache, the fuzzy/hint
