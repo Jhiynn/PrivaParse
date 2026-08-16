@@ -25,7 +25,14 @@ A dropped connection or a proxy that closes early ends it mid-answer, and the
 held text and the collected arguments would then be dropped -- text the
 provider was already paid for, and a tool call whose fragments were suppressed
 on the way in precisely because a later event was going to carry them. So the
-stream is answered when its bytes run out, in events this module frames itself.
+stream is answered whenever it stops without releasing them, in events this
+module frames itself: when the bytes run out, when the connection drops, and
+in front of a terminal event or `[DONE]` that arrives with no `.done` before
+it -- past either of those, a client has stopped accumulating deltas.
+
+Inserting events means the gateway, not the provider, decides what sequence
+the client reads, so `sequence_number` is reissued across the whole stream
+rather than passed through.
 
 The SSE framing loop below is close to the one in `stream.py`. It is repeated
 rather than shared: the chat path is the tested one that ships today, and a
@@ -90,9 +97,10 @@ async def restore_responses_sse(
     # event nobody sent, and these say who it belongs to: the Responses API
     # addresses everything by `item_id` and `content_index`, so an event
     # without them is text the client cannot place.
-    frames: dict[Any, dict] = {}
+    text_frames: dict[Any, dict] = {}
     argument_frames: dict[Any, dict] = {}
     pending = ""
+    next_sequence = 0
 
     async def restored(text: str) -> str:
         if not text:
@@ -108,6 +116,23 @@ async def restore_responses_sse(
             logger.warning("could not restore a streamed answer; placeholders stand")
             return text
 
+    def sequenced(payload: dict) -> dict:
+        """Renumber an event, so the sequence the client reads is the one it got.
+
+        `sequence_number` numbers the events of *this* stream, and this module
+        emits events the provider never sent -- the held tail, a whole-value
+        delta beside each `.done`. Passing the upstream numbers through would
+        hand a client two events bearing the same number and a sequence that
+        stops being monotonic exactly where the gateway inserted something. So
+        the numbering is reissued here: the gateway frames the stream the
+        client sees, so it owns the count of it.
+        """
+        nonlocal next_sequence
+        if "sequence_number" in payload:
+            payload["sequence_number"] = next_sequence
+            next_sequence += 1
+        return payload
+
     def hold_for(payload: dict) -> HoldBack:
         key = _text_key(payload)
         if key not in holds:
@@ -122,7 +147,7 @@ async def restore_responses_sse(
             piece = payload.get("delta")
             if not isinstance(piece, str):
                 return [payload]
-            frames[_text_key(payload)] = _frame(payload)
+            text_frames[_text_key(payload)] = _frame(payload)
             payload["delta"] = await restored(hold_for(payload).feed(piece))
             return [payload]
 
@@ -131,7 +156,7 @@ async def restore_responses_sse(
             held = hold_for(payload).flush()
             # The hold-back is empty and this text is closed, so nothing is
             # owed on it any more.
-            frames.pop(_text_key(payload), None)
+            text_frames.pop(_text_key(payload), None)
             if held:
                 # Whatever is still held belongs to the deltas, and a client
                 # reading only deltas has to receive it before the event that
@@ -192,20 +217,23 @@ async def restore_responses_sse(
     async def tail() -> AsyncIterator[bytes]:
         """Whatever is still being held when the stream stops, as its own event.
 
-        Reached when a provider ends without a terminal event -- a dropped
-        connection, a proxy that closes early. No `.done` is coming to carry
-        the held text out, and no `.done` is coming to release the tool call
-        whose fragments were suppressed on the way in. Both were paid for.
+        Reached when a provider stops without releasing what this module is
+        sitting on -- a dropped connection, a proxy that closes early, or a
+        terminal event that arrives with no `.done` before it. No `.done` is
+        coming to carry the held text out, and none is coming to release the
+        tool call whose fragments were suppressed on the way in. Both were
+        paid for.
 
-        Popping the frame is what makes this safe to call twice: a stream that
-        ends with `[DONE]` reaches it there and again when the bytes run out.
+        Popping the frame is what makes this safe to call more than once: a
+        stream reaches it at `response.completed`, again at `[DONE]`, and
+        again when the bytes run out.
         """
         for key, hold in holds.items():
-            frame = frames.pop(key, None)
+            frame = text_frames.pop(key, None)
             left = hold.flush()
             if not left or frame is None:
                 continue
-            yield _typed({**frame, "delta": await restored(left)})
+            yield _typed(sequenced({**frame, "delta": await restored(left)}))
 
         for key, collected in arguments.items():
             frame = argument_frames.pop(key, None)
@@ -214,51 +242,71 @@ async def restore_responses_sse(
             # A delta, not a synthesised `.done`: the arguments may have
             # stopped mid-JSON, and an event named for completion would claim
             # they did not. `_restore_arguments` restores either way.
-            yield _typed({
+            yield _typed(sequenced({
                 **frame,
                 "type": ARGS_DELTA,
                 "delta": await _restore_arguments(collected, restored),
-            })
+            }))
 
-    async for raw in chunks:
-        pending += decoder.decode(raw).replace("\r\n", "\n")
-        while "\n\n" in pending:
-            block, pending = pending.split("\n\n", 1)
-            lines = block.split("\n")
-            data = [
-                line[len(_DATA_PREFIX):].lstrip()
-                for line in lines
-                if line.startswith(_DATA_PREFIX)
-            ]
-            if not data:
-                yield _raw(block)
-                continue
+    try:
+        async for raw in chunks:
+            pending += decoder.decode(raw).replace("\r\n", "\n")
+            while "\n\n" in pending:
+                block, pending = pending.split("\n\n", 1)
+                lines = block.split("\n")
+                data = [
+                    line[len(_DATA_PREFIX):].lstrip()
+                    for line in lines
+                    if line.startswith(_DATA_PREFIX)
+                ]
+                if not data:
+                    yield _raw(block)
+                    continue
 
-            joined = "\n".join(data)
-            if joined.strip() == _DONE:
-                # A client is entitled to stop reading here, so anything still
-                # held has to go out in front of the sentinel.
-                async for event in tail():
-                    yield event
-                yield _raw(block)
-                continue
+                joined = "\n".join(data)
+                if joined.strip() == _DONE:
+                    # A client is entitled to stop reading here, so anything
+                    # still held has to go out in front of the sentinel.
+                    async for event in tail():
+                        yield event
+                    yield _raw(block)
+                    continue
 
-            try:
-                payload = json.loads(joined)
-            except ValueError:
-                yield _raw(block)
-                continue
-            if not isinstance(payload, dict):
-                yield _raw(block)
-                continue
+                try:
+                    payload = json.loads(joined)
+                except ValueError:
+                    yield _raw(block)
+                    continue
+                if not isinstance(payload, dict):
+                    yield _raw(block)
+                    continue
 
-            for index, out in enumerate(await rewrite(payload)):
-                if index == 0:
-                    # Keep the original framing, `event:` line included --
-                    # clients dispatch on it.
-                    yield _reassemble(lines, out)
-                else:
-                    yield _encode(out)
+                if payload.get("type") in TERMINAL:
+                    # The answer is over. Anything still held belongs to the
+                    # deltas that came before this event, so it goes out in
+                    # front of it -- the same order `.done` already imposes.
+                    # Behind it, it would arrive after the event that says
+                    # there is no more, out of sequence and past the point a
+                    # client stops accumulating.
+                    async for event in tail():
+                        yield event
+
+                for index, out in enumerate(await rewrite(payload)):
+                    if index == 0:
+                        # Keep the original framing, `event:` line included --
+                        # clients dispatch on it.
+                        yield _reassemble(lines, sequenced(out))
+                    else:
+                        yield _encode(sequenced(out))
+    except Exception:
+        # The failure this module exists for. A provider connection that drops
+        # mid-answer surfaces here as an exception rather than as bytes that
+        # run out, and the held text and collected arguments are no less paid
+        # for on this path than on the clean one. Hand them over, then let the
+        # error travel: swallowing it would report a truncated answer as whole.
+        async for event in tail():
+            yield event
+        raise
 
     pending += decoder.decode(b"", True)
     if pending.strip():

@@ -71,9 +71,9 @@ invert on a larger model, and the hint is exactly the kind of thing that gets
 better with capability.
 
 **Fuzzy widens spelling, never scope.** The tolerant pattern is built per
-entry of one mapping's restore table, so a placeholder this session never
+entry of one mapping's restore table, so a placeholder this mapping never
 issued matches nothing however it is written — pinned by
-`test_a_mangled_placeholder_from_another_session_is_not_restored`. What it does
+`test_a_mangled_placeholder_from_another_mapping_is_not_restored`. What it does
 cost is strictness: with it on, `Person A1` in an answer will be treated as a
 placeholder if this mapping issued `[[PERSON_A1]]`. That is the trade being
 opted into.
