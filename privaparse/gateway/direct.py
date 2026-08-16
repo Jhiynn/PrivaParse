@@ -17,7 +17,12 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from privaparse.gateway.errors import _error
+from privaparse.gateway.errors import (
+    INVALID_REQUEST,
+    MAPPING_NOT_FOUND,
+    detection_unavailable,
+    error,
+)
 from privaparse.parser.detector import GlinerUnavailableError
 
 if TYPE_CHECKING:
@@ -102,7 +107,7 @@ def direct_routes(engine: PrivaParseEngine, detector: CachingDetector) -> list[R
             body = await _read_json(request)
             texts, singular = _texts_from(body)
         except _BadRequest as bad:
-            return _error(400, str(bad), "invalid_request_error")
+            return error(400, str(bad), INVALID_REQUEST)
 
         try:
             # Runs the full pipeline -- masking, threshold, merge, coreference
@@ -114,11 +119,9 @@ def direct_routes(engine: PrivaParseEngine, detector: CachingDetector) -> list[R
                 lambda: engine.detect_many(texts, detector=detector)
             )
         except GlinerUnavailableError as exc:
-            # Same shaping as the proxy's handling of this in server.py: a
-            # genuine server-side misconfiguration, not a transient failure,
-            # so 500 -- and the OpenAI-shaped envelope carries the install
-            # guidance rather than a bare "Internal Server Error".
-            return _error(500, str(exc), "privaparse_model_unavailable")
+            # Shaped exactly as the proxy shapes it -- one constructor now
+            # decides the status and the wording for both. See errors.py.
+            return detection_unavailable(exc)
         payload = [[_span_json(s) for s in spans] for spans in found]
         return JSONResponse({"detections": payload[0] if singular else payload})
 
@@ -133,17 +136,15 @@ def direct_routes(engine: PrivaParseEngine, detector: CachingDetector) -> list[R
             body = await _read_json(request)
             texts, singular = _texts_from(body)
         except _BadRequest as bad:
-            return _error(400, str(bad), "invalid_request_error")
+            return error(400, str(bad), INVALID_REQUEST)
 
         source_name = body.get("source_name")
         if source_name is not None and not isinstance(source_name, str):
-            return _error(400, "`source_name` must be a string", "invalid_request_error")
+            return error(400, "`source_name` must be a string", INVALID_REQUEST)
 
         include_spans = body.get("include_spans", False)
         if not isinstance(include_spans, bool):
-            return _error(
-                400, "`include_spans` must be a boolean", "invalid_request_error"
-            )
+            return error(400, "`include_spans` must be a boolean", INVALID_REQUEST)
 
         try:
             # pseudonymize_batch runs the detector and hits the vault, both
@@ -156,9 +157,9 @@ def direct_routes(engine: PrivaParseEngine, detector: CachingDetector) -> list[R
                 )
             )
         except GlinerUnavailableError as exc:
-            return _error(500, str(exc), "privaparse_model_unavailable")
+            return detection_unavailable(exc)
         except AlreadyPseudonymizedError as exc:
-            return _error(400, str(exc), "invalid_request_error")
+            return error(400, str(exc), INVALID_REQUEST)
 
         # Fixed key, collapsing shape -- matches detect()'s "detections":
         # a key that changes name breaks callers the moment they switch
@@ -179,14 +180,14 @@ def direct_routes(engine: PrivaParseEngine, detector: CachingDetector) -> list[R
             body = await _read_json(request)
             body = _require_object(body)
         except _BadRequest as bad:
-            return _error(400, str(bad), "invalid_request_error")
+            return error(400, str(bad), INVALID_REQUEST)
         if not isinstance(body.get("text"), str):
-            return _error(400, "`text` must be a string", "invalid_request_error")
+            return error(400, "`text` must be a string", INVALID_REQUEST)
 
         text = body["text"]
         mapping_id = body.get("mapping_id")
         if mapping_id is not None and not isinstance(mapping_id, str):
-            return _error(400, "`mapping_id` must be a string", "invalid_request_error")
+            return error(400, "`mapping_id` must be a string", INVALID_REQUEST)
         if not mapping_id:
             # Falsy and absent have to mean the same thing here:
             # engine.reverse already treats an empty string as "look it up"
@@ -196,7 +197,7 @@ def direct_routes(engine: PrivaParseEngine, detector: CachingDetector) -> list[R
 
         strict = body.get("strict", False)
         if not isinstance(strict, bool):
-            return _error(400, "`strict` must be a boolean", "invalid_request_error")
+            return error(400, "`strict` must be a boolean", INVALID_REQUEST)
 
         def _do_reverse() -> tuple[str, Any]:
             # ReverseResult carries no mapping_id, so the caller-visible id
@@ -214,7 +215,7 @@ def direct_routes(engine: PrivaParseEngine, detector: CachingDetector) -> list[R
         try:
             resolved_mapping_id, result = await run_in_threadpool(_do_reverse)
         except ForeignPlaceholderError as exc:
-            return _error(400, str(exc), "invalid_request_error")
+            return error(400, str(exc), INVALID_REQUEST)
         except LookupError as missing:
             # UnknownMappingError subclasses KeyError, whose __str__ wraps the
             # message in repr()'s quotes; args[0] is the constructor's own
@@ -222,7 +223,7 @@ def direct_routes(engine: PrivaParseEngine, detector: CachingDetector) -> list[R
             # NoCoveringMappingError is a plain LookupError, where args[0]
             # already agrees with str(missing).
             detail = missing.args[0] if missing.args else str(missing)
-            return _error(404, str(detail), "mapping_not_found")
+            return error(404, str(detail), MAPPING_NOT_FOUND)
 
         return JSONResponse(
             {

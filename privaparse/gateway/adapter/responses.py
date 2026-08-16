@@ -33,14 +33,16 @@ pass, after a real Codex session found four of them one 502 at a time.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
+from privaparse.gateway.adapter.shared import PLACEHOLDER_HINT
 from privaparse.gateway.extract import (
     TextNode,
     UnscannableField,
-    _refuse_if_text,
-    _walk_json_arguments,
-    _walk_json_value,
+    refuse_if_text,
+    walk_json_arguments,
+    walk_json_value,
 )
 
 __all__ = [
@@ -180,7 +182,7 @@ def extract_input(body: Any, *, allow_images: bool = False) -> list[TextNode]:
         elif key in IGNORED_REQUEST_FIELDS:
             continue
         else:
-            _refuse_if_text(value, pointer, "unknown request field")
+            refuse_if_text(value, pointer, "unknown request field")
     return nodes
 
 
@@ -228,7 +230,7 @@ def _walk_item(item: dict, pointer: tuple[Any, ...], nodes: list[TextNode],
             if key == "content":
                 _walk_content(value, field, nodes, allow_images)
             else:
-                _refuse_if_text(value, field, "unknown message field")
+                refuse_if_text(value, field, "unknown message field")
         return
 
     if kind == FUNCTION_CALL_ITEM:
@@ -237,9 +239,9 @@ def _walk_item(item: dict, pointer: tuple[Any, ...], nodes: list[TextNode],
             if key in IGNORED_ITEM_FIELDS:
                 continue
             if key == "arguments":
-                _walk_json_arguments(value, field, nodes)
+                walk_json_arguments(value, field, nodes)
             else:
-                _refuse_if_text(value, field, "unknown function call field")
+                refuse_if_text(value, field, "unknown function call field")
         return
 
     if kind == CUSTOM_TOOL_CALL_ITEM:
@@ -253,7 +255,7 @@ def _walk_item(item: dict, pointer: tuple[Any, ...], nodes: list[TextNode],
                 elif value is not None:
                     raise UnscannableField(field, "expected custom tool input to be a string")
             else:
-                _refuse_if_text(value, field, "unknown custom tool call field")
+                refuse_if_text(value, field, "unknown custom tool call field")
         return
 
     if kind in (FUNCTION_CALL_OUTPUT_ITEM, CUSTOM_TOOL_CALL_OUTPUT_ITEM):
@@ -271,7 +273,7 @@ def _walk_item(item: dict, pointer: tuple[Any, ...], nodes: list[TextNode],
                 elif value is not None:
                     raise UnscannableField(field, "expected a string or content list")
             else:
-                _refuse_if_text(value, field, "unknown function call output field")
+                refuse_if_text(value, field, "unknown function call output field")
         return
 
     raise UnscannableField(pointer, f"input item of type {kind!r} cannot be scanned")
@@ -332,7 +334,7 @@ def _walk_content(value: Any, pointer: tuple[Any, ...], nodes: list[TextNode],
                     raise UnscannableField(field, "expected the text part to be a string")
             else:
                 # `annotations` and `logprobs` ride along on output_text.
-                _refuse_if_text(sub, field, "unknown content part field")
+                refuse_if_text(sub, field, "unknown content part field")
 
 
 def with_placeholder_hint(body: dict) -> dict:
@@ -342,8 +344,6 @@ def with_placeholder_hint(body: dict) -> dict:
     system prompt is a larger liberty than adding to the list, and a bare
     string `input` has no instructions to edit anyway.
     """
-    from privaparse.gateway.adapter.openai import PLACEHOLDER_HINT
-
     if not isinstance(body, dict) or INPUT_FIELD not in body:
         return body
     existing = body[INPUT_FIELD]
@@ -398,13 +398,11 @@ def extract_output(body: Any) -> list[TextNode]:
                 continue
             root = at + ("arguments",)
             try:
-                import json
-
                 parsed = json.loads(raw)
             except ValueError:
                 # A truncated tool call still deserves its placeholders back.
                 nodes.append(TextNode(root, raw))
                 continue
-            _walk_json_value(parsed, root, root, nodes)
+            walk_json_value(parsed, root, root, nodes)
 
     return nodes

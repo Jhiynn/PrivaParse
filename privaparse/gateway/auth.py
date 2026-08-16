@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 from starlette.datastructures import Headers
 
-from privaparse.gateway.errors import _error
+from privaparse.gateway.errors import INVALID_API_KEY, error
 
 if TYPE_CHECKING:
     from starlette.types import ASGIApp, Receive, Scope, Send
@@ -70,10 +70,10 @@ class ApiKeyMiddleware:
         if not presented or not hmac.compare_digest(
             presented.encode("latin-1"), self._api_key.encode("utf-8")
         ):
-            response = _error(
+            response = error(
                 401,
                 "this gateway requires a key. Present it as the X-PrivaParse-Key header.",
-                "invalid_api_key",
+                INVALID_API_KEY,
             )
             await response(scope, receive, send)
             return

@@ -21,6 +21,14 @@ The response direction is the mirror image and deliberately asymmetric:
 failure on the way back shows a placeholder, so the response walk skips what
 it does not recognise rather than aborting an answer the caller has already
 paid for.
+
+A second protocol adapter walks its own request rather than this one, and the
+pieces it needs to do that are public: `TextNode` and `UnscannableField` to
+speak the same language, `refuse_if_text` to apply the allow-list rule to a
+field with no rule of its own, and `walk_json_arguments` / `walk_json_value`
+to walk a serialised tool-call blob the way this walk does. That set is the
+front door -- an adapter reaching past it for something private is a sign the
+machinery it wants has not been named yet.
 """
 
 from __future__ import annotations
@@ -31,6 +39,17 @@ from dataclasses import dataclass
 from typing import Any
 
 from privaparse.gateway.adapter import openai as shape
+
+__all__ = [
+    "TextNode",
+    "UnscannableField",
+    "extract",
+    "extract_response",
+    "refuse_if_text",
+    "walk_json_arguments",
+    "walk_json_value",
+    "write_back",
+]
 
 
 def _render(pointer: tuple[Any, ...]) -> str:
@@ -86,7 +105,7 @@ def extract(body: Any) -> list[TextNode]:
         elif key in shape.IGNORED_REQUEST_FIELDS:
             continue
         else:
-            _refuse_if_text(value, pointer, "unknown request field")
+            refuse_if_text(value, pointer, "unknown request field")
     return nodes
 
 
@@ -108,7 +127,7 @@ def _walk_messages(messages: Any, pointer: tuple[Any, ...], nodes: list[TextNode
             elif key in shape.TEXT_MESSAGE_FIELDS:
                 _walk_text_field(value, field, nodes)
             else:
-                _refuse_if_text(value, field, "unknown message field")
+                refuse_if_text(value, field, "unknown message field")
 
 
 def _walk_text_field(value: Any, pointer: tuple[Any, ...], nodes: list[TextNode]) -> None:
@@ -143,7 +162,7 @@ def _walk_content_parts(parts: list[Any], pointer: tuple[Any, ...], nodes: list[
             if key == shape.TEXT_PART_FIELD:
                 _walk_text_field(value, field, nodes)
             else:
-                _refuse_if_text(value, field, "unknown content part field")
+                refuse_if_text(value, field, "unknown content part field")
 
 
 def _walk_tool_calls(calls: Any, pointer: tuple[Any, ...], nodes: list[TextNode]) -> None:
@@ -162,7 +181,7 @@ def _walk_tool_calls(calls: Any, pointer: tuple[Any, ...], nodes: list[TextNode]
             if key == shape.FUNCTION_FIELD:
                 _walk_function(value, field, nodes)
             else:
-                _refuse_if_text(value, field, "unknown tool call field")
+                refuse_if_text(value, field, "unknown tool call field")
 
 
 def _walk_function(function: Any, pointer: tuple[Any, ...], nodes: list[TextNode]) -> None:
@@ -174,12 +193,18 @@ def _walk_function(function: Any, pointer: tuple[Any, ...], nodes: list[TextNode
         if key in shape.IGNORED_FUNCTION_FIELDS:
             continue
         if key in shape.JSON_FUNCTION_FIELDS:
-            _walk_json_arguments(value, field, nodes)
+            walk_json_arguments(value, field, nodes)
         else:
-            _refuse_if_text(value, field, "unknown function field")
+            refuse_if_text(value, field, "unknown function field")
 
 
-def _walk_json_arguments(raw: Any, pointer: tuple[Any, ...], nodes: list[TextNode]) -> None:
+def walk_json_arguments(raw: Any, pointer: tuple[Any, ...], nodes: list[TextNode]) -> None:
+    """A tool call's serialised arguments, parsed and walked to its leaves.
+
+    The string itself is never a node: `write_back` re-serialises the parsed
+    structure from the leaves, which is why every node underneath carries the
+    same `json_root`.
+    """
     if raw is None:
         return
     if not isinstance(raw, str):
@@ -192,10 +217,10 @@ def _walk_json_arguments(raw: Any, pointer: tuple[Any, ...], nodes: list[TextNod
         raise UnscannableField(
             pointer, f"arguments are not valid JSON ({type(error).__name__})"
         ) from error
-    _walk_json_value(parsed, pointer, pointer, nodes)
+    walk_json_value(parsed, pointer, pointer, nodes)
 
 
-def _walk_json_value(
+def walk_json_value(
     value: Any,
     pointer: tuple[Any, ...],
     json_root: tuple[Any, ...],
@@ -219,11 +244,11 @@ def _walk_json_value(
         return
     if isinstance(value, dict):
         for key, sub in value.items():
-            _walk_json_value(sub, pointer + (key,), json_root, nodes)
+            walk_json_value(sub, pointer + (key,), json_root, nodes)
         return
     if isinstance(value, list):
         for index, sub in enumerate(value):
-            _walk_json_value(sub, pointer + (index,), json_root, nodes)
+            walk_json_value(sub, pointer + (index,), json_root, nodes)
         return
     raise UnscannableField(pointer, f"unsupported JSON value of type {type(value).__name__}")
 
@@ -238,7 +263,7 @@ def _contains_string(value: Any) -> bool:
     return False
 
 
-def _refuse_if_text(value: Any, pointer: tuple[Any, ...], reason: str) -> None:
+def refuse_if_text(value: Any, pointer: tuple[Any, ...], reason: str) -> None:
     """Refuse a field with no rule -- but only if it could carry a person.
 
     A number or a boolean under an unrecognised key cannot hold a name, and
@@ -379,4 +404,4 @@ def _collect_response_message(
             # the whole string is restored as text rather than dropped.
             nodes.append(TextNode(root, raw))
             continue
-        _walk_json_value(parsed, root, root, nodes)
+        walk_json_value(parsed, root, root, nodes)
