@@ -114,6 +114,25 @@ mapping, which is why "mapping" and not "session" — a session here is a databa
 session and nothing else.
 _Avoid_: session, run, batch, job
 
+**Irreversible placeholder**:
+A placeholder whose entity has no stored surface form, so reversal recognises it
+and leaves it standing. Recognising one is not the same as knowing which mapping
+issued it — nothing records that, and nothing can.
+_Avoid_: unrestorable, one-way placeholder, hashed placeholder, foreign
+
+## Operations
+
+**Operation**:
+One thing a user asked PrivaParse to do, carried from its input to its outcome.
+What the CLI and the direct routes both drive, so that neither decides on its
+own what an error means.
+_Avoid_: command, action, job, run, task, use case
+
+**Outcome**:
+What an operation did, or why it could not — in a form the CLI renders and a
+route serialises. Rendering an outcome never involves deciding what happened.
+_Avoid_: result, response, status, report
+
 ## The gateway
 
 **Gateway**:

@@ -13,6 +13,19 @@ Issues and specs for this repo live as GitHub issues on `Jhiynn/PrivaParse`. Use
 
 Infer the repo from `git remote -v` — `gh` does this automatically when run inside a clone.
 
+### Parent and child
+
+Publishing children under a parent (`/to-tickets` under a spec, `/wayfinder` under a map) needs **both** edges: sub-issue is *belongs to*, dependency is *gated by*, neither implies the other. "blocking / sub-issue relationship" in a skill means both.
+
+- **Parent**: `gh api --method POST repos/<owner>/<repo>/issues/<parent>/sub_issues -F sub_issue_id=<child-db-id>`
+- **Blocker**: `gh api --method POST repos/<owner>/<repo>/issues/<child>/dependencies/blocked_by -F issue_id=<blocker-db-id>`
+
+Both take the numeric **database id** — not `#number`, not `node_id`. One: `gh api repos/<owner>/<repo>/issues/<n> --jq .id`. Many: one GraphQL query aliasing `issue(number:N){databaseId}`.
+
+Verify: `subIssues` on the parent, `issueDependenciesSummary { blockedBy }` on each child.
+
+A `Parent:`/`Blocked by:` body line is prose, not an edge — write it if a template asks, but it replaces neither call.
+
 ## Pull requests as a triage surface
 
 **PRs as a request surface: no.** _(Set to `yes` if this repo treats external PRs as feature requests; `/triage` reads this flag.)_
