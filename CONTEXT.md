@@ -14,10 +14,21 @@ _Avoid_: v1, MVP, the current release
 
 ## Detection
 
+**Detection pass**:
+The whole of what turns a document into its spans — masking, the detector, the
+threshold, merging and the coreference sweep. A detector only proposes; the
+pass decides.
+_Avoid_: pipeline, detection, scan, the detect path
+
 **Span**:
 One detected occurrence of PII in a document, addressed by character offsets
 into the original text.
 _Avoid_: match, hit, detection, entity
+
+**Candidate span**:
+What a detector proposes, before the threshold, merging and the coreference
+sweep have ruled on it. Only what survives the detection pass is a Span.
+_Avoid_: raw span, unfiltered span, proposal, guess
 
 **Backstop**:
 A rule-based finder that runs alongside the model, there for recall rather than
