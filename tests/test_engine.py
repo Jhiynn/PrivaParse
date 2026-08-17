@@ -9,13 +9,14 @@ document belongs to `test_detection_pass.py`.
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 import pytest
 
 from privaparse.app.config import Settings
 from privaparse.engine import PrivaParseEngine, _point_hf_cache_at
-from privaparse.parser.types import SOURCE_GLINER, EntityType, Span
+from privaparse.parser.types import SOURCE_COREF, SOURCE_GLINER, EntityType, Span
 
 
 @pytest.fixture(autouse=True)
@@ -103,21 +104,74 @@ def test_engine_is_reusable_across_calls(tmp_path: Path) -> None:
 
 # --- detection --------------------------------------------------------------
 
-#: Two occurrences of one name, so a run with the coreference sweep differs
-#: from one without it, and a text the regex-only default detector finds
-#: nothing in — which is what makes an injected detector's work visible.
-NAMED = "Max Mustermann schrieb. Später rief Max Mustermann noch einmal an."
+NAME = "Max Mustermann"
+
+#: A name the regex-only detector `settings` configures finds nothing in,
+#: which is what makes an injected detector's work visible.
+NAMED = f"{NAME} schrieb. Später rief {NAME} noch einmal an."
+
+#: The same name three times: once in prose, once inside a code fence, once
+#: more in prose. Every decision the pass makes is visible in the answer —
+#: masking (the fenced copy is never offered), and the coreference sweep (the
+#: detector below proposes only the first hit, so the third occurrence exists
+#: in the result only if the sweep ran).
+FENCED = f'{NAME} schrieb.\n\n```python\nuser = "{NAME}"\n```\n\nSpäter rief {NAME} an.\n'
 
 
-def test_detect_and_detect_many_answer_one_document_the_same_way(engine) -> None:
+class FirstHitDetector:
+    """Proposes the first occurrence of one name and nothing else.
+
+    Leaves the repeat for the coreference sweep to find, which is what tells a
+    run that went through the whole pass apart from one that only called a
+    detector. `conftest`'s `fake_detector` cannot: it finds every occurrence
+    itself, so its answer is the same with the sweep on or off.
+    """
+
+    def __init__(self, needle: str = NAME) -> None:
+        self._pattern = re.compile(rf"(?<!\w){re.escape(needle)}(?!\w)")
+
+    def detect(self, text: str) -> list[Span]:
+        match = self._pattern.search(text)
+        if match is None:
+            return []
+        return [
+            Span(
+                start=match.start(),
+                end=match.end(),
+                text=match.group(0),
+                type=EntityType.PERSON,
+                score=0.95,
+                source=SOURCE_GLINER,
+            )
+        ]
+
+
+def test_detect_and_detect_many_answer_one_document_the_same_way(settings) -> None:
     """The drift issue #9 was filed about, pinned rather than assumed.
 
     True by construction now — both are one line onto the same pass, and the
     pass's own single-text form is its batch form over a one-element sequence
     — but "by construction" is a property of today's implementation, and the
     two used to be written longhand at separate call sites.
+
+    Equality alone would hold between two entry points that both did nothing,
+    or that both skipped the sweep. So the document is one where every step of
+    the pass leaves a mark, and what the spans are is asserted before the two
+    forms are compared: `detect` rewritten longhand without the mask or
+    without the sweep fails here, rather than agreeing with a `detect_many`
+    that lost the same step.
     """
-    assert engine.detect(NAMED) == engine.detect_many([NAMED])[0]
+    engine = PrivaParseEngine(settings, detector=FirstHitDetector(), configure_logs=False)
+    try:
+        spans = engine.detect(FENCED)
+
+        # The fenced copy is masked out; the third occurrence is the sweep's.
+        assert [span.start for span in spans] == [FENCED.index(NAME), FENCED.rindex(NAME)]
+        assert [span.source for span in spans] == [SOURCE_GLINER, SOURCE_COREF]
+
+        assert spans == engine.detect_many([FENCED])[0]
+    finally:
+        engine.close()
 
 
 def test_detect_accepts_an_injected_detector_and_does_not_load_the_model(
@@ -170,9 +224,9 @@ def test_the_detection_pass_defaults_to_the_engines_own_detector(engine, fake_de
 
 def test_detect_many_applies_the_threshold_unlike_the_raw_detector(settings):
     """The raw detector output includes everything, however weak a score --
-    detect_many must not: it is the full pipeline, not a pass-through. Mirrors
-    test_detect_raw_returns_unfiltered_spans below, but for the batched
-    single-text-pipeline entry point rather than the raw one.
+    detect_many must not: it is the whole detection pass, not a pass-through.
+    Mirrors test_detect_raw_returns_unfiltered_spans below, but for the entry
+    point that decides rather than the one that only proposes.
     """
     from privaparse.parser.detector import StaticDetector, detect_batch
 

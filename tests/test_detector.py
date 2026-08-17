@@ -137,11 +137,7 @@ def test_the_shared_fake_detector_batches_the_same_way_it_detects(fake_detector)
     regex half real. Every pipeline test that compares a batched result with a
     single-text one rests on this fixture batching faithfully.
     """
-    texts = [
-        "Sehr geehrter Herr Max Mustermann,",
-        "Bitte an max@test.de senden.",
-        "Max Mustermann ruft unter +49 170 1234567 an.",
-    ]
+    texts = ["Erika Musterfrau schrieb.", "Antwort an max@test.de.", "nichts hier"]
 
     assert fake_detector.detect_many(texts) == [fake_detector.detect(text) for text in texts]
 

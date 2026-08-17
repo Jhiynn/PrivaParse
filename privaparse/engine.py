@@ -118,9 +118,11 @@ class PrivaParseEngine:
     def detect(self, text: str, *, detector: Detector | None = None) -> list[Span]:
         """Detected entities, after masking, merging and the coreference sweep.
 
-        Literally :meth:`detect_many` over a one-element sequence, one pass
-        underneath: a caller asking about one text and a caller asking about
-        several must never be answered off different assemblies (issue #9).
+        The same pass :meth:`detect_many` runs, over one text: both are one
+        line onto :meth:`detection_pass`, and the pass's own single-text form
+        is its batch form over a one-element sequence. A caller asking about
+        one text and a caller asking about several therefore cannot be
+        answered off different assemblies (issue #9).
 
         Read-only: nothing is written to the vault.
         """

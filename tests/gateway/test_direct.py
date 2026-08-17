@@ -33,11 +33,16 @@ def test_detect_mirrors_the_singular_form(direct_client):
 def test_detect_answers_one_text_and_several_off_one_assembly(direct_client):
     """Issue #9: the gateway must not answer the same document two ways.
 
-    The gateway owns a caching detector and injects it, so the assembly a
-    request comes off is observable from outside — the detection cache counts
-    what it served. A singular request that went through some *other* detector
-    would leave nothing behind for the plural one to hit, so the hit here is
-    what says both forms run through the one injected detector.
+    The route reaches one engine method with one injected detector today, so
+    this passes as written — that is the point. Nothing said it had to, and
+    the engine's own signatures used to make the singular form the awkward
+    one: `detect` took no detector, leaving `detect_many` as the only door a
+    caching detector fit through. Both doors take one now, so the next hand to
+    route the singular form through `engine.detect` has this to fail against.
+
+    Observable from outside because the gateway owns the detection cache and
+    it counts what it served: a singular request answered by some *other*
+    detector would leave nothing behind for the plural one to hit.
     """
     text = "Schreiben Sie an max@test.de"
 
