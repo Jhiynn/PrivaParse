@@ -225,8 +225,9 @@ def test_the_detection_pass_defaults_to_the_engines_own_detector(engine, fake_de
 def test_detect_many_applies_the_threshold_unlike_the_raw_detector(settings):
     """The raw detector output includes everything, however weak a score --
     detect_many must not: it is the whole detection pass, not a pass-through.
-    Mirrors test_detect_raw_returns_unfiltered_spans below, but for the entry
-    point that decides rather than the one that only proposes.
+    Mirrors test_scan_returns_candidate_spans_and_resolve_rules_on_them in
+    test_detection_pass.py, but for the engine entry point that decides
+    rather than the pass half that only proposes.
     """
     from privaparse.parser.detector import StaticDetector, detect_batch
 
@@ -268,39 +269,5 @@ def test_detect_many_accepts_an_injected_detector(settings, fake_detector):
         assert result[0]
         assert result[0][0].type == "EMAIL"
         assert engine._detector is None  # proving laziness, not using the public API
-    finally:
-        engine.close()
-
-
-def test_detect_raw_returns_unfiltered_spans(settings):
-    """``isinstance(spans, list)`` would pass even if detect_raw quietly ran
-    the merge/threshold step and returned an empty or fully-filtered list —
-    it does not test the one thing detect_raw promises over detect(): that
-    nothing has been dropped yet. A span scored below the merge threshold is
-    the direct way to show that: detect_raw must still return it, and
-    detect() — which does run resolve_spans — must not.
-    """
-    from privaparse.parser.detector import StaticDetector
-
-    text = "Vielleicht Max Mustermann, vielleicht nicht."
-    start = text.index("Max Mustermann")
-    weak = Span(
-        start,
-        start + len("Max Mustermann"),
-        "Max Mustermann",
-        EntityType.PERSON,
-        0.1,
-        SOURCE_GLINER,
-    )
-    assert weak.score < settings.threshold  # otherwise this test proves nothing
-
-    engine = PrivaParseEngine(settings, detector=StaticDetector([weak]), configure_logs=False)
-    try:
-        protected, raw_spans = engine.detect_raw(text)
-        resolved_spans = engine.detect(text)
-
-        assert protected.original == text
-        assert weak in raw_spans
-        assert weak not in resolved_spans
     finally:
         engine.close()

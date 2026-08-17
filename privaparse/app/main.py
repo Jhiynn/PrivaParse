@@ -294,7 +294,9 @@ def evaluate(
 
         engine = _engine_with(base)
         try:
-            results = sweep_thresholds(engine, documents, catalogue=base.catalogue)
+            results = sweep_thresholds(
+                engine.detection_pass(), documents, catalogue=base.catalogue
+            )
         finally:
             engine.close()
 

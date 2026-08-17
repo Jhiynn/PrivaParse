@@ -27,7 +27,6 @@ from privaparse.database.repository import Database, VaultRepository
 if TYPE_CHECKING:  # pragma: no cover
     from privaparse.parser.detection_pass import DetectionPass
     from privaparse.parser.detector import Detector
-    from privaparse.parser.markdown import ProtectedText
     from privaparse.parser.pseudonymizer import BatchResult, PseudonymizationResult
     from privaparse.parser.reverse_mapper import ReverseResult
     from privaparse.parser.types import Span
@@ -127,15 +126,6 @@ class PrivaParseEngine:
         Read-only: nothing is written to the vault.
         """
         return self.detection_pass(detector=detector).run(text)
-
-    def detect_raw(self, text: str) -> tuple[ProtectedText, list[Span]]:
-        """Masked text plus **unresolved** candidate spans.
-
-        The pass's expensive half: the threshold sweep needs the model's
-        scores before merging drops anything, so one pass over a document can
-        produce every point on the curve.
-        """
-        return self.detection_pass().scan(text)
 
     def detect_many(
         self, texts: Sequence[str], *, detector: Detector | None = None

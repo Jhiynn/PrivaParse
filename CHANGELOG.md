@@ -47,6 +47,25 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The threshold sweep runs on a detection pass, and the engine's raw-detection
+  accessor is gone. The sweep drove the engine through a duck type spelling out
+  the two things it touched, and defended itself with a `getattr` default when
+  it needed to know whether the coreference sweep was on — the shape of an
+  ordering constraint nobody owned, kept alive by the fact that the object it
+  was handed might not carry the field, and by a test fake that built its
+  settings as an anonymous class. It now takes a `DetectionPass`: each document
+  goes once through the pass's expensive half, and each point on the curve is a
+  `replace`d variant of that pass — the swept threshold, the stripped catalogue
+  — re-running the cheap half over what the scan produced. A pass declares all
+  four values, so the default has nothing to defend against and the duck type
+  has nothing left to describe; both are deleted. The sweep's counting fake is
+  now a real pass over a counting detector, so "the model runs once per
+  document" is measured on the assembly the sweep actually drives. With the
+  `eval` command handing it the engine's pass, `engine.detect_raw` had no
+  caller left and is removed — it appeared in no README, docs page or changelog
+  entry, and the project is pre-1.0. Span resolution and merging now have
+  exactly one caller in the package: the pass. Every sweep expectation is
+  unchanged, and so is detection output (#42).
 - The evaluation harness's scorer takes precomputed spans, one list per gold
   document, instead of anything callable. It was typed as taking a detector and
   handed three incompatible kinds of object — bare detectors in its own tests,
@@ -99,9 +118,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   now pinned by a test rather than left to construction, and so is the gateway
   seam: one text node and several are served by the one caching detector,
   asserted against the detection cache rather than left to the shape of a
-  route. `detect_raw` keeps its meaning — masked text plus *unresolved*
+  route. `detect_raw` kept its meaning — masked text plus *unresolved*
   candidate spans — for the evaluation harness, delegating to the pass's
-  expensive half until #42 retires it. No behaviour change (#40).
+  expensive half; #42 has since retired it. The gateway never had the split
+  assembly this was filed against: `gateway/direct.py` normalises a single
+  text node into a one-element list and has always called `detect_many` with
+  its caching detector, so both request shapes already came off one assembly.
+  What was real is the engine-side asymmetry — `detect` took no detector at
+  all, which is why `detect_many` was the only door a caching detector fit
+  through. No behaviour change (#40).
 - The detection pass has a module. Masking, the detector, the threshold,
   merging and the coreference sweep — "text in, final spans out" — were written
   longhand at four call sites, each re-deriving the same four settings, and no

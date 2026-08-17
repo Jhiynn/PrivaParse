@@ -21,7 +21,7 @@ import json
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING
 
 from privaparse.evaluation import DEFAULT_GOLD_PATH
 from privaparse.parser.types import Span
@@ -270,7 +270,7 @@ def evaluate(
 
 
 def detect_for_scoring(
-    detection: DetectionPass, documents: Sequence[GoldDocument], *, batched: bool
+    detection_pass: DetectionPass, documents: Sequence[GoldDocument], *, batched: bool
 ) -> list[list[Span]]:
     """What to hand :func:`evaluate`: each document's spans, in the order the
     documents arrived.
@@ -292,8 +292,8 @@ def detect_for_scoring(
     comparable with every number already recorded under `docs/benchmarks/`.
     """
     if batched:
-        return detection.run_batch([document.text for document in documents])
-    return [detection.run(document.text) for document in documents]
+        return detection_pass.run_batch([document.text for document in documents])
+    return [detection_pass.run(document.text) for document in documents]
 
 
 def _score(
@@ -453,20 +453,6 @@ def _mistake_section(title: str, mistakes: list[Mistake], limit: int) -> list[st
 DEFAULT_SWEEP: tuple[float, ...] = (0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
 
 
-class SupportsDetectRaw(Protocol):
-    """Duck type for the engine `sweep_thresholds` drives — real or fake.
-
-    A `Protocol`, not `PrivaParseEngine` itself: tests exercise this against
-    a fake that stands in for the engine without inheriting from it, and this
-    module has no reason to import the concrete class just to spell out the
-    two things it actually touches.
-    """
-
-    settings: Any
-
-    def detect_raw(self, text: str) -> tuple[ProtectedText, list[Span]]: ...
-
-
 def _without_per_type_thresholds(catalogue: Catalogue) -> Catalogue:
     """The same catalogue, with every type's own ``threshold:`` cleared.
 
@@ -493,7 +479,7 @@ def _without_per_type_thresholds(catalogue: Catalogue) -> Catalogue:
 
 
 def sweep_thresholds(
-    engine: SupportsDetectRaw,
+    detection_pass: DetectionPass,
     documents: Sequence[GoldDocument],
     *,
     thresholds: Sequence[float] = DEFAULT_SWEEP,
@@ -508,44 +494,49 @@ def sweep_thresholds(
     compete for an overlap, not only which survive it — a span that loses an
     overlap at 0.5 can win it at 0.7 if its rival fell below the new cut.
 
+    That split is exactly the one :class:`DetectionPass` already draws, which
+    is why this takes a pass rather than anything with a ``detect``-shaped
+    method: each document goes once through the pass's expensive half, and
+    each point on the curve is a ``replace``d variant of that same pass
+    re-running the cheap half over what the scan produced. Whether the
+    coreference sweep runs is read off the pass's own declared field — a pass
+    has all four values by construction, so there is nothing here to defend
+    against with a default.
+
     Swept against ``_without_per_type_thresholds(catalogue)``, not
     ``catalogue`` itself — see that function for why a per-type threshold
-    left in place would silently flatten that type's own curve.
+    left in place would silently flatten that type's own curve. The swept
+    catalogue goes into the variant, so the point being scored and the
+    catalogue it is scored against are the same one.
 
-    Each point re-merges the scanned candidates positionally, one entry per
+    Each point re-resolves the scanned candidates positionally, one entry per
     document, and hands the resulting spans to :func:`evaluate`. Position, not
     text: two gold documents can legitimately carry identical text, and the
     same text scanned twice is not promised to yield the same candidates, so
     anything keyed by text would let one document's result stand in for
     another's.
-    """
-    from privaparse.parser.merge import resolve_spans
 
+    Scanned one document at a time, not batched, for the reason
+    :func:`detect_for_scoring` spells out for the ``eval`` command it belongs
+    to: batch size is not a variable in the fine-tuning question, and the
+    figures this publishes must not move with a setting unrelated to it.
+    """
     swept_catalogue = _without_per_type_thresholds(catalogue)
 
     scanned: list[tuple[ProtectedText, list[Span]]] = [
-        engine.detect_raw(document.text) for document in documents
+        detection_pass.scan(document.text) for document in documents
     ]
 
-    sweep_enabled = bool(getattr(engine.settings, "coreference_sweep", True))
-    return {
-        threshold: evaluate(
-            [
-                resolve_spans(
-                    protected,
-                    candidates,
-                    threshold=threshold,
-                    sweep=sweep_enabled,
-                    catalogue=swept_catalogue,
-                )
-                for protected, candidates in scanned
-            ],
+    results: dict[float, EvalReport] = {}
+    for threshold in thresholds:
+        variant = detection_pass.replace(threshold=threshold, catalogue=swept_catalogue)
+        results[threshold] = evaluate(
+            [variant.resolve(protected, candidates) for protected, candidates in scanned],
             documents,
             label=f"t={threshold:.2f}",
             catalogue=swept_catalogue,
         )
-        for threshold in thresholds
-    }
+    return results
 
 
 def format_sweep(results: dict[float, EvalReport]) -> str:
