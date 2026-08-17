@@ -270,24 +270,29 @@ def evaluate(
 
 
 def detect_for_scoring(
-    detection: DetectionPass, documents: Sequence[GoldDocument]
+    detection: DetectionPass, documents: Sequence[GoldDocument], *, batched: bool
 ) -> list[list[Span]]:
-    """What to hand :func:`evaluate`: each document's spans, one document at a
-    time.
+    """What to hand :func:`evaluate`: each document's spans, in the order the
+    documents arrived.
 
-    Deliberately not :meth:`DetectionPass.run_batch`, which would be faster.
-    Batching is a variable this project *measures*, not one to apply silently
-    on the way to a score: it is what the harness reports on, and both callers
-    here reported these figures unbatched when they still handed ``evaluate``
-    the engine itself. Scoring one document at a time keeps every published
-    number comparable with the ones already in `docs/benchmarks/`.
+    ``batched`` is not a performance knob, which is why it has no default —
+    the two callers are measuring different things and each has to say which.
 
-    That leaves a real gap, named here rather than quietly closed: bench.py's
-    own preamble says aggressive batching can cost recall, yet the quality
-    column it scores beside its batch-size rows is computed unbatched, so it
-    cannot currently see that. Making it see it changes what the number means
-    and is a measurement decision, not a refactor — out of scope for #41.
+    The **benchmark** passes ``True``. Batch size is one of the variables its
+    matrix sweeps, and its opening claim is that a configuration which gets
+    faster because it stops noticing names is broken rather than optimised.
+    A quality column computed one document at a time cannot see that: batch
+    size could not move it, so every batch-size row would read identically no
+    matter what batching did to recall. Scored batched, the number answers the
+    question the row was put there to ask.
+
+    The **eval command** passes ``False``. Batch size is not a variable in the
+    fine-tuning question, and the figures that command publishes should not
+    move with a setting unrelated to it — one document at a time keeps them
+    comparable with every number already recorded under `docs/benchmarks/`.
     """
+    if batched:
+        return detection.run_batch([document.text for document in documents])
     return [detection.run(document.text) for document in documents]
 
 

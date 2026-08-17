@@ -130,12 +130,14 @@ def run_bench(
     # Sampled at the end of the timed section, while the GPU is still hot.
     result.throttle_warning = _throttle_check(engine)
 
-    # A second full pass over the corpus, outside the timed section — the same
-    # cost this function always paid, back when it handed the whole engine to
-    # `evaluate` and let the scorer pull. What is scored is the detection pass
-    # the engine hands over; see `detect_for_scoring` for why it is not batched.
+    # A second pass over the corpus, outside the timed section — the same cost
+    # this function always paid, back when it handed the whole engine to
+    # `evaluate` and let the scorer pull. Batched, unlike the timed loop above:
+    # this row's quality figures have to reflect the batch size the row is
+    # measuring, or the matrix cannot see a batch that costs recall. The timing
+    # stays per document because that is what `engine.detect` costs a caller.
     quality = evaluate(
-        detect_for_scoring(engine.detection_pass(), documents),
+        detect_for_scoring(engine.detection_pass(), documents, batched=True),
         documents,
         label=label,
         catalogue=engine.settings.catalogue,

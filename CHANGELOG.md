@@ -65,8 +65,25 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   so running the inputs through a pass first would delete what the assertion is
   about (ADR-0004). The sweep keeps its guarantees: one model pass per document,
   every point on the curve a real re-merge, per-type thresholds still stripped so
-  a type that declares one produces a curve rather than a flat line. Reported
-  precision and recall are unchanged (#41).
+  a type that declares one produces a curve rather than a flat line. The
+  `eval` command's and the sweep's reported precision and recall are unchanged
+  (#41).
+- **The benchmark's quality column can now see the batching it measures.** It
+  scores fp16, INT8 and batch size against the gold set because any of them can
+  buy speed with recall — a pipeline that gets faster because it stops noticing
+  names is not optimised, it is broken. But it scored that gold set one
+  document at a time, so batch size could not move the quality figures at all:
+  the batch-1, batch-8 and batch-16 rows carried identical quality by
+  construction, and the one failure the table exists to catch was the one it
+  could not show. The benchmark now detects the gold set for scoring the way
+  the configuration under test actually runs it, in one batched call, so a
+  batch size that costs recall shows up in the column that was put there to
+  catch it. Its timings still measure one document at a time, because that is
+  what a caller pays. The `eval` command deliberately keeps scoring one
+  document at a time — batch size is not a variable in the fine-tuning
+  question, and its published figures must not move with an unrelated setting
+  — and which of the two a caller wants is now stated at the call site rather
+  than defaulted (#41).
 - The engine sits on the detection pass, and its two detection entry points can
   no longer answer the same document differently. `detect` and `detect_many`
   are one line each onto `engine.detection_pass(...)` — the accessor that

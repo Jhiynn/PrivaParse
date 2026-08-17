@@ -325,7 +325,9 @@ def evaluate(
             try:
                 reports.append(
                     run_eval(
-                        detect_for_scoring(engine.detection_pass(), documents),
+                        detect_for_scoring(
+                            engine.detection_pass(), documents, batched=False
+                        ),
                         documents,
                         label=label,
                         catalogue=settings.catalogue,
