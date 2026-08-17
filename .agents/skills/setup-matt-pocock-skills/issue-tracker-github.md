@@ -15,16 +15,16 @@ Infer the repo from `git remote -v` — `gh` does this automatically when run in
 
 ### Parent and child
 
-Whenever a skill publishes child issues under something — `/to-tickets` under a spec, `/wayfinder` under a map — record **both** edges natively. They mean different things and neither implies the other: sub-issue is *belongs to*, dependency is *gated by*. A skill saying "blocking / sub-issue relationship" means both where the tracker has both, not either.
+Publishing children under a parent (`/to-tickets` under a spec, `/wayfinder` under a map) needs **both** edges: sub-issue is *belongs to*, dependency is *gated by*, neither implies the other. "blocking / sub-issue relationship" in a skill means both.
 
 - **Parent**: `gh api --method POST repos/<owner>/<repo>/issues/<parent>/sub_issues -F sub_issue_id=<child-db-id>`
 - **Blocker**: `gh api --method POST repos/<owner>/<repo>/issues/<child>/dependencies/blocked_by -F issue_id=<blocker-db-id>`
 
-Both endpoints take the target's numeric **database id**, never the `#number` and never the `node_id`. Fetch one with `gh api repos/<owner>/<repo>/issues/<n> --jq .id`; fetch many in one call with a GraphQL query aliasing `issue(number:N){databaseId}` per issue.
+Both take the numeric **database id** — not `#number`, not `node_id`. One: `gh api repos/<owner>/<repo>/issues/<n> --jq .id`. Many: one GraphQL query aliasing `issue(number:N){databaseId}`.
 
-Verify after wiring: `subIssues` on the parent, and `issueDependenciesSummary { blockedBy }` on each child — the count should equal the number of blockers you intended.
+Verify: `subIssues` on the parent, `issueDependenciesSummary { blockedBy }` on each child.
 
-A `Parent:` or `Blocked by:` line in an issue body is prose, not an edge. Write it if a template asks for it, but it does not substitute for either call above.
+A `Parent:`/`Blocked by:` body line is prose, not an edge — write it if a template asks, but it replaces neither call.
 
 ## Pull requests as a triage surface
 
