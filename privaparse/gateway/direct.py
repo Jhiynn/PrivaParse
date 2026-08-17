@@ -231,6 +231,7 @@ def direct_routes(engine: PrivaParseEngine, detector: CachingDetector) -> list[R
                 "mapping_id": resolved_mapping_id,
                 "restored": result.restored,
                 "recovered": result.recovered,
+                "irreversible": result.irreversible,
                 "foreign": result.foreign,
                 "unknown": result.unknown,
             }

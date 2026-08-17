@@ -288,7 +288,8 @@ def _adopt_existing(
 
     A placeholder the vault never issued is skipped: invented downstream, or
     left over from a vault that no longer exists. There is nothing to adopt
-    and nothing worth failing over.
+    and nothing worth failing over. So is an irreversible one, for which the
+    vault holds nothing readable to restore.
     """
     from privaparse.database.placeholder import find_placeholders
 
@@ -304,10 +305,13 @@ def _adopt_existing(
             entity = repo.entity_by_placeholder(placeholder)
             if entity is None or entity.id in already:
                 continue
-            restore_value = entity.values[0] if entity.values else None
-            if restore_value is None:  # pragma: no cover - an entity always has one
+            if not entity.values:
+                # An irreversible entity: the vault holds no readable form of
+                # it, so there is nothing this mapping could be given to
+                # restore. Adopting it is not possible and not needed --
+                # reversal recognises it from the same absence.
                 continue
-            repo.add_mapping_entry(mapping, entity, restore_value, occurrences=1)
+            repo.add_mapping_entry(mapping, entity, entity.values[0], occurrences=1)
             already.add(entity.id)
             adopted += 1
 

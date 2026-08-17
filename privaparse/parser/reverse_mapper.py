@@ -5,6 +5,13 @@ document that was issued it.** The vault is global, so without that scope
 anyone who can call ``reverse()`` could write ``[[PERSON_A47]]`` into a document
 and read back the name of a person they have never seen. Placeholders from other
 mappings are left in place and reported, not resolved.
+
+A placeholder whose entity has **no stored surface form** is a fourth outcome:
+*irreversible*. Nothing readable was ever written for it, so no mapping can
+restore it and none records issuing it — it is recognised and left standing,
+never attributed. That answer is read from the vault and never from the
+catalogue's ``reversible`` flag; see
+``docs/adr/0005-irreversibility-is-read-from-the-vault.md``.
 """
 
 from __future__ import annotations
@@ -82,7 +89,12 @@ def find_mapping_for(text: str, *, repo: VaultRepository) -> str:
 class ReverseResult:
     text: str
     restored: int = 0
-    #: Placeholders the vault knows, but which this mapping was never issued.
+    #: Placeholders whose entity has no stored surface form, so nothing can
+    #: restore them — recognised and left standing. Recognising one says
+    #: nothing about which mapping issued it: nothing records that.
+    irreversible: list[str] = field(default_factory=list)
+    #: Placeholders the vault knows and could restore, but which this mapping
+    #: was never issued.
     foreign: list[str] = field(default_factory=list)
     #: Placeholders the vault has never issued to anyone — invented downstream.
     unknown: list[str] = field(default_factory=list)
@@ -93,6 +105,13 @@ class ReverseResult:
 
     @property
     def is_clean(self) -> bool:
+        """Nothing here surprised the reversal.
+
+        Irreversible placeholders do not count against it: a document whose
+        only leftovers were never restorable in the first place came back
+        exactly as it should. A caller that wants no placeholders left at all
+        reads :attr:`irreversible` itself.
+        """
         return not self.foreign and not self.unknown
 
 
@@ -152,6 +171,7 @@ def reverse_text(
     table = repo.restore_table(mapping_id)
 
     restored = 0
+    irreversible: list[str] = []
     foreign: list[str] = []
     unknown: list[str] = []
 
@@ -162,7 +182,14 @@ def reverse_text(
             restored += 1
             return table[placeholder]
 
-        if repo.placeholder_is_known(placeholder):
+        # Asked of the vault before "whose is it?", because an entity with no
+        # stored surface form has no way home whoever issued it — and nothing
+        # records who did. Guessing *foreign* by elimination told a caller their
+        # own card placeholder came from someone else's document.
+        if repo.placeholder_is_irreversible(placeholder):
+            if placeholder not in irreversible:
+                irreversible.append(placeholder)
+        elif repo.placeholder_is_known(placeholder):
             if placeholder not in foreign:
                 foreign.append(placeholder)
         elif placeholder not in unknown:
@@ -183,6 +210,12 @@ def reverse_text(
             new_text, hits = pattern.subn(lambda _match, v=value: v, new_text)
             recovered += hits
 
+    if irreversible:
+        log.info(
+            "%d placeholder(s) were never restorable and were left in place: %s",
+            len(irreversible),
+            ", ".join(irreversible),
+        )
     if foreign:
         log.warning(
             "%d placeholder(s) belong to a different mapping and were left in place: %s",
@@ -212,6 +245,7 @@ def reverse_text(
     return ReverseResult(
         text=new_text,
         restored=restored,
+        irreversible=irreversible,
         foreign=foreign,
         unknown=unknown,
         recovered=recovered,

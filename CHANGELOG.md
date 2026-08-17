@@ -8,6 +8,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Reversing a document that contains a card number, a CVV or a secret no
+  longer claims the placeholder came from **someone else's mapping**. Nothing
+  readable is ever stored for those types, so there was no mapping entry to
+  find and the placeholder fell through to `foreign` by elimination: the CLI
+  warned about a contamination that never happened, and `strict` mode rejected
+  a document in perfect order. Reversal now has a fourth outcome —
+  **`irreversible`**, listed on the result beside `restored`, `recovered`,
+  `foreign` and `unknown`, and serialised by `/privaparse/reverse`. Such a
+  placeholder is recognised and left standing, `is_clean` stays true for a run
+  whose only leftovers are irreversible, and `strict` does not raise on it —
+  while still raising on a placeholder genuinely issued to another mapping.
+  The answer is read from the vault (no stored surface form ⇒ no way home),
+  never from the catalogue's `reversible` flag, so editing or disabling a type
+  cannot re-classify placeholders issued years earlier; see ADR-0005 (#50).
 - `gateway_allow_images` means the same thing on every route. It was wired
   into `/v1/responses` only, while `/v1/chat/completions` refused image parts
   unconditionally: an operator who turned it on so their coding agent could

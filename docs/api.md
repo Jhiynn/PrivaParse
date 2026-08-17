@@ -177,14 +177,19 @@ curl -s http://127.0.0.1:8787/privaparse/reverse \
   "mapping_id": "e210956a-f31b-4559-99b3-38d446a48d11",
   "restored": 1,
   "recovered": 0,
+  "irreversible": [],
   "foreign": [],
   "unknown": []
 }
 ```
 
-`restored` counts placeholders resolved exactly; `foreign` lists placeholders
-that belong to a different mapping and were left standing; `unknown` lists
-placeholders no mapping in this vault ever issued. `recovered` counts
+`restored` counts placeholders resolved exactly; `irreversible` lists
+placeholders of a type nothing readable was ever stored for — a card number, a
+CVV, a secret — which are recognised and left standing (listing one is not a
+claim about which mapping issued it: nothing records that); `foreign` lists
+placeholders that belong to a different mapping and were left standing;
+`unknown` lists placeholders no mapping in this vault ever issued. `recovered`
+counts
 placeholders resolved through fuzzy matching — this route never sets that,
 so it is always `0` here; fuzzy restoration is a gateway-only knob
 (`PRIVAPARSE_GATEWAY_FUZZY`), not something this endpoint exposes.
@@ -220,6 +225,10 @@ carrying the engine's own message, `type: "invalid_request_error"`:
   }
 }
 ```
+
+`strict` raises only for genuinely foreign placeholders. An irreversible one is
+not a leak and not someone else's — it is accepted and reported, and a run whose
+only leftovers are irreversible counts as clean.
 
 ## GET /privaparse/catalogue
 
