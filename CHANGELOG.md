@@ -47,6 +47,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- One helper answers "does this detector batch?". The `Detector` protocol
+  declared a `detect_many` default body that reached no one — the protocol is
+  structural, so nothing inherits it — which left the composite detector
+  probing for the method with `getattr` while the backstop detector and the
+  fixed-span test detector each re-spelled the same degenerate loop. The
+  default is gone and `detect_batch(detector, texts)` owns the probe; the
+  detectors that genuinely batch, the model detector and the gateway's caching
+  one, keep their own implementations and are still called as batches. The
+  protocol stays structural and declares one method, so a detector with only
+  `detect` — the model detector included — still satisfies it. No behaviour
+  change (#38).
 - Documentation, docstrings and test names say *mapping* where they meant a
   pseudonymisation and everything it issued; *session* now means a database
   session and nothing else. The *vault* names the local database as a whole

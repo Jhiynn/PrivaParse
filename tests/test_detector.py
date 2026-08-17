@@ -1,4 +1,4 @@
-"""The detector composition layer: the ``Detector`` protocol and ``detect_many``.
+"""The detector composition layer: the ``Detector`` protocol and ``detect_batch``.
 
 Not regex- or backstop-specific — those live in their own test files. This one
 is about the plumbing that combines detectors, which every concrete detector
@@ -13,22 +13,81 @@ import pytest
 
 from privaparse.app.config import Settings
 from privaparse.app.device import resolve_device
-from privaparse.parser.detector import CompositeDetector, StaticDetector, build_default_detector
+from privaparse.parser.detector import (
+    CompositeDetector,
+    Detector,
+    StaticDetector,
+    build_default_detector,
+    detect_batch,
+)
 from privaparse.parser.types import Span
 
 
 class _DetectOnly:
     """Has ``detect`` and nothing else — GlinerDetector's actual shape.
 
-    ``Detector`` is a structural Protocol, so its ``detect_many`` default body
-    reaches no one: nothing inherits from a Protocol. GlinerDetector and every
-    hand-written test fake (``NameListDetector`` included) predate
-    ``detect_many`` and never got it, so this is what the production hybrid
-    detector's first element really looks like.
+    ``Detector`` is a structural Protocol, so a detector satisfies it by having
+    ``detect`` and inheriting from nothing. Most of them — GlinerDetector, and
+    every hand-written test fake, ``NameListDetector`` included — stop there and
+    never define a batch form, so this is what the production hybrid detector's
+    first element really looks like.
     """
 
     def detect(self, text: str) -> list[Span]:
         return [Span(0, len(text), text, "WHOLE")] if text else []
+
+
+class _Batching:
+    """Defines both forms, and records which one was asked."""
+
+    def __init__(self) -> None:
+        self.batched: list[list[str]] = []
+        self.singles: list[str] = []
+
+    def detect(self, text: str) -> list[Span]:
+        self.singles.append(text)
+        return [Span(0, len(text), text, "SINGLE")] if text else []
+
+    def detect_many(self, texts) -> list[list[Span]]:
+        self.batched.append(list(texts))
+        return [[Span(0, len(t), t, "BATCH")] if t else [] for t in texts]
+
+
+# --- detect_batch: the one place that decides between batching and looping ---
+
+
+def test_detect_batch_loops_over_detect_when_the_detector_does_not_batch():
+    detector = _DetectOnly()
+
+    results = detect_batch(detector, ["ab", "xyz"])
+
+    assert [[s.text for s in spans] for spans in results] == [["ab"], ["xyz"]]
+
+
+def test_detect_batch_hands_the_whole_sequence_to_a_detector_that_batches():
+    """One submission, not one per text — the point of a detector defining
+    ``detect_many`` at all is that the model call gets to see every text at
+    once, and a helper that looped would silently throw that away."""
+    detector = _Batching()
+
+    results = detect_batch(detector, ["ab", "xyz"])
+
+    assert detector.batched == [["ab", "xyz"]]
+    assert detector.singles == []
+    assert [[s.type for s in spans] for spans in results] == [["BATCH"], ["BATCH"]]
+
+
+def test_detect_batch_over_the_fixed_span_detector_matches_detect_per_text():
+    detector = StaticDetector([Span(0, 2, "ab", "A")])
+    assert detect_batch(detector, ["ab", "x"]) == [detector.detect("ab"), detector.detect("x")]
+
+
+def test_a_detect_only_fake_satisfies_the_detector_protocol():
+    """Load-bearing: the protocol stays structural and ``runtime_checkable``,
+    and declares no batch form. Declaring one would make every detect-only
+    detector — the real GLiNER2 one included — fail this check.
+    """
+    assert isinstance(_DetectOnly(), Detector)
 
 
 def test_composite_detect_many_tolerates_a_detector_without_it():
@@ -70,11 +129,6 @@ def test_composite_detect_many_matches_detect_called_separately():
     batched = detector.detect_many([text_a, text_b])
 
     assert batched == [detector.detect(text_a), detector.detect(text_b)]
-
-
-def test_static_detector_detect_many_is_a_loop_over_detect():
-    detector = StaticDetector([Span(0, 2, "ab", "A")])
-    assert detector.detect_many(["ab", "x"]) == [detector.detect("ab"), detector.detect("x")]
 
 
 # --- the GLiNER2-absent guard -----------------------------------------------

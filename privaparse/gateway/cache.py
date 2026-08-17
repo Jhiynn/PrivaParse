@@ -29,6 +29,7 @@ from collections.abc import Sequence
 from dataclasses import asdict
 from typing import TYPE_CHECKING
 
+from privaparse.parser.detector import detect_batch
 from privaparse.parser.types import Span
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -149,7 +150,7 @@ class CachingDetector:
 
         missing = [text for text, spans in known.items() if spans is None]
         if missing:
-            found = self._engine.detector.detect_many(missing)
+            found = detect_batch(self._engine.detector, missing)
             for text, spans in zip(missing, found):
                 self._cache.put(fingerprint, text, spans)
                 known[text] = list(spans)
