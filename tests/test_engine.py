@@ -1,4 +1,10 @@
-"""Engine wiring: the model cache location and the shared-engine lifecycle."""
+"""Engine wiring: the model cache, the shared-engine lifecycle, the detection surface.
+
+The detection tests here are about the *engine's* half of detection — that both
+its entry points come off one pass, that an injected detector reaches it, and
+that injecting one never wakes the model. What the pass then does with a
+document belongs to `test_detection_pass.py`.
+"""
 
 from __future__ import annotations
 
@@ -9,6 +15,7 @@ import pytest
 
 from privaparse.app.config import Settings
 from privaparse.engine import PrivaParseEngine, _point_hf_cache_at
+from privaparse.parser.types import SOURCE_GLINER, EntityType, Span
 
 
 @pytest.fixture(autouse=True)
@@ -90,5 +97,156 @@ def test_engine_is_reusable_across_calls(tmp_path: Path) -> None:
 
         assert first.spans[0].placeholder == second.spans[0].placeholder
         assert engine.vault_stats().mappings == 2
+    finally:
+        engine.close()
+
+
+# --- detection --------------------------------------------------------------
+
+#: Two occurrences of one name, so a run with the coreference sweep differs
+#: from one without it, and a text the regex-only default detector finds
+#: nothing in — which is what makes an injected detector's work visible.
+NAMED = "Max Mustermann schrieb. Später rief Max Mustermann noch einmal an."
+
+
+def test_detect_and_detect_many_answer_one_document_the_same_way(engine) -> None:
+    """The drift issue #9 was filed about, pinned rather than assumed.
+
+    True by construction now — both are one line onto the same pass, and the
+    pass's own single-text form is its batch form over a one-element sequence
+    — but "by construction" is a property of today's implementation, and the
+    two used to be written longhand at separate call sites.
+    """
+    assert engine.detect(NAMED) == engine.detect_many([NAMED])[0]
+
+
+def test_detect_accepts_an_injected_detector_and_does_not_load_the_model(
+    settings, fake_detector
+) -> None:
+    """The gateway's single-text path, which used to have no way to say this.
+
+    ``detect`` took no detector, so the gateway could only inject its caching
+    wrapper into the batch form: one text node and several came off different
+    assemblies. Passing one in must also leave the engine's own detector
+    unbuilt — the build is lazy, and a caller that always injects one must
+    never trigger the model load.
+    """
+    engine = PrivaParseEngine(settings, configure_logs=False)
+    try:
+        spans = engine.detect(NAMED, detector=fake_detector)
+
+        # The regex-only detector `settings` configures finds no names at all,
+        # so a PERSON span can only have come from the injected detector.
+        assert [span.type for span in spans] == [EntityType.PERSON, EntityType.PERSON]
+        assert engine._detector is None  # proving laziness, not using the public API
+    finally:
+        engine.close()
+
+
+def test_the_detection_pass_carries_the_engines_settings_and_an_injected_detector(
+    settings, fake_detector
+) -> None:
+    """The accessor both detection methods delegate to: the engine's four
+    settings values, and whichever detector the call names. Reading it must
+    not wake the model either — it is the same lazy read the methods do.
+    """
+    engine = PrivaParseEngine(settings, configure_logs=False)
+    try:
+        detection_pass = engine.detection_pass(detector=fake_detector)
+
+        assert detection_pass.detector is fake_detector
+        assert detection_pass.threshold == settings.threshold
+        assert detection_pass.sweep == settings.coreference_sweep
+        assert detection_pass.scan_code == settings.scan_code
+        assert detection_pass.catalogue is settings.catalogue
+        assert engine._detector is None
+    finally:
+        engine.close()
+
+
+def test_the_detection_pass_defaults_to_the_engines_own_detector(engine, fake_detector) -> None:
+    assert engine.detection_pass().detector is fake_detector
+
+
+def test_detect_many_applies_the_threshold_unlike_the_raw_detector(settings):
+    """The raw detector output includes everything, however weak a score --
+    detect_many must not: it is the full pipeline, not a pass-through. Mirrors
+    test_detect_raw_returns_unfiltered_spans below, but for the batched
+    single-text-pipeline entry point rather than the raw one.
+    """
+    from privaparse.parser.detector import StaticDetector, detect_batch
+
+    text = "Vielleicht Max Mustermann, vielleicht nicht."
+    start = text.index("Max Mustermann")
+    weak = Span(
+        start,
+        start + len("Max Mustermann"),
+        "Max Mustermann",
+        EntityType.PERSON,
+        0.1,
+        SOURCE_GLINER,
+    )
+    assert weak.score < settings.threshold  # otherwise this test proves nothing
+
+    static = StaticDetector([weak])
+    engine = PrivaParseEngine(settings, detector=static, configure_logs=False)
+    try:
+        raw = detect_batch(static, [text])
+        resolved = engine.detect_many([text])
+
+        assert weak in raw[0]
+        assert weak not in resolved[0]
+    finally:
+        engine.close()
+
+
+def test_detect_many_accepts_an_injected_detector(settings, fake_detector):
+    """Mirrors pseudonymize_batch's own injectable-detector signature -- the
+    gateway relies on this to put a caching wrapper in front of detection
+    without the engine building or owning that detector itself. Passing one
+    in must not force the engine to build its own default detector: the
+    build is read lazily, so a caller that always injects one never triggers
+    it.
+    """
+    engine = PrivaParseEngine(settings, configure_logs=False)
+    try:
+        result = engine.detect_many(["Bitte an max@test.de senden."], detector=fake_detector)
+        assert result[0]
+        assert result[0][0].type == "EMAIL"
+        assert engine._detector is None  # proving laziness, not using the public API
+    finally:
+        engine.close()
+
+
+def test_detect_raw_returns_unfiltered_spans(settings):
+    """``isinstance(spans, list)`` would pass even if detect_raw quietly ran
+    the merge/threshold step and returned an empty or fully-filtered list —
+    it does not test the one thing detect_raw promises over detect(): that
+    nothing has been dropped yet. A span scored below the merge threshold is
+    the direct way to show that: detect_raw must still return it, and
+    detect() — which does run resolve_spans — must not.
+    """
+    from privaparse.parser.detector import StaticDetector
+
+    text = "Vielleicht Max Mustermann, vielleicht nicht."
+    start = text.index("Max Mustermann")
+    weak = Span(
+        start,
+        start + len("Max Mustermann"),
+        "Max Mustermann",
+        EntityType.PERSON,
+        0.1,
+        SOURCE_GLINER,
+    )
+    assert weak.score < settings.threshold  # otherwise this test proves nothing
+
+    engine = PrivaParseEngine(settings, detector=StaticDetector([weak]), configure_logs=False)
+    try:
+        protected, raw_spans = engine.detect_raw(text)
+        resolved_spans = engine.detect(text)
+
+        assert protected.original == text
+        assert weak in raw_spans
+        assert weak not in resolved_spans
     finally:
         engine.close()

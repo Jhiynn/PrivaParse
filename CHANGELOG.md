@@ -47,6 +47,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The engine sits on the detection pass, and the gateway stops answering the
+  same document off two assemblies. `detect` and `detect_many` are one line
+  each onto `engine.detection_pass(...)` — the accessor that builds a pass from
+  the engine's settings and either its own lazily-loaded detector or an
+  injected one — and **both now accept an injected detector**. Only the batch
+  form did before, which is why the gateway could put its caching detector in
+  front of a request carrying several text nodes but not in front of one
+  carrying a single node: nothing pinned the two answers together. Injecting a
+  detector still never triggers the model load. That the single-text and
+  batched answers agree is now pinned by a test rather than left to
+  construction, and so is the gateway seam. `detect_raw` keeps its meaning —
+  masked text plus *unresolved* candidate spans — for the evaluation harness,
+  delegating to the pass's expensive half until #42 retires it. No behaviour
+  change (#40).
 - The detection pass has a module. Masking, the detector, the threshold,
   merging and the coreference sweep — "text in, final spans out" — were written
   longhand at four call sites, each re-deriving the same four settings, and no

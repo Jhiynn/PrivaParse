@@ -25,6 +25,7 @@ from privaparse.database.cipher import IdentityCipher, ValueCipher
 from privaparse.database.repository import Database, VaultRepository
 
 if TYPE_CHECKING:  # pragma: no cover
+    from privaparse.parser.detection_pass import DetectionPass
     from privaparse.parser.detector import Detector
     from privaparse.parser.markdown import ProtectedText
     from privaparse.parser.pseudonymizer import BatchResult, PseudonymizationResult
@@ -96,60 +97,58 @@ class PrivaParseEngine:
 
     # --- pipeline ----------------------------------------------------------
 
-    def detect(self, text: str) -> list[Span]:
+    def detection_pass(self, *, detector: Detector | None = None) -> DetectionPass:
+        """The detection pass this engine's settings describe.
+
+        The composition root for detection: everything below reads its four
+        values from :attr:`settings` exactly here, and every detection method
+        on this class is one line onto the pass it returns.
+
+        ``detector`` overrides the engine's own for this pass -- the injection
+        the gateway uses to put a caching wrapper in front of detection
+        without owning the detector itself. The default is read lazily, so a
+        caller that passes one never triggers the model load.
+        """
+        from privaparse.parser.detection_pass import DetectionPass
+
+        return DetectionPass.from_settings(
+            self.settings, detector if detector is not None else self.detector
+        )
+
+    def detect(self, text: str, *, detector: Detector | None = None) -> list[Span]:
         """Detected entities, after masking, merging and the coreference sweep.
+
+        Literally :meth:`detect_many` over a one-element sequence, one pass
+        underneath: a caller asking about one text and a caller asking about
+        several must never be answered off different assemblies (issue #9).
 
         Read-only: nothing is written to the vault.
         """
-        from privaparse.parser.markdown import protect
-        from privaparse.parser.merge import resolve_spans
-
-        protected = protect(text, scan_code=self.settings.scan_code)
-        raw = self.detector.detect(protected.view)
-        return resolve_spans(
-            protected,
-            raw,
-            threshold=self.settings.threshold,
-            sweep=self.settings.coreference_sweep,
-            catalogue=self.settings.catalogue,
-        )
+        return self.detection_pass(detector=detector).run(text)
 
     def detect_raw(self, text: str) -> tuple[ProtectedText, list[Span]]:
-        """Masked text plus unfiltered detector output.
+        """Masked text plus **unresolved** candidate spans.
 
-        The threshold sweep needs the model's scores before merging drops
-        anything, so one expensive pass can produce every point on the curve.
+        The pass's expensive half: the threshold sweep needs the model's
+        scores before merging drops anything, so one pass over a document can
+        produce every point on the curve.
         """
-        from privaparse.parser.markdown import protect
-
-        protected = protect(text, scan_code=self.settings.scan_code)
-        return protected, self.detector.detect(protected.view)
+        return self.detection_pass().scan(text)
 
     def detect_many(
         self, texts: Sequence[str], *, detector: Detector | None = None
     ) -> list[list[Span]]:
-        """Detected entities for several texts, through the same pipeline
+        """Detected entities for several texts, through the same pass
         :meth:`detect` runs -- masking, threshold, merging and the
         coreference sweep -- batched so the model call can batch too.
 
-        ``detector`` overrides the engine's own for this call, the same
-        injection :meth:`pseudonymize_batch` accepts: the gateway puts a
-        caching wrapper in front of detection without owning the detector
-        itself.
-
         Read-only: nothing is written to the vault. This is deliberately the
-        same pipeline ``pseudonymize_batch`` runs before it resolves anything
+        same pass ``pseudonymize_batch`` runs before it resolves anything
         against the vault, so a caller using this as a pre-flight check sees
         exactly what pseudonymisation would remove -- not the detector's
         unfiltered guesses.
         """
-        from privaparse.parser.pseudonymizer import detect_many as _detect_many
-
-        return _detect_many(
-            texts,
-            detector=detector if detector is not None else self.detector,
-            settings=self.settings,
-        )
+        return self.detection_pass(detector=detector).run_batch(texts)
 
     def pseudonymize(
         self, text: str, *, source_name: str | None = None

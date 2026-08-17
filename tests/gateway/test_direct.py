@@ -30,6 +30,28 @@ def test_detect_mirrors_the_singular_form(direct_client):
     assert body["detections"][0]["type"] == "EMAIL"
 
 
+def test_detect_answers_one_text_and_several_off_one_assembly(direct_client):
+    """Issue #9: the gateway must not answer the same document two ways.
+
+    The gateway owns a caching detector and injects it, so the assembly a
+    request comes off is observable from outside — the detection cache counts
+    what it served. A singular request that went through some *other* detector
+    would leave nothing behind for the plural one to hit, so the hit here is
+    what says both forms run through the one injected detector.
+    """
+    text = "Schreiben Sie an max@test.de"
+
+    singular = direct_client.post("/privaparse/detect", json={"text": text})
+    plural = direct_client.post("/privaparse/detect", json={"texts": [text, "nichts hier"]})
+
+    assert singular.json()["detections"] == plural.json()["detections"][0]
+
+    cache = direct_client.get("/privaparse/stats").json()["cache"]
+    # One lookup per distinct text: the singular request missed and cached it,
+    # the plural request hit that entry and missed only on its second text.
+    assert (cache["hits"], cache["misses"]) == (1, 2)
+
+
 def test_detect_rejects_a_body_that_is_not_an_object(direct_client):
     response = direct_client.post("/privaparse/detect", json=["max@test.de"])
     assert response.status_code == 400
