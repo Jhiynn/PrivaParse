@@ -180,7 +180,7 @@ def test_engine_detect_many_applies_the_threshold_unlike_the_raw_detector(settin
     single-text-pipeline entry point rather than the raw one.
     """
     from privaparse.engine import PrivaParseEngine
-    from privaparse.parser.detector import StaticDetector
+    from privaparse.parser.detector import StaticDetector, detect_batch
 
     text = "Vielleicht Max Mustermann, vielleicht nicht."
     start = text.index("Max Mustermann")
@@ -197,7 +197,7 @@ def test_engine_detect_many_applies_the_threshold_unlike_the_raw_detector(settin
     static = StaticDetector([weak])
     engine = PrivaParseEngine(settings, detector=static, configure_logs=False)
     try:
-        raw = static.detect_many([text])
+        raw = detect_batch(static, [text])
         resolved = engine.detect_many([text])
 
         assert weak in raw[0]

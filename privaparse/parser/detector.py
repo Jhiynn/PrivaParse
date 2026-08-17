@@ -40,6 +40,7 @@ __all__ = [
     "RegexDetector",
     "StaticDetector",
     "build_default_detector",
+    "detect_batch",
     "is_plausible_phone",
     "is_valid_email",
     "is_valid_phone",
@@ -102,13 +103,34 @@ def is_plausible_phone(text: str, region: str = "DE") -> bool:
 
 @runtime_checkable
 class Detector(Protocol):
-    """Finds entity spans in text. Offsets refer to the text as given."""
+    """Proposes candidate spans in text. Offsets refer to the text as given.
+
+    Structural on purpose: a detector satisfies this by having ``detect`` and
+    inheriting from nothing, which is what lets hand-written fakes in the tests
+    and the gateway's wrapper stand in for the real thing.
+
+    A batch form is deliberately not declared here. Only the detectors where
+    batching actually pays define ``detect_many``; everything else has just this
+    one method, and :func:`detect_batch` is what reconciles the two.
+    """
 
     def detect(self, text: str) -> list[Span]: ...
 
-    def detect_many(self, texts: Sequence[str]) -> list[list[Span]]:
-        """Detect over several texts. Overridden where batching actually pays."""
-        return [self.detect(text) for text in texts]
+
+def detect_batch(detector: Detector, texts: Sequence[str]) -> list[list[Span]]:
+    """Candidate spans for each of ``texts``, batched where that is real.
+
+    The one place in the codebase that decides between batching and looping.
+    ``Detector`` is a structural Protocol, so nothing inherits a batch form:
+    a detector either defines ``detect_many`` because submitting every text at
+    once is cheaper — the GLiNER2 detector, the gateway's caching wrapper — or
+    it does not, and looping over ``detect`` is exactly what batching would
+    have done anyway.
+    """
+    batch = getattr(detector, "detect_many", None)
+    if batch is not None:
+        return batch(texts)
+    return [detector.detect(text) for text in texts]
 
 
 class RegexDetector:
@@ -148,9 +170,6 @@ class RegexDetector:
                 )
         return spans
 
-    def detect_many(self, texts: Sequence[str]) -> list[list[Span]]:
-        return [self.detect(text) for text in texts]
-
 
 class CompositeDetector:
     """Runs several detectors and concatenates their spans.
@@ -172,12 +191,7 @@ class CompositeDetector:
     def detect_many(self, texts: Sequence[str]) -> list[list[Span]]:
         per_text: list[list[Span]] = [[] for _ in texts]
         for detector in self.detectors:
-            # Detector is a structural Protocol; nothing inherits its
-            # detect_many default. GlinerDetector, and every hand-written test
-            # fake, only ever defined detect — so the method may not exist.
-            batch = getattr(detector, "detect_many", None)
-            results = batch(texts) if batch else [detector.detect(t) for t in texts]
-            for index, spans in enumerate(results):
+            for index, spans in enumerate(detect_batch(detector, texts)):
                 per_text[index].extend(spans)
         return per_text
 
@@ -190,9 +204,6 @@ class StaticDetector:
 
     def detect(self, text: str) -> list[Span]:
         return [s for s in self.spans if s.end <= len(text)]
-
-    def detect_many(self, texts: Sequence[str]) -> list[list[Span]]:
-        return [self.detect(text) for text in texts]
 
 
 def build_default_detector(

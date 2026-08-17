@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 from privaparse.app.logging import get_logger
 from privaparse.database.placeholder import contains_placeholder
 from privaparse.database.repository import VaultRepository
-from privaparse.parser.detector import Detector
+from privaparse.parser.detector import Detector, detect_batch
 from privaparse.parser.entity_resolver import (
     EntityResolver,
     EntityUsage,
@@ -108,7 +108,7 @@ def detect_many(
     nothing is written.
     """
     protected = [protect(text, scan_code=settings.scan_code) for text in texts]
-    raw = detector.detect_many([p.view for p in protected])
+    raw = detect_batch(detector, [p.view for p in protected])
     return [
         resolve_spans(
             protected[index],
