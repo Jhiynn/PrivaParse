@@ -10,15 +10,14 @@ from typing import TYPE_CHECKING
 from privaparse.app.logging import get_logger
 from privaparse.database.placeholder import contains_placeholder
 from privaparse.database.repository import VaultRepository
-from privaparse.parser.detector import Detector, detect_batch
+from privaparse.parser.detection_pass import DetectionPass
+from privaparse.parser.detector import Detector
 from privaparse.parser.entity_resolver import (
     EntityResolver,
     EntityUsage,
     ResolvedSpan,
     UnknownEntityTypeError,
 )
-from privaparse.parser.markdown import protect
-from privaparse.parser.merge import resolve_spans
 from privaparse.parser.types import Span
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -99,26 +98,17 @@ def detect_many(
     detector: Detector,
     settings: Settings,
 ) -> list[list[Span]]:
-    """Detect across several texts, run through the full pipeline: masking,
-    threshold, merge and the coreference sweep.
+    """The detection pass over several texts: masking, the detector, the
+    threshold, merging and the coreference sweep.
 
     This is exactly the detection step ``pseudonymize_batch`` runs before it
-    ever touches the vault -- extracted here so there is one code path for
-    "what would this pipeline find", not two that can drift apart. Read-only:
-    nothing is written.
+    ever touches the vault -- so there is one code path for "what would this
+    pass find", not two that can drift apart. Read-only: nothing is written.
+
+    The order itself lives in :class:`DetectionPass`; this keeps its signature
+    for the callers that already have a ``Settings`` and a detector in hand.
     """
-    protected = [protect(text, scan_code=settings.scan_code) for text in texts]
-    raw = detect_batch(detector, [p.view for p in protected])
-    return [
-        resolve_spans(
-            protected[index],
-            raw[index],
-            threshold=settings.threshold,
-            sweep=settings.coreference_sweep,
-            catalogue=settings.catalogue,
-        )
-        for index in range(len(texts))
-    ]
+    return DetectionPass.from_settings(settings, detector).run_batch(texts)
 
 
 def pseudonymize_text(
