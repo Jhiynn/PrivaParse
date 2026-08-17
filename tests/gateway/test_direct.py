@@ -30,6 +30,33 @@ def test_detect_mirrors_the_singular_form(direct_client):
     assert body["detections"][0]["type"] == "EMAIL"
 
 
+def test_detect_answers_one_text_and_several_off_one_assembly(direct_client):
+    """Issue #9: the gateway must not answer the same document two ways.
+
+    The route reaches one engine method with one injected detector today, so
+    this passes as written — that is the point. Nothing said it had to, and
+    the engine's own signatures used to make the singular form the awkward
+    one: `detect` took no detector, leaving `detect_many` as the only door a
+    caching detector fit through. Both doors take one now, so the next hand to
+    route the singular form through `engine.detect` has this to fail against.
+
+    Observable from outside because the gateway owns the detection cache and
+    it counts what it served: a singular request answered by some *other*
+    detector would leave nothing behind for the plural one to hit.
+    """
+    text = "Schreiben Sie an max@test.de"
+
+    singular = direct_client.post("/privaparse/detect", json={"text": text})
+    plural = direct_client.post("/privaparse/detect", json={"texts": [text, "nichts hier"]})
+
+    assert singular.json()["detections"] == plural.json()["detections"][0]
+
+    cache = direct_client.get("/privaparse/stats").json()["cache"]
+    # One lookup per distinct text: the singular request missed and cached it,
+    # the plural request hit that entry and missed only on its second text.
+    assert (cache["hits"], cache["misses"]) == (1, 2)
+
+
 def test_detect_rejects_a_body_that_is_not_an_object(direct_client):
     response = direct_client.post("/privaparse/detect", json=["max@test.de"])
     assert response.status_code == 400

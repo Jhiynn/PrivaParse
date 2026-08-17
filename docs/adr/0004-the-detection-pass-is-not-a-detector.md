@@ -1,10 +1,14 @@
 # The detection pass is not a detector
 
 **Status:** accepted, partly implemented — `DetectionPass` exists as of #39,
-with the pseudonymizer's batched detection delegating to it; the callers named
-under *Consequences* move onto it in #40. Unlike ADRs 0001–0003, this one was
-written ahead of the code, so read the consequences as what the change commits
-to rather than as what is there today.
+and the engine sits on it as of #40: `engine.detect` and `engine.detect_many`
+are one-line delegations to `engine.detection_pass(...)` and both accept an
+injected detector. The evaluation harness is what is left. `detect_raw`,
+`_ReplayDetector`, `SupportsDetect` and `SupportsDetectRaw` are still there and
+go when the threshold sweep moves onto the pass (#41, #42) — read what the last
+two paragraphs under *Consequences* say about the harness as what those tickets
+commit to rather than as what is there today. Unlike ADRs 0001–0003, this one
+was written ahead of the code.
 
 "Text in, final spans out" — `protect` → `detector.detect(view)` → `resolve_spans`
 — was written longhand at four call sites, each re-deriving the same four

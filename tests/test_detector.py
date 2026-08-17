@@ -131,6 +131,17 @@ def test_composite_detect_many_matches_detect_called_separately():
     assert batched == [detector.detect(text_a), detector.detect(text_b)]
 
 
+def test_the_shared_fake_detector_batches_the_same_way_it_detects(fake_detector):
+    """The same claim as above, but for the composite the rest of the suite
+    actually runs on -- the model half replaced by a known-name matcher, the
+    regex half real. Every pipeline test that compares a batched result with a
+    single-text one rests on this fixture batching faithfully.
+    """
+    texts = ["Erika Musterfrau schrieb.", "Antwort an max@test.de.", "nichts hier"]
+
+    assert fake_detector.detect_many(texts) == [fake_detector.detect(text) for text in texts]
+
+
 # --- the GLiNER2-absent guard -----------------------------------------------
 
 
