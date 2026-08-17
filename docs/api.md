@@ -189,9 +189,8 @@ CVV, a secret — which are recognised and left standing (listing one is not a
 claim about which mapping issued it: nothing records that); `foreign` lists
 placeholders that belong to a different mapping and were left standing;
 `unknown` lists placeholders no mapping in this vault ever issued. `recovered`
-counts
-placeholders resolved through fuzzy matching — this route never sets that,
-so it is always `0` here; fuzzy restoration is a gateway-only knob
+counts placeholders resolved through fuzzy matching — this route never sets
+that, so it is always `0` here; fuzzy restoration is a gateway-only knob
 (`PRIVAPARSE_GATEWAY_FUZZY`), not something this endpoint exposes.
 
 Partial coverage — a text mixing placeholders from two mappings, with no
@@ -227,8 +226,8 @@ carrying the engine's own message, `type: "invalid_request_error"`:
 ```
 
 `strict` raises only for genuinely foreign placeholders. An irreversible one is
-not a leak and not someone else's — it is accepted and reported, and a run whose
-only leftovers are irreversible counts as clean.
+not a leak and not someone else's — it is accepted and reported, and a document
+whose only leftovers are irreversible counts as clean.
 
 ## GET /privaparse/catalogue
 

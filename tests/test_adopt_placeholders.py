@@ -107,21 +107,14 @@ def test_a_placeholder_the_vault_never_issued_is_left_alone(
     assert result.texts[0] == "Antwort an [[PERSON_ZZ9]]"
 
 
-def test_an_irreversible_placeholder_is_left_alone(repo, settings, fake_detector):
+def test_an_irreversible_placeholder_is_left_alone(engine):
     """There is nothing to adopt: the vault knows the entity but stored no
     surface form for it, so no mapping can ever be given one to restore."""
-    first = pseudonymize_text(
-        "Zahlung mit Karte 4111 1111 1111 1111",
-        detector=fake_detector, repo=repo, settings=settings,
-    )
-    card = first.placeholders[0]
+    first = engine.pseudonymize("Zahlung mit Karte 4111 1111 1111 1111", source_name="k.md")
+    card = first.spans[0].placeholder
 
-    second = pseudonymize_batch(
-        [first.text],
-        detector=fake_detector, repo=repo, settings=settings,
-        adopt_placeholders=True,
-    )
-    restored = reverse_text(second.mapping_id, f"Antwort zu {card}", repo=repo)
+    second = engine.pseudonymize_batch([first.text], adopt_placeholders=True)
+    restored = engine.reverse(second.mapping_id, f"Antwort zu {card}")
 
     assert second.texts[0] == first.text
     assert restored.irreversible == [card]

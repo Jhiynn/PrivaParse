@@ -124,12 +124,25 @@ def test_an_irreversible_placeholder_is_recognised_not_attributed(
     assert result.restored == 0
 
 
-def test_a_run_with_only_irreversible_leftovers_is_clean(
+def test_a_document_with_only_irreversible_leftovers_is_clean(
     engine: PrivaParseEngine, card_document
 ) -> None:
     """`is_clean` means "nothing here surprised me", and this does not."""
     result = engine.reverse(card_document.mapping_id, card_document.text)
     assert result.is_clean
+
+
+def test_an_invented_placeholder_beside_an_irreversible_one_is_still_unknown(
+    engine: PrivaParseEngine, card_document
+) -> None:
+    """The irreversible question is asked first, so it is the one that could
+    swallow a placeholder the vault never issued. It must not."""
+    text = f"{card_document.text}\n\nGrüße an [[PERSON_ZZ9]]."
+
+    result = engine.reverse(card_document.mapping_id, text)
+
+    assert result.unknown == ["[[PERSON_ZZ9]]"]
+    assert result.irreversible == [card_document.spans[0].placeholder]
 
 
 def test_strict_mode_does_not_raise_on_an_irreversible_placeholder(

@@ -16,8 +16,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a document in perfect order. Reversal now has a fourth outcome —
   **`irreversible`**, listed on the result beside `restored`, `recovered`,
   `foreign` and `unknown`, and serialised by `/privaparse/reverse`. Such a
-  placeholder is recognised and left standing, `is_clean` stays true for a run
-  whose only leftovers are irreversible, and `strict` does not raise on it —
+  placeholder is recognised and left standing, `is_clean` stays true for a
+  document whose only leftovers are irreversible, and `strict` does not raise
+  on it —
   while still raising on a placeholder genuinely issued to another mapping.
   The answer is read from the vault (no stored surface form ⇒ no way home),
   never from the catalogue's `reversible` flag, so editing or disabling a type
