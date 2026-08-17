@@ -1,14 +1,16 @@
 # The detection pass is not a detector
 
 **Status:** accepted, partly implemented — `DetectionPass` exists as of #39,
-and the engine sits on it as of #40: `engine.detect` and `engine.detect_many`
-are one-line delegations to `engine.detection_pass(...)` and both accept an
-injected detector. The evaluation harness is what is left. `detect_raw`,
-`_ReplayDetector`, `SupportsDetect` and `SupportsDetectRaw` are still there and
-go when the threshold sweep moves onto the pass (#41, #42) — read what the last
-two paragraphs under *Consequences* say about the harness as what those tickets
-commit to rather than as what is there today. Unlike ADRs 0001–0003, this one
-was written ahead of the code.
+the engine sits on it as of #40 (`engine.detect` and `engine.detect_many` are
+one-line delegations to `engine.detection_pass(...)` and both accept an injected
+detector), and as of #41 `evaluate` takes precomputed spans per document:
+`_ReplayDetector` and `SupportsDetect` are gone, and the benchmark and the CLI
+score the pass the engine hands them. `detect_raw` and `SupportsDetectRaw` are
+what is left, and go when the threshold sweep moves onto the pass (#42). The
+*Consequences* section below still bundles `SupportsDetectRaw` into the same
+sentence as the two names #41 deleted; read that half — `detect_raw` and
+`SupportsDetectRaw` — as what #42 commits to rather than as what is there
+today. Unlike ADRs 0001–0003, this one was written ahead of the code.
 
 "Text in, final spans out" — `protect` → `detector.detect(view)` → `resolve_spans`
 — was written longhand at four call sites, each re-deriving the same four

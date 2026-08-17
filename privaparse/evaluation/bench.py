@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 
 from privaparse.app.logging import get_logger
 from privaparse.engine import PrivaParseEngine
-from privaparse.evaluation.harness import GoldDocument, evaluate
+from privaparse.evaluation.harness import GoldDocument, detect_for_scoring, evaluate
 
 log = get_logger("bench")
 
@@ -130,7 +130,18 @@ def run_bench(
     # Sampled at the end of the timed section, while the GPU is still hot.
     result.throttle_warning = _throttle_check(engine)
 
-    quality = evaluate(engine, documents, label=label, catalogue=engine.settings.catalogue)
+    # A second pass over the corpus, outside the timed section — the same cost
+    # this function always paid, back when it handed the whole engine to
+    # `evaluate` and let the scorer pull. Batched, unlike the timed loop above:
+    # this row's quality figures have to reflect the batch size the row is
+    # measuring, or the matrix cannot see a batch that costs recall. The timing
+    # stays per document because that is what `engine.detect` costs a caller.
+    quality = evaluate(
+        detect_for_scoring(engine.detection_pass(), documents, batched=True),
+        documents,
+        label=label,
+        catalogue=engine.settings.catalogue,
+    )
     result.person_precision = quality.partial["PERSON"].precision
     result.person_recall = quality.partial["PERSON"].recall
     result.email_recall = quality.partial["EMAIL"].recall

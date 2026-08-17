@@ -57,6 +57,58 @@ def test_bench_measures_latency_and_quality_in_one_pass(settings) -> None:
     assert result.status == "ok"
 
 
+class _BatchRecordingDetector:
+    """Records how many texts each detection call was handed.
+
+    Structural, inheriting from nothing, like every other detector fake here:
+    ``Detector`` is a Protocol, and ``detect_batch`` prefers ``detect_many``
+    where a detector defines one, so every call the pass makes lands in
+    ``batch_sizes`` — one entry of 1 per single-document detection, one entry
+    of N for a batch of N.
+    """
+
+    def __init__(self, spans: list[Span]) -> None:
+        self._spans = spans
+        self.batch_sizes: list[int] = []
+
+    def detect(self, text: str) -> list[Span]:
+        return list(self._spans)
+
+    def detect_many(self, texts) -> list[list[Span]]:
+        self.batch_sizes.append(len(texts))
+        return [self.detect(text) for text in texts]
+
+
+def test_the_quality_pass_detects_the_corpus_in_one_batch(settings) -> None:
+    """The benchmark's quality column has to see the batching its own matrix
+    measures. `DEFAULT_MATRIX` runs batch sizes 1, 8 and 16 as separate rows,
+    and this module opens by saying aggressive batching can cost recall — but
+    if the gold set is scored one document at a time, batch size cannot move
+    the quality figures at all and those rows are identical by construction.
+    So the scoring detection goes through the pass's batch form: one call
+    carrying every document, which a detector that batches actually batches.
+
+    The timed section above it still detects one document at a time — that is
+    what `engine.detect` measures — so this asserts a single call carrying the
+    whole corpus rather than the absence of small ones.
+    """
+    from privaparse.engine import PrivaParseEngine
+
+    text = "Max Mustermann kam."
+    detector = _BatchRecordingDetector(
+        [Span(0, 14, text[0:14], EntityType.PERSON, 0.99, SOURCE_GLINER)]
+    )
+    documents = _documents()
+    engine = PrivaParseEngine(settings, detector=detector, configure_logs=False)
+    try:
+        run_bench(engine, documents, label="stub", repeats=2, warmup_docs=1)
+    finally:
+        engine.close()
+
+    assert detector.batch_sizes.count(len(documents)) == 1
+    assert detector.batch_sizes[-1] == len(documents)  # the quality pass, last
+
+
 def test_a_fast_but_inaccurate_configuration_is_marked_failed() -> None:
     """Speed bought with recall is a disclosure with a better benchmark."""
     fast_and_wrong = _result("fast", recall=0.40, precision=0.99, p50=5.0)

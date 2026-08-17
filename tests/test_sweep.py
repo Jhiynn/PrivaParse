@@ -107,11 +107,11 @@ def test_format_sweep_produces_one_row_per_threshold():
 
 def test_sweep_scores_each_document_against_its_own_detection():
     """Extra coverage, added after the fact: the three tests above all sweep a single document, so
-    none of them ever advances the replay past its first entry. This drives
-    two documents with different text and different gold entities through one
-    sweep, so a positional off-by-one (the wrong document's spans compared
-    against this document's gold) would show up as a wrong count here instead
-    of passing silently."""
+    none of them ever gets past the first entry of the sweep's scanned list.
+    This drives two documents with different text and different gold entities
+    through one sweep, so a positional off-by-one (the wrong document's spans
+    compared against this document's gold) would show up as a wrong count here
+    instead of passing silently."""
     from privaparse.evaluation.harness import GoldEntity
     from privaparse.parser.types import SOURCE_GLINER, Span
 
@@ -138,8 +138,8 @@ def test_sweep_re_merges_instead_of_filtering_a_cached_merge():
     """Pins the sweep's central claim: every point on the curve is a real
     re-merge of the raw spans, not a score filter over one cached merge.
     Every other test in this file uses a single, non-competing span, so none
-    of them would fail if `_ReplayDetector` were "simplified" into merging
-    once and filtering the cached result by score instead — that anti-pattern
+    of them would fail if the sweep were "simplified" into merging once and
+    filtering the cached result by score instead — that anti-pattern
     is invisible unless two spans of different types actually compete for an
     overlap at one threshold and stop competing at another.
 
@@ -181,10 +181,10 @@ class _CallOrderSensitiveEngine:
     """Returns a different span list on each successive call, even for
     identical text. Legal under `SupportsDetectRaw`, which promises nothing
     about purity — it only requires `detect_raw(text) -> (ProtectedText,
-    list[Span])`. Exists to prove `_ReplayDetector`'s cache is genuinely
-    positional rather than incidentally so: a cache keyed by text cannot
-    tell two calls for the same text apart and would let the second
-    overwrite the first before either document's own `detect()` runs."""
+    list[Span])`. Exists to prove the sweep keeps each document's scan
+    genuinely positional rather than incidentally so: anything keyed by text
+    cannot tell two scans of the same text apart and would let the second
+    stand in for the first."""
 
     def __init__(self, spans_by_call):
         self.spans_by_call = list(spans_by_call)
@@ -199,8 +199,8 @@ class _CallOrderSensitiveEngine:
         return protect(text), list(spans)
 
 
-def test_replay_is_positional_not_text_keyed():
-    """Pins the replay cache's keying, with the one case that actually tells
+def test_the_sweep_is_positional_not_text_keyed():
+    """Pins how the sweep finds a document's scan, with the one case that tells
     positional and text-keyed caching apart: two documents sharing identical
     text, whose own `detect_raw()` calls return *different* results. The
     first document's call finds the name; the second's call — same text, a
