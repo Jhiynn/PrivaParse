@@ -227,6 +227,25 @@ def test_reverse_with_an_unknown_mapping_exits_with_an_error(workspace: Path) ->
     assert result.exit_code == 1
 
 
+def test_reverse_names_an_irreversible_placeholder_for_what_it_is(workspace: Path) -> None:
+    """It used to be reported as issued to another document, which read as a
+    contamination incident on a perfectly correct round trip."""
+    source = workspace / "karte.md"
+    source.write_text("Zahlung mit Karte 4111 1111 1111 1111.", encoding="utf-8")
+    forward = _run(workspace, "pseudonymize", str(source))
+    mapping = forward.stdout.split("mapping id")[1].split()[0]
+
+    # Named explicitly: looking the mapping up from a document whose only
+    # placeholder is irreversible is a separate piece of work (#54).
+    result = _run(
+        workspace, "reverse", str(workspace / "karte.pseudo.md"), "--mapping", mapping
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "never restorable" in result.output
+    assert "another document" not in result.output
+
+
 def test_scan_code_flag_reaches_the_pipeline(workspace: Path) -> None:
     protected = _run(workspace, "detect", str(workspace / "mit_code.md"), "--json")
     scanned = _run(workspace, "--scan-code", "detect", str(workspace / "mit_code.md"), "--json")

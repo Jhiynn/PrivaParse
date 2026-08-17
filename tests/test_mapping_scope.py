@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import pytest
 
+from privaparse.app.config import Settings
 from privaparse.engine import PrivaParseEngine
 from privaparse.parser.reverse_mapper import (
     ForeignPlaceholderError,
@@ -86,6 +87,125 @@ def test_strict_mode_tolerates_invented_placeholders(
     doc_a, _ = two_documents
     result = engine.reverse(doc_a.mapping_id, "Grüße an [[PERSON_ZZ9]].", strict=True)
     assert result.unknown == ["[[PERSON_ZZ9]]"]
+
+
+# --- irreversible placeholders ---------------------------------------------
+
+#: The card backstop finds this, and CARD is irreversible in the default
+#: catalogue: nothing readable about it is ever written to the vault.
+CARD_TEXT = "Zahlung mit Karte 4111 1111 1111 1111 am Montag."
+
+CARD_MADE_REVERSIBLE = """
+version: 1
+placeholder_types:
+  CARD:
+    reversible: true
+"""
+
+
+@pytest.fixture()
+def card_document(engine: PrivaParseEngine):
+    return engine.pseudonymize(CARD_TEXT, source_name="karte.md")
+
+
+def test_an_irreversible_placeholder_is_recognised_not_attributed(
+    engine: PrivaParseEngine, card_document
+) -> None:
+    """Its own document issued it, but no mapping entry records that — so the
+    outcome says "no way home", not "someone else's"."""
+    card = card_document.spans[0].placeholder
+
+    result = engine.reverse(card_document.mapping_id, card_document.text)
+
+    assert result.irreversible == [card]
+    assert result.foreign == []
+    assert result.unknown == []
+    assert card in result.text
+    assert result.restored == 0
+
+
+def test_a_document_with_only_irreversible_leftovers_is_clean(
+    engine: PrivaParseEngine, card_document
+) -> None:
+    """`is_clean` means "nothing here surprised me", and this does not."""
+    result = engine.reverse(card_document.mapping_id, card_document.text)
+    assert result.is_clean
+
+
+def test_an_invented_placeholder_beside_an_irreversible_one_is_still_unknown(
+    engine: PrivaParseEngine, card_document
+) -> None:
+    """The irreversible question is asked first, so it is the one that could
+    swallow a placeholder the vault never issued. It must not."""
+    text = f"{card_document.text}\n\nGrüße an [[PERSON_ZZ9]]."
+
+    result = engine.reverse(card_document.mapping_id, text)
+
+    assert result.unknown == ["[[PERSON_ZZ9]]"]
+    assert result.irreversible == [card_document.spans[0].placeholder]
+
+
+def test_strict_mode_does_not_raise_on_an_irreversible_placeholder(
+    engine: PrivaParseEngine, card_document
+) -> None:
+    result = engine.reverse(card_document.mapping_id, card_document.text, strict=True)
+    assert result.irreversible == [card_document.spans[0].placeholder]
+
+
+def test_strict_mode_still_raises_beside_an_irreversible_placeholder(
+    engine: PrivaParseEngine, two_documents, card_document
+) -> None:
+    """The protection strict mode exists for is untouched: a placeholder
+    genuinely issued to another mapping still aborts the reversal."""
+    _, doc_b = two_documents
+    text = f"{card_document.text}\n\nUnd noch {doc_b.spans[0].placeholder}."
+
+    with pytest.raises(ForeignPlaceholderError):
+        engine.reverse(card_document.mapping_id, text, strict=True)
+
+
+def test_reversible_placeholders_still_restore_beside_an_irreversible_one(
+    engine: PrivaParseEngine,
+) -> None:
+    doc = engine.pseudonymize(f"Max Mustermann zahlt. {CARD_TEXT}", source_name="k.md")
+    card = next(s.placeholder for s in doc.spans if s.span.type == "CARD")
+
+    result = engine.reverse(doc.mapping_id, doc.text)
+
+    assert "Max Mustermann" in result.text
+    assert result.restored == 1
+    assert result.irreversible == [card]
+    assert result.is_clean
+
+
+def test_classification_ignores_the_catalogues_reversible_flag(
+    settings, fake_detector, tmp_path
+) -> None:
+    """A catalogue edit must not re-classify placeholders issued before it.
+
+    The vault holds no surface form for this card and never will, whatever the
+    flag says today — so reversal keeps reporting it as irreversible.
+    """
+    engine = PrivaParseEngine(settings, detector=fake_detector, configure_logs=False)
+    document = engine.pseudonymize(CARD_TEXT, source_name="karte.md")
+    engine.close()
+
+    edited = tmp_path / "privaparse.entities.yaml"
+    edited.write_text(CARD_MADE_REVERSIBLE, encoding="utf-8")
+    after = PrivaParseEngine(
+        Settings(db_path=settings.db_path, device="cpu", catalogue_path=edited),
+        detector=fake_detector,
+        configure_logs=False,
+    )
+    try:
+        assert after.catalogue.get("CARD").reversible
+        result = after.reverse(document.mapping_id, document.text)
+    finally:
+        after.close()
+
+    assert result.irreversible == [document.spans[0].placeholder]
+    assert result.foreign == []
+    assert result.restored == 0
 
 
 def test_unknown_mapping_id_is_rejected(engine: PrivaParseEngine) -> None:

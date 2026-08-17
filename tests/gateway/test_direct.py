@@ -355,6 +355,32 @@ def test_reverse_strict_true_rejects_a_foreign_placeholder_with_400(direct_clien
     assert "another mapping" in error["message"]
 
 
+def test_reverse_reports_an_irreversible_placeholder_and_strict_accepts_it(direct_client):
+    """A card number's placeholder was never restorable by anyone, so it is
+    not a leak and not another mapping's — the caller sees it listed and,
+    under `strict: true`, still gets their document back.
+    """
+    forward = direct_client.post(
+        "/privaparse/pseudonymize",
+        json={"text": "max@test.de zahlt mit 4111 1111 1111 1111"},
+    ).json()
+
+    response = direct_client.post(
+        "/privaparse/reverse",
+        json={
+            "text": forward["texts"],
+            "mapping_id": forward["mapping_id"],
+            "strict": True,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [p.startswith("[[CARD_") for p in body["irreversible"]] == [True]
+    assert body["foreign"] == []
+    assert "max@test.de" in body["text"]
+
+
 # --- mapping_id: "" must be treated as absent -------------------------------
 
 

@@ -134,6 +134,10 @@ def reverse(
 
     typer.echo(f"wrote     {target}")
     typer.echo(f"restored  {result.restored} placeholder(s)")
+    if result.irreversible:
+        typer.echo(
+            f"left in place (never restorable): {', '.join(result.irreversible)}"
+        )
     if result.foreign:
         typer.secho(
             f"left in place (issued to another document): {', '.join(result.foreign)}",

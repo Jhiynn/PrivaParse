@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy import create_engine, event, func, select
+from sqlalchemy import create_engine, event, exists, func, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
@@ -272,6 +272,24 @@ class VaultRepository:
     def placeholder_is_known(self, placeholder: str) -> bool:
         """True if the vault has ever issued this placeholder, to any document."""
         stmt = select(func.count()).select_from(Entity).where(Entity.placeholder == placeholder)
+        return bool(self.session.scalar(stmt))
+
+    def placeholder_is_irreversible(self, placeholder: str) -> bool:
+        """True if this placeholder's entity has no stored surface form.
+
+        Nothing readable was ever written for it, so nothing can restore it —
+        by any mapping, now or later. That is a fact about what is in the vault,
+        not about what the catalogue says today: a type flipped to
+        ``reversible: true`` grows no rows for the placeholders it already
+        issued, so the answer here does not move under a catalogue edit.
+
+        A placeholder the vault never issued is not irreversible, it is
+        unknown: with no entity row the query selects nothing and returns
+        false, leaving that case to :meth:`placeholder_is_known`.
+        """
+        stmt = select(~exists().where(EntityValue.entity_id == Entity.id)).where(
+            Entity.placeholder == placeholder
+        )
         return bool(self.session.scalar(stmt))
 
     # --- diagnostics -------------------------------------------------------
