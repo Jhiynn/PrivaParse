@@ -323,8 +323,10 @@ def evaluate(
 
             engine = _engine_with(settings)
             try:
+                detection = engine.detection_pass()
+                spans = [detection.run(document.text) for document in documents]
                 reports.append(
-                    run_eval(engine, documents, label=label, catalogue=settings.catalogue)
+                    run_eval(spans, documents, label=label, catalogue=settings.catalogue)
                 )
             finally:
                 engine.close()

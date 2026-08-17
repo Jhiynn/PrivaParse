@@ -130,7 +130,12 @@ def run_bench(
     # Sampled at the end of the timed section, while the GPU is still hot.
     result.throttle_warning = _throttle_check(engine)
 
-    quality = evaluate(engine, documents, label=label, catalogue=engine.settings.catalogue)
+    # Detection runs again here rather than being captured during the timed
+    # section: the timings above measure `engine.detect`, and scoring is not
+    # part of what is being timed. One pass, then the scorer.
+    detection = engine.detection_pass()
+    spans = [detection.run(document.text) for document in documents]
+    quality = evaluate(spans, documents, label=label, catalogue=engine.settings.catalogue)
     result.person_precision = quality.partial["PERSON"].precision
     result.person_recall = quality.partial["PERSON"].recall
     result.email_recall = quality.partial["EMAIL"].recall

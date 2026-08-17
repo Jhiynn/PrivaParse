@@ -47,6 +47,26 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The evaluation harness's scorer takes precomputed spans, one list per gold
+  document, instead of anything callable. It was typed as taking a detector and
+  handed three incompatible kinds of object — bare detectors in its own tests,
+  a replay object that was masked and merged but had no model, and the engine
+  itself from the benchmark and the CLI, which is the whole detection pass. The
+  scorer scores; callers detect. Its tests now feed span literals and keep every
+  assertion, the benchmark and the `eval` command score the pass the engine
+  hands them, and the threshold sweep resolves each point's spans itself. That
+  deletes the replay object outright, along with the positional counter and the
+  out-of-sync `RuntimeError` that existed only because scoring pulled rather
+  than being pushed, and the `SupportsDetect` duck type it was pulling through;
+  a span list per document is now the whole invariant, enforced by
+  `zip(strict=True)`. Taking a `DetectionPass` instead was rejected and the
+  reason is in the code: several scorer tests feed span sets a merge would never
+  produce — two overlapping spans of one type asserting a single true positive —
+  so running the inputs through a pass first would delete what the assertion is
+  about (ADR-0004). The sweep keeps its guarantees: one model pass per document,
+  every point on the curve a real re-merge, per-type thresholds still stripped so
+  a type that declares one produces a curve rather than a flat line. Reported
+  precision and recall are unchanged (#41).
 - The engine sits on the detection pass, and its two detection entry points can
   no longer answer the same document differently. `detect` and `detect_many`
   are one line each onto `engine.detection_pass(...)` — the accessor that

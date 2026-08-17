@@ -33,10 +33,6 @@ if TYPE_CHECKING:  # pragma: no cover
 GOLD_PATH = DEFAULT_GOLD_PATH
 
 
-class SupportsDetect(Protocol):
-    def detect(self, text: str) -> list[Span]: ...
-
-
 @dataclass(frozen=True)
 class GoldEntity:
     start: int
@@ -217,21 +213,35 @@ def load_gold(path: Path = GOLD_PATH) -> list[GoldDocument]:
 
 
 def evaluate(
-    detector: SupportsDetect,
+    spans: Sequence[Sequence[Span]],
     documents: Sequence[GoldDocument],
     *,
     label: str = "detector",
     catalogue: Catalogue,
 ) -> EvalReport:
+    """Score already-detected spans against the gold set.
+
+    ``spans`` carries one list per document in ``documents``, positionally —
+    this is a scorer, and detecting is the caller's job. It deliberately takes
+    neither a detector nor a :class:`DetectionPass`: several of this
+    function's own tests feed span sets a merge would never produce (two
+    overlapping spans of one type, asserting a single true positive), so a
+    signature that ran its inputs through a pass first would delete the very
+    thing those tests assert about. See ADR-0004, and
+    ``test_two_predictions_cannot_both_claim_one_gold_entity``.
+
+    ``strict=True`` because a span list per document is the whole invariant
+    once the spans are pushed in rather than pulled: a short or long sequence
+    would score one document's spans against another's gold entities.
+    """
     report = EvalReport(label=label, documents=len(documents), catalogue=catalogue)
     entity_types = [t.name for t in catalogue.enabled]
     for entity_type in entity_types:
         report.exact[entity_type] = Counts()
         report.partial[entity_type] = Counts()
 
-    for document in documents:
-        spans = detector.detect(document.text)
-        predicted = [_as_gold(span) for span in spans]
+    for document, document_spans in zip(documents, spans, strict=True):
+        predicted = [_as_gold(span) for span in document_spans]
         for entity_type in entity_types:
             gold_of_type = [e for e in document.entities if e.type == entity_type]
             pred_of_type = [e for e in predicted if e.type == entity_type]
@@ -429,65 +439,6 @@ class SupportsDetectRaw(Protocol):
     def detect_raw(self, text: str) -> tuple[ProtectedText, list[Span]]: ...
 
 
-class _ReplayDetector:
-    """Serves one document's pre-computed spans per `detect()` call, in the
-    order `sweep_thresholds` built them, so the merge can be redone without
-    the model.
-
-    Positional, not keyed by text. A cache keyed by `text` looks like the
-    obvious choice, since `detect(text)` is all `evaluate()` ever calls it
-    with — but two gold documents can legitimately carry identical text, and
-    a dict keyed by text would let the second document's precomputed spans
-    silently overwrite the first's before either was read back. (The gold set
-    has no such duplicate today — checked directly against `eval/gold/
-    de_gold.jsonl` — but nothing enforces that, and a measurement instrument
-    should not depend on the input happening to stay clean.)
-
-    `evaluate()` visits `documents` in order and calls `detect()` exactly
-    once per document, so a position counter that advances on every call
-    recovers the right entry regardless of whether the text is unique. That
-    only holds because `sweep_thresholds` builds a fresh `_ReplayDetector`
-    per threshold — each one walks `documents` from position zero exactly
-    once, never reused across two passes.
-    """
-
-    def __init__(
-        self,
-        protected: list[ProtectedText],
-        raw: list[list[Span]],
-        *,
-        threshold: float,
-        catalogue: Catalogue | None,
-        sweep: bool,
-    ) -> None:
-        self._protected = protected
-        self._raw = raw
-        self._threshold = threshold
-        self._catalogue = catalogue
-        self._sweep = sweep
-        self._position = 0
-
-    def detect(self, text: str) -> list[Span]:
-        from privaparse.parser.merge import resolve_spans
-
-        index = self._position
-        self._position += 1
-        protected = self._protected[index]
-        if protected.original != text:
-            # Only reachable if evaluate() stopped visiting documents in the
-            # order this replay was built from — the one invariant positional
-            # lookup depends on. Scoring one document's spans against
-            # another's gold entities silently would be worse than refusing.
-            raise RuntimeError("threshold sweep replay is out of sync with the document order")
-        return resolve_spans(
-            protected,
-            self._raw[index],
-            threshold=self._threshold,
-            sweep=self._sweep,
-            catalogue=self._catalogue,
-        )
-
-
 def _without_per_type_thresholds(catalogue: Catalogue) -> Catalogue:
     """The same catalogue, with every type's own ``threshold:`` cleared.
 
@@ -532,22 +483,35 @@ def sweep_thresholds(
     Swept against ``_without_per_type_thresholds(catalogue)``, not
     ``catalogue`` itself — see that function for why a per-type threshold
     left in place would silently flatten that type's own curve.
+
+    Each point re-merges the scanned candidates positionally, one entry per
+    document, and hands the resulting spans to :func:`evaluate`. Position, not
+    text: two gold documents can legitimately carry identical text, and the
+    same text scanned twice is not promised to yield the same candidates, so
+    anything keyed by text would let one document's result stand in for
+    another's.
     """
+    from privaparse.parser.merge import resolve_spans
+
     swept_catalogue = _without_per_type_thresholds(catalogue)
 
-    protected: list[ProtectedText] = []
-    raw: list[list[Span]] = []
-    for document in documents:
-        document_protected, document_raw = engine.detect_raw(document.text)
-        protected.append(document_protected)
-        raw.append(document_raw)
+    scanned: list[tuple[ProtectedText, list[Span]]] = [
+        engine.detect_raw(document.text) for document in documents
+    ]
 
     sweep_enabled = bool(getattr(engine.settings, "coreference_sweep", True))
     return {
         threshold: evaluate(
-            _ReplayDetector(
-                protected, raw, threshold=threshold, catalogue=swept_catalogue, sweep=sweep_enabled
-            ),
+            [
+                resolve_spans(
+                    protected,
+                    candidates,
+                    threshold=threshold,
+                    sweep=sweep_enabled,
+                    catalogue=swept_catalogue,
+                )
+                for protected, candidates in scanned
+            ],
             documents,
             label=f"t={threshold:.2f}",
             catalogue=swept_catalogue,
