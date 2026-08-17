@@ -28,6 +28,7 @@ from privaparse.parser.types import Span
 
 if TYPE_CHECKING:  # pragma: no cover
     from privaparse.app.catalogue import Catalogue
+    from privaparse.parser.detection_pass import DetectionPass
     from privaparse.parser.markdown import ProtectedText
 
 GOLD_PATH = DEFAULT_GOLD_PATH
@@ -266,6 +267,28 @@ def evaluate(
                     report.false_negatives.append(_mistake(document, entity))
 
     return report
+
+
+def detect_for_scoring(
+    detection: DetectionPass, documents: Sequence[GoldDocument]
+) -> list[list[Span]]:
+    """What to hand :func:`evaluate`: each document's spans, one document at a
+    time.
+
+    Deliberately not :meth:`DetectionPass.run_batch`, which would be faster.
+    Batching is a variable this project *measures*, not one to apply silently
+    on the way to a score: it is what the harness reports on, and both callers
+    here reported these figures unbatched when they still handed ``evaluate``
+    the engine itself. Scoring one document at a time keeps every published
+    number comparable with the ones already in `docs/benchmarks/`.
+
+    That leaves a real gap, named here rather than quietly closed: bench.py's
+    own preamble says aggressive batching can cost recall, yet the quality
+    column it scores beside its batch-size rows is computed unbatched, so it
+    cannot currently see that. Making it see it changes what the number means
+    and is a measurement decision, not a refactor — out of scope for #41.
+    """
+    return [detection.run(document.text) for document in documents]
 
 
 def _score(

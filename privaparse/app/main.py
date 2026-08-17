@@ -283,8 +283,8 @@ def evaluate(
 ) -> None:
     """Score detection against the German gold set and decide the fine-tuning question."""
     from privaparse.evaluation import DEFAULT_REPORT_DIR
+    from privaparse.evaluation.harness import detect_for_scoring, format_report, load_gold
     from privaparse.evaluation.harness import evaluate as run_eval
-    from privaparse.evaluation.harness import format_report, load_gold
 
     base = load_settings(**ctx.obj[_OVERRIDES])
     documents = _run(lambda: load_gold(gold or _default_gold()))
@@ -323,10 +323,13 @@ def evaluate(
 
             engine = _engine_with(settings)
             try:
-                detection = engine.detection_pass()
-                spans = [detection.run(document.text) for document in documents]
                 reports.append(
-                    run_eval(spans, documents, label=label, catalogue=settings.catalogue)
+                    run_eval(
+                        detect_for_scoring(engine.detection_pass(), documents),
+                        documents,
+                        label=label,
+                        catalogue=settings.catalogue,
+                    )
                 )
             finally:
                 engine.close()
