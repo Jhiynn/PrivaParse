@@ -1,16 +1,17 @@
 # The detection pass is not a detector
 
-**Status:** accepted, partly implemented — `DetectionPass` exists as of #39,
-the engine sits on it as of #40 (`engine.detect` and `engine.detect_many` are
-one-line delegations to `engine.detection_pass(...)` and both accept an injected
-detector), and as of #41 `evaluate` takes precomputed spans per document:
-`_ReplayDetector` and `SupportsDetect` are gone, and the benchmark and the CLI
-score the pass the engine hands them. `detect_raw` and `SupportsDetectRaw` are
-what is left, and go when the threshold sweep moves onto the pass (#42). The
-*Consequences* section below still bundles `SupportsDetectRaw` into the same
-sentence as the two names #41 deleted; read that half — `detect_raw` and
-`SupportsDetectRaw` — as what #42 commits to rather than as what is there
-today. Unlike ADRs 0001–0003, this one was written ahead of the code.
+**Status:** accepted, implemented — `DetectionPass` exists as of #39, the engine
+sits on it as of #40 (`engine.detect` and `engine.detect_many` are one-line
+delegations to `engine.detection_pass(...)` and both accept an injected
+detector), as of #41 `evaluate` takes precomputed spans per document
+(`_ReplayDetector` and `SupportsDetect` gone, the benchmark and the CLI scoring
+the pass the engine hands them), and as of #42 the threshold sweep runs on the
+pass, taking `detect_raw` and `SupportsDetectRaw` with it. The *Consequences*
+section below therefore describes the code as it stands, with one factual
+correction marked in place: this ADR claimed the gateway's single-text and batch
+answers came off different assemblies, and they never did — only the engine-side
+asymmetry that claim was inferred from was real. Unlike ADRs 0001–0003, this one
+was written ahead of the code, which is how that got in.
 
 "Text in, final spans out" — `protect` → `detector.detect(view)` → `resolve_spans`
 — was written longhand at four call sites, each re-deriving the same four
@@ -88,8 +89,14 @@ existed almost entirely to justify a positional counter and an out-of-sync
 `RuntimeError`, both artefacts of `evaluate` pulling rather than being pushed —
 is deleted along with `SupportsDetect` and `SupportsDetectRaw`.
 `engine.detect` and `engine.detect_many` remain as one-line delegations and both
-now accept an injected detector; previously only the batch form did, so the
-gateway's single-text and batch answers came off different assemblies.
+now accept an injected detector; previously only the batch form did, which is
+why `detect_many` was the only door a caching detector fit through and why the
+CLI and the module-level `detect` could not be handed one at all. This clause
+first read that the gateway's single-text and batch answers came off different
+assemblies; that was never true — `gateway/direct.py` normalises a single text
+node into a one-element list and has always called `detect_many` with its
+caching detector — and it is corrected here rather than left standing (found
+while implementing #40, corrected in #42).
 
 After this, the only caller of `resolve_spans` and `merge_spans` is the pass,
 which always holds a real `ProtectedText` and a real `Catalogue`. Their
