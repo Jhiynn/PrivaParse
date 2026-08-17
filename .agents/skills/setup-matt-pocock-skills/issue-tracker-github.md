@@ -13,6 +13,19 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 
 Infer the repo from `git remote -v` — `gh` does this automatically when run inside a clone.
 
+### Parent and child
+
+Whenever a skill publishes child issues under something — `/to-tickets` under a spec, `/wayfinder` under a map — record **both** edges natively. They mean different things and neither implies the other: sub-issue is *belongs to*, dependency is *gated by*. A skill saying "blocking / sub-issue relationship" means both where the tracker has both, not either.
+
+- **Parent**: `gh api --method POST repos/<owner>/<repo>/issues/<parent>/sub_issues -F sub_issue_id=<child-db-id>`
+- **Blocker**: `gh api --method POST repos/<owner>/<repo>/issues/<child>/dependencies/blocked_by -F issue_id=<blocker-db-id>`
+
+Both endpoints take the target's numeric **database id**, never the `#number` and never the `node_id`. Fetch one with `gh api repos/<owner>/<repo>/issues/<n> --jq .id`; fetch many in one call with a GraphQL query aliasing `issue(number:N){databaseId}` per issue.
+
+Verify after wiring: `subIssues` on the parent, and `issueDependenciesSummary { blockedBy }` on each child — the count should equal the number of blockers you intended.
+
+A `Parent:` or `Blocked by:` line in an issue body is prose, not an edge. Write it if a template asks for it, but it does not substitute for either call above.
+
 ## Pull requests as a triage surface
 
 **PRs as a request surface: no.** _(Set to `yes` if this repo treats external PRs as feature requests; `/triage` reads this flag.)_
