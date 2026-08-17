@@ -4,25 +4,41 @@ import dataclasses
 
 from privaparse.app.catalogue import load_catalogue
 from privaparse.evaluation.harness import GoldDocument, format_sweep, sweep_thresholds
+from privaparse.parser.detection_pass import DetectionPass
 
 
-class CountingEngine:
-    """Records how often the expensive pass runs."""
+class CountingDetector:
+    """Records how often the model is asked about a document.
+
+    A detector, not a stand-in for the pass: the sweep is handed a real
+    :class:`DetectionPass` built over this, so "the model runs once per
+    document" is measured on the assembly the sweep actually drives rather
+    than on an impersonation of it.
+    """
 
     def __init__(self, spans_by_text):
         self.spans_by_text = spans_by_text
         self.calls = 0
-        self.settings = type("S", (), {"scan_code": False, "coreference_sweep": False})()
 
-    def detect_raw(self, text):
-        from privaparse.parser.markdown import protect
-
+    def detect(self, text):
         self.calls += 1
-        return protect(text), list(self.spans_by_text.get(text, []))
+        return list(self.spans_by_text.get(text, []))
 
-    @property
-    def catalogue(self):
-        return load_catalogue()
+
+def _pass(detector):
+    """A pass whose threshold and catalogue the sweep replaces per point.
+
+    ``sweep=False`` is the one value the sweep reads and does not set: it is
+    now a declared field on the pass rather than something read off a settings
+    object that may or may not carry it.
+    """
+    return DetectionPass(
+        detector=detector,
+        threshold=0.5,
+        sweep=False,
+        scan_code=False,
+        catalogue=load_catalogue(),
+    )
 
 
 def _document(text, entities=()):
@@ -33,11 +49,13 @@ def test_sweep_runs_the_model_once_per_document():
     from privaparse.parser.types import SOURCE_GLINER, Span
 
     text = "Max Mustermann schreibt."
-    engine = CountingEngine({text: [Span(0, 14, "Max Mustermann", "PERSON", 0.55, SOURCE_GLINER)]})
+    detector = CountingDetector(
+        {text: [Span(0, 14, "Max Mustermann", "PERSON", 0.55, SOURCE_GLINER)]}
+    )
 
-    sweep_thresholds(engine, [_document(text)], thresholds=(0.3, 0.5, 0.7, 0.9),
+    sweep_thresholds(_pass(detector), [_document(text)], thresholds=(0.3, 0.5, 0.7, 0.9),
                      catalogue=load_catalogue())
-    assert engine.calls == 1
+    assert detector.calls == 1
 
 
 def test_raising_the_threshold_drops_low_scoring_spans():
@@ -46,9 +64,11 @@ def test_raising_the_threshold_drops_low_scoring_spans():
 
     text = "Max Mustermann schreibt."
     gold = [GoldEntity(0, 14, "PERSON", "Max Mustermann")]
-    engine = CountingEngine({text: [Span(0, 14, "Max Mustermann", "PERSON", 0.55, SOURCE_GLINER)]})
+    detector = CountingDetector(
+        {text: [Span(0, 14, "Max Mustermann", "PERSON", 0.55, SOURCE_GLINER)]}
+    )
 
-    results = sweep_thresholds(engine, [_document(text, gold)], thresholds=(0.5, 0.9),
+    results = sweep_thresholds(_pass(detector), [_document(text, gold)], thresholds=(0.5, 0.9),
                                catalogue=load_catalogue())
     assert results[0.5].partial["PERSON"].recall == 1.0
     assert results[0.9].partial["PERSON"].recall == 0.0
@@ -79,7 +99,9 @@ def test_sweep_still_varies_for_a_type_that_declares_its_own_threshold():
 
     text = "Max Mustermann schreibt."
     gold = [GoldEntity(0, 14, "PERSON", "Max Mustermann")]
-    engine = CountingEngine({text: [Span(0, 14, "Max Mustermann", "PERSON", 0.55, SOURCE_GLINER)]})
+    detector = CountingDetector(
+        {text: [Span(0, 14, "Max Mustermann", "PERSON", 0.55, SOURCE_GLINER)]}
+    )
 
     base = load_catalogue()
     strict_person = dataclasses.replace(base.get("PERSON"), threshold=0.6)
@@ -87,7 +109,7 @@ def test_sweep_still_varies_for_a_type_that_declares_its_own_threshold():
     assert catalogue.get("PERSON").threshold == 0.6  # the case this test relies on
 
     results = sweep_thresholds(
-        engine, [_document(text, gold)], thresholds=(0.5, 0.9), catalogue=catalogue
+        _pass(detector), [_document(text, gold)], thresholds=(0.5, 0.9), catalogue=catalogue
     )
     assert results[0.5].partial["PERSON"].recall == 1.0
     assert results[0.9].partial["PERSON"].recall == 0.0
@@ -97,8 +119,10 @@ def test_format_sweep_produces_one_row_per_threshold():
     from privaparse.parser.types import SOURCE_GLINER, Span
 
     text = "Max Mustermann schreibt."
-    engine = CountingEngine({text: [Span(0, 14, "Max Mustermann", "PERSON", 0.55, SOURCE_GLINER)]})
-    results = sweep_thresholds(engine, [_document(text)], thresholds=(0.3, 0.5),
+    detector = CountingDetector(
+        {text: [Span(0, 14, "Max Mustermann", "PERSON", 0.55, SOURCE_GLINER)]}
+    )
+    results = sweep_thresholds(_pass(detector), [_document(text)], thresholds=(0.3, 0.5),
                                catalogue=load_catalogue())
 
     rendered = format_sweep(results)
@@ -121,15 +145,17 @@ def test_sweep_scores_each_document_against_its_own_detection():
     miss = GoldDocument(
         "d2", "notiz", miss_text, (GoldEntity(0, 16, "PERSON", "Erika Musterfrau"),)
     )
-    # miss_text has no entry at all: detect_raw legitimately returns nothing
+    # miss_text has no entry at all: the detector legitimately proposes nothing
     # for it, same as a real document the model found no PII in.
-    engine = CountingEngine(
+    detector = CountingDetector(
         {hit_text: [Span(0, 14, "Max Mustermann", "PERSON", 0.55, SOURCE_GLINER)]}
     )
 
-    results = sweep_thresholds(engine, [hit, miss], thresholds=(0.5,), catalogue=load_catalogue())
+    results = sweep_thresholds(
+        _pass(detector), [hit, miss], thresholds=(0.5,), catalogue=load_catalogue()
+    )
 
-    assert engine.calls == 2
+    assert detector.calls == 2
     assert results[0.5].partial["PERSON"].tp == 1  # hit, matched
     assert results[0.5].partial["PERSON"].fn == 1  # miss, correctly unmatched
 
@@ -167,45 +193,41 @@ def test_sweep_re_merges_instead_of_filtering_a_cached_merge():
         Span(0, person_end, text[:person_end], "PERSON", 0.75, SOURCE_GLINER),
         Span(0, address_end, text[:address_end], "ADDRESS", 0.55, SOURCE_GLINER),
     ]
-    engine = CountingEngine({text: spans})
+    detector = CountingDetector({text: spans})
 
     results = sweep_thresholds(
-        engine, [_document(text, gold)], thresholds=(0.5, 0.6), catalogue=load_catalogue()
+        _pass(detector), [_document(text, gold)], thresholds=(0.5, 0.6), catalogue=load_catalogue()
     )
 
     assert results[0.5].partial["PERSON"].recall == 0.0  # buried by the longer ADDRESS span
     assert results[0.6].partial["PERSON"].recall == 1.0  # ADDRESS now below the floor
 
 
-class _CallOrderSensitiveEngine:
-    """Returns a different span list on each successive call, even for
-    identical text. Legal under `SupportsDetectRaw`, which promises nothing
-    about purity — it only requires `detect_raw(text) -> (ProtectedText,
-    list[Span])`. Exists to prove the sweep keeps each document's scan
-    genuinely positional rather than incidentally so: anything keyed by text
-    cannot tell two scans of the same text apart and would let the second
-    stand in for the first."""
+class _CallOrderSensitiveDetector:
+    """Proposes a different span list on each successive call, even for
+    identical text. Legal under `Detector`, which promises nothing about
+    purity — it only requires `detect(text) -> list[Span]`. Exists to prove
+    the sweep keeps each document's scan genuinely positional rather than
+    incidentally so: anything keyed by text cannot tell two scans of the same
+    text apart and would let the second stand in for the first."""
 
     def __init__(self, spans_by_call):
         self.spans_by_call = list(spans_by_call)
         self.calls = 0
-        self.settings = type("S", (), {"scan_code": False, "coreference_sweep": False})()
 
-    def detect_raw(self, text):
-        from privaparse.parser.markdown import protect
-
+    def detect(self, text):
         spans = self.spans_by_call[self.calls]
         self.calls += 1
-        return protect(text), list(spans)
+        return list(spans)
 
 
 def test_the_sweep_is_positional_not_text_keyed():
     """Pins how the sweep finds a document's scan, with the one case that tells
     positional and text-keyed caching apart: two documents sharing identical
-    text, whose own `detect_raw()` calls return *different* results. The
-    first document's call finds the name; the second's call — same text, a
-    later moment — legally finds nothing (`SupportsDetectRaw` promises
-    nothing about purity between calls).
+    text, whose own detector calls return *different* results. The first
+    document's call finds the name; the second's call — same text, a later
+    moment — legally finds nothing (`Detector` promises nothing about purity
+    between calls).
 
     A cache keyed by text has exactly one slot for this text, so the second
     (empty) result overwrites the first there. Both documents would then
@@ -221,13 +243,13 @@ def test_the_sweep_is_positional_not_text_keyed():
 
     text = "Max Mustermann schreibt."
     span = Span(0, 14, "Max Mustermann", "PERSON", 0.9, SOURCE_GLINER)
-    engine = _CallOrderSensitiveEngine([[span], []])
+    detector = _CallOrderSensitiveDetector([[span], []])
 
     first = GoldDocument("d1", "notiz", text, (GoldEntity(0, 14, "PERSON", "Max Mustermann"),))
     second = GoldDocument("d2", "notiz", text, ())
 
     results = sweep_thresholds(
-        engine, [first, second], thresholds=(0.5,), catalogue=load_catalogue()
+        _pass(detector), [first, second], thresholds=(0.5,), catalogue=load_catalogue()
     )
 
     counts = results[0.5].partial["PERSON"]
