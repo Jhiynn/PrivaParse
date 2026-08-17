@@ -47,6 +47,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The detection pass has a module. Masking, the detector, the threshold,
+  merging and the coreference sweep — "text in, final spans out" — were written
+  longhand at four call sites, each re-deriving the same four settings, and no
+  module owned the order. `DetectionPass` owns it now: a detector plus the four
+  values carried explicitly, built with `from_settings(...)` and varied with
+  `replace(...)`, so a caller wanting one point on a threshold curve asks for a
+  variant instead of assembling a fake. It splits the expensive half (`scan`,
+  masking plus the detector's candidate spans) from the cheap half (`resolve`,
+  what the four values decide), and its single-text entry point is literally
+  its batch entry point over a one-element sequence. It deliberately does
+  **not** satisfy the `Detector` protocol — a detector proposes, the pass
+  decides, and sharing a method name would make it legal to nest a pass inside
+  the composite detector and mask a document twice (ADR-0004, pinned by a
+  test). The pseudonymizer's batched detection keeps its signature and
+  delegates. Every other caller is untouched; no behaviour change (#39).
 - One helper answers "does this detector batch?". The `Detector` protocol
   declared a `detect_many` default body that reached no one — the protocol is
   structural, so nothing inherits it — which left the composite detector

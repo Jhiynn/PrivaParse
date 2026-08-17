@@ -105,6 +105,24 @@ def is_plausible_phone(text: str, region: str = "DE") -> bool:
 class Detector(Protocol):
     """Proposes candidate spans in text. Offsets refer to the text as given.
 
+    **A detector is only ever shown the masked view** -- ``ProtectedText.view``,
+    where code fences, URLs and HTML comments have been blanked out. Masking is
+    length-preserving, so those offsets are also offsets into the original
+    document, and nothing has to remap them. A caller that handed over the raw
+    document would silently start proposing spans inside code fences.
+
+    The invariant is not encoded in the type; it holds by
+    :class:`~privaparse.parser.detection_pass.DetectionPass` being the only
+    caller of a detector, and masking first. That is true within this package
+    today; the callers outside it -- ``PrivaParseEngine``, which still spells
+    the order out longhand, and the eval harness, which hands a detector the
+    *raw* document -- move onto the pass in #40, and until they do the
+    invariant holds there by convention rather than by construction.
+
+    A detector proposes; it does not decide. The threshold, the merge and the
+    coreference sweep belong to the pass, which is why the pass deliberately
+    does not satisfy this protocol -- see ADR 0004.
+
     Structural on purpose: a detector satisfies this by having ``detect`` and
     inheriting from nothing, which is what lets hand-written fakes in the tests
     and the gateway's wrapper stand in for the real thing.

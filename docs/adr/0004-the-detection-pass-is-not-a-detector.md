@@ -1,9 +1,10 @@
 # The detection pass is not a detector
 
-**Status:** accepted, not yet implemented — the shape below is what issue #9
-builds. Unlike ADRs 0001–0003, this one is written ahead of the code, so read
-the consequences as what the change commits to rather than as what is there
-today.
+**Status:** accepted, partly implemented — `DetectionPass` exists as of #39,
+with the pseudonymizer's batched detection delegating to it; the callers named
+under *Consequences* move onto it in #40. Unlike ADRs 0001–0003, this one was
+written ahead of the code, so read the consequences as what the change commits
+to rather than as what is there today.
 
 "Text in, final spans out" — `protect` → `detector.detect(view)` → `resolve_spans`
 — was written longhand at four call sites, each re-deriving the same four
